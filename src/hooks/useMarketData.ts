@@ -14,6 +14,19 @@ import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
 import { runAnalysis, createAnalysisContext, PriceData } from '@/lib/analysis';
 import { supabase } from '@/integrations/supabase/client';
 
+// Portfolio holding type
+export interface PortfolioHolding {
+  id: string;
+  user_id: string;
+  symbol_id: string;
+  quantity: number;
+  purchase_price: number;
+  purchase_date: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Convert price history to analysis format
 const convertToAnalysisPriceData = (history: PriceHistoryPoint[]): PriceData[] => {
   return history.map(h => ({
@@ -302,6 +315,93 @@ export const useAddSymbol = () => {
       // Invalidate symbols to refresh the list
       queryClient.invalidateQueries({ queryKey: ['symbols'] });
       queryClient.invalidateQueries({ queryKey: ['rankedAssets'] });
+    },
+  });
+};
+
+// Portfolio hooks
+export const usePortfolio = () => {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['portfolio', user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      
+      const { data, error } = await supabase
+        .from('portfolio_holdings')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching portfolio:', error);
+        throw error;
+      }
+
+      return data as PortfolioHolding[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useAddHolding = () => {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (data: { 
+      symbolId: string; 
+      quantity: number; 
+      purchasePrice: number; 
+      purchaseDate: string; 
+      notes?: string 
+    }) => {
+      if (!user) throw new Error('Must be logged in');
+
+      const { data: holding, error } = await supabase
+        .from('portfolio_holdings')
+        .insert({
+          user_id: user.id,
+          symbol_id: data.symbolId,
+          quantity: data.quantity,
+          purchase_price: data.purchasePrice,
+          purchase_date: data.purchaseDate,
+          notes: data.notes || null,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error adding holding:', error);
+        throw error;
+      }
+
+      return holding;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+    },
+  });
+};
+
+export const useDeleteHolding = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('portfolio_holdings')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error deleting holding:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
     },
   });
 };

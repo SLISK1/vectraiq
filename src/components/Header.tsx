@@ -1,4 +1,4 @@
-import { TrendingUp, BarChart3, Star, Settings, Menu, User, LogOut } from 'lucide-react';
+import { TrendingUp, BarChart3, Star, Settings, Menu, User, LogOut, Briefcase } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -8,13 +8,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AuthModal } from './AuthModal';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'watchlist' | 'stats' | 'settings';
-  onTabChange: (tab: 'dashboard' | 'watchlist' | 'stats' | 'settings') => void;
+  activeTab: 'dashboard' | 'watchlist' | 'portfolio' | 'stats' | 'settings';
+  onTabChange: (tab: 'dashboard' | 'watchlist' | 'portfolio' | 'stats' | 'settings') => void;
 }
 
 const tabs = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: TrendingUp },
   { id: 'watchlist' as const, label: 'Watchlist', icon: Star },
+  { id: 'portfolio' as const, label: 'Portfolio', icon: Briefcase },
   { id: 'stats' as const, label: 'Statistik', icon: BarChart3 },
   { id: 'settings' as const, label: 'Inställningar', icon: Settings },
 ];
