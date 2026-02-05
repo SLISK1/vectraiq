@@ -15,13 +15,11 @@ const CRYPTO_IDS: Record<string, string> = {
 const SWEDISH_STOCKS = ['VOLVO-B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
   'SAND', 'HEXA-B', 'INVE-B', 'SWED-A', 'ESSITY-B', 'SKF-B', 'TELIA', 'KINV-B', 'ELUX-B'];
 
+// US stocks 
+const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ'];
+
 // Metal symbols
 const METALS = ['XAU', 'XAG', 'XPT', 'XPD'];
-
-// Alpha Vantage metal mapping
-const ALPHA_METALS: Record<string, string> = {
-  'XAU': 'XAU', 'XAG': 'XAG', 'XPT': 'XPT', 'XPD': 'XPD',
-};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -131,10 +129,45 @@ Deno.serve(async (req) => {
         }
       }
     } else {
-      console.log('FINNHUB_API_KEY not configured, skipping stocks');
+      console.log('FINNHUB_API_KEY not configured, skipping Swedish stocks');
     }
 
-    // 3. Fetch metals from Alpha Vantage
+    // 3. Fetch US stocks from Finnhub (free tier supports US stocks)
+    if (FINNHUB_API_KEY) {
+      const usStockSymbols = symbols.filter(s => US_STOCKS.includes(s.ticker));
+      console.log(`Fetching ${usStockSymbols.length} US stocks from Finnhub`);
+      
+      for (const s of usStockSymbols) {
+        try {
+          const res = await fetch(
+            `https://finnhub.io/api/v1/quote?symbol=${s.ticker}&token=${FINNHUB_API_KEY}`
+          );
+          
+          if (res.ok) {
+            const data = await res.json();
+            if (data.c && data.c > 0) {
+              priceRecords.push({
+                symbol_id: s.id,
+                price: data.c,
+                change_24h: data.d || 0,
+                change_percent_24h: data.dp || 0,
+                high_price: data.h,
+                low_price: data.l,
+                open_price: data.o,
+                volume: 0,
+                source: 'finnhub',
+              });
+            }
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (e) {
+          console.error(`Finnhub error for ${s.ticker}:`, e);
+          errors.push(`Finnhub ${s.ticker}: ${e}`);
+        }
+      }
+    }
+
+    // 4. Fetch metals from Alpha Vantage
     if (ALPHA_VANTAGE_API_KEY) {
       const metalSymbols = symbols.filter(s => METALS.includes(s.ticker));
       console.log(`Fetching ${metalSymbols.length} metals from Alpha Vantage`);
