@@ -12,7 +12,7 @@ const CRYPTO_IDS: Record<string, string> = {
 };
 
 // Swedish stocks mapped to Finnhub format
-const SWEDISH_STOCKS = ['VOLVO-B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
+const SWEDISH_STOCKS = ['VOLV_B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
   'SAND', 'HEXA-B', 'INVE-B', 'SWED-A', 'ESSITY-B', 'SKF-B', 'TELIA', 'KINV-B', 'ELUX-B'];
 
 // US stocks 

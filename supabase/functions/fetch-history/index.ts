@@ -12,7 +12,7 @@ const CRYPTO_IDS: Record<string, string> = {
 };
 
 // Swedish stocks
-const SWEDISH_STOCKS = ['VOLVO-B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
+const SWEDISH_STOCKS = ['VOLV_B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
   'SAND', 'HEXA-B', 'INVE-B', 'SWED-A', 'ESSITY-B', 'SKF-B', 'TELIA', 'KINV-B', 'ELUX-B'];
 
 // US stocks (fetch via Yahoo Finance - no API key needed)
@@ -132,7 +132,8 @@ Deno.serve(async (req) => {
     
     for (const symbol of stockSymbols) {
       try {
-        const yahooSymbol = `${symbol.ticker}.ST`;
+        // Yahoo Finance format: replace underscore with dash for Swedish stocks
+        const yahooSymbol = `${symbol.ticker.replace('_', '-')}.ST`;
         const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
         const period2 = Math.floor(Date.now() / 1000);
         
