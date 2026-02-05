@@ -107,39 +107,51 @@ const transformToRankedAsset = async (
   };
 };
 
-// Fetch all price history for symbols
+// Fetch all price history for symbols (handles pagination to avoid 1000 row limit)
 const fetchAllPriceHistory = async (symbolIds: string[], days: number = 60): Promise<Map<string, PriceData[]>> => {
   const cache = new Map<string, PriceData[]>();
   
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
+  const startDateStr = startDate.toISOString().split('T')[0];
   
-  const { data, error } = await supabase
-    .from('price_history')
-    .select('symbol_id, date, open_price, high_price, low_price, close_price, volume')
-    .in('symbol_id', symbolIds)
-    .gte('date', startDate.toISOString().split('T')[0])
-    .order('date', { ascending: true });
+  console.log(`Fetching price history for ${symbolIds.length} symbols, from ${startDateStr}`);
   
-  if (error) {
-    console.error('Error fetching price history:', error);
-    return cache;
+  // Fetch in batches to avoid row limits - batch by symbol groups
+  const batchSize = 10; // Process 10 symbols at a time
+  
+  for (let i = 0; i < symbolIds.length; i += batchSize) {
+    const batchIds = symbolIds.slice(i, i + batchSize);
+    
+    const { data, error } = await supabase
+      .from('price_history')
+      .select('symbol_id, date, open_price, high_price, low_price, close_price, volume')
+      .in('symbol_id', batchIds)
+      .gte('date', startDateStr)
+      .order('date', { ascending: true });
+    
+    if (error) {
+      console.error(`Error fetching price history batch ${i}:`, error);
+      continue;
+    }
+    
+    // Group by symbol_id
+    for (const row of data || []) {
+      const existing = cache.get(row.symbol_id) || [];
+      existing.push({
+        price: Number(row.close_price),
+        open: Number(row.open_price),
+        high: Number(row.high_price),
+        low: Number(row.low_price),
+        close: Number(row.close_price),
+        volume: row.volume ? Number(row.volume) : 0,
+        timestamp: row.date,
+      });
+      cache.set(row.symbol_id, existing);
+    }
   }
   
-  // Group by symbol_id
-  for (const row of data || []) {
-    const existing = cache.get(row.symbol_id) || [];
-    existing.push({
-      price: Number(row.close_price),
-      open: Number(row.open_price),
-      high: Number(row.high_price),
-      low: Number(row.low_price),
-      close: Number(row.close_price),
-      volume: row.volume ? Number(row.volume) : 0,
-      timestamp: row.date,
-    });
-    cache.set(row.symbol_id, existing);
-  }
+  console.log(`Price history cache has ${cache.size} unique symbols with data`);
   
   return cache;
 };

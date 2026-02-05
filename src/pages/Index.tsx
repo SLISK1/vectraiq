@@ -177,13 +177,15 @@ const Index = () => {
 
   // Filter assets by market cap
   const filteredTopUp = useMemo(() => {
+    if (!topUp) return [];
     if (selectedMarketCap === 'all') return topUp;
-    return topUp?.filter(a => a.marketCapCategory === selectedMarketCap) || [];
+    return topUp.filter(a => a.marketCapCategory === selectedMarketCap);
   }, [topUp, selectedMarketCap]);
 
   const filteredTopDown = useMemo(() => {
+    if (!topDown) return [];
     if (selectedMarketCap === 'all') return topDown;
-    return topDown?.filter(a => a.marketCapCategory === selectedMarketCap) || [];
+    return topDown.filter(a => a.marketCapCategory === selectedMarketCap);
   }, [topDown, selectedMarketCap]);
 
   return (
