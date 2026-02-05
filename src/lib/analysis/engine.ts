@@ -1,6 +1,6 @@
 // Analysis Engine - Coordinates all analysis modules
 
-import { Direction, Horizon, ModuleSignal, ConfidenceBreakdown, Evidence, DEFAULT_WEIGHTS, HorizonWeights } from '@/types/market';
+import { Direction, Horizon, ModuleSignal, ConfidenceBreakdown, Evidence, DEFAULT_WEIGHTS, HorizonWeights, TrendPrediction } from '@/types/market';
 import { AnalysisResult, PriceData, AnalysisContext } from './types';
 import { analyzeTechnical } from './technical';
 import { analyzeQuant } from './quant';
@@ -12,6 +12,7 @@ import { analyzeOrderFlow } from './orderflow';
 import { analyzeElliottWave } from './elliottwave';
 import { analyzeSentimentSync } from './sentiment';
 import { analyzeMLSync } from './ml';
+import { calculateTrendPrediction } from './trendPrediction';
 
 export interface PredictedReturns {
   day1: number;
@@ -29,6 +30,7 @@ export interface FullAnalysis {
   topContributors: { module: string; contribution: number }[];
   lastUpdated: string;
   predictedReturns: PredictedReturns;
+  trendPrediction: TrendPrediction;
   aiSummary: string;
 }
 
@@ -252,6 +254,19 @@ export const runAnalysis = (
   const topModuleNames = topContributors.slice(0, 2).map(c => c.module);
   const aiSummary = generateAISummary(ticker, direction, confidence, topModuleNames, signals);
   
+  // Calculate trend prediction with stop/loss
+  const volatilitySignal = signals.find(s => s.module === 'volatility');
+  const volatilityScore = volatilitySignal?.strength || 50;
+  
+  const trendPrediction = calculateTrendPrediction({
+    priceHistory,
+    currentPrice,
+    direction,
+    confidence,
+    horizon,
+    volatilityScore,
+  });
+  
   return {
     signals,
     totalScore: Math.max(0, Math.min(100, normalizedScore)),
@@ -261,6 +276,7 @@ export const runAnalysis = (
     topContributors,
     lastUpdated: new Date().toISOString(),
     predictedReturns,
+    trendPrediction,
     aiSummary,
   };
 };
