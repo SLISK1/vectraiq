@@ -12,6 +12,7 @@ import { AuthModal } from '@/components/AuthModal';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS } from '@/types/market';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols } from '@/hooks/useMarketData';
+import { usePriceRealtime } from '@/hooks/usePriceRealtime';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Star, History, BarChart3, Loader2 } from 'lucide-react';
@@ -24,6 +25,9 @@ const Index = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Enable realtime price updates
+  usePriceRealtime();
 
   // Data hooks
   const { data: topUp, isLoading: loadingUp } = useRankedAssets(selectedHorizon, 'UP');
