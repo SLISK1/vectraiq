@@ -2,7 +2,7 @@ export type Horizon = '1s' | '1m' | '1h' | '1d' | '1w' | '1mo' | '1y';
 
 export type Direction = 'UP' | 'DOWN' | 'NEUTRAL';
 
-export type AssetType = 'stock' | 'crypto' | 'metal';
+export type AssetType = 'stock' | 'crypto' | 'metal' | 'fund';
 
 export interface ModuleSignal {
   module: string;

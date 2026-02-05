@@ -10,7 +10,8 @@ import { AssetDetailModal } from '@/components/AssetDetailModal';
 import { AddToWatchlistModal } from '@/components/AddToWatchlistModal';
 import { AuthModal } from '@/components/AuthModal';
 import { MarketCapFilter } from '@/components/MarketCapFilter';
-import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory } from '@/types/market';
+import { SearchAssets } from '@/components/SearchAssets';
+import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols } from '@/hooks/useMarketData';
 import { usePriceRealtime } from '@/hooks/usePriceRealtime';
@@ -126,6 +127,54 @@ const Index = () => {
   const completedWatchlist = transformedWatchlist.filter(w => !!w.resultLockedAt);
   const isLoading = loadingUp || loadingDown;
 
+  // Transform symbols for search
+  const searchableAssets = useMemo(() => {
+    return (symbols || []).map(s => ({
+      id: s.id,
+      ticker: s.ticker,
+      name: s.name,
+      type: (s.asset_type || 'stock') as AssetType,
+      price: s.latestPrice ? Number(s.latestPrice.price) : undefined,
+      changePercent: s.latestPrice ? Number(s.latestPrice.change_percent_24h || 0) : undefined,
+      currency: s.currency,
+    }));
+  }, [symbols]);
+
+  // Handle search selection - find in ranked assets or create basic view
+  const handleSearchSelect = useCallback((asset: { id: string; ticker: string; name: string; type: AssetType; price?: number; changePercent?: number; currency?: string }) => {
+    // Try to find in ranked assets first
+    const rankedAsset = [...(topUp || []), ...(topDown || [])].find(a => a.ticker === asset.ticker);
+    if (rankedAsset) {
+      setSelectedAsset(rankedAsset);
+    } else {
+      // Create a basic RankedAsset for viewing
+      const symbol = symbols?.find(s => s.ticker === asset.ticker);
+      if (symbol) {
+        const basicAsset: RankedAsset = {
+          ticker: symbol.ticker,
+          name: symbol.name,
+          type: (symbol.asset_type || 'stock') as AssetType,
+          sector: symbol.sector || undefined,
+          exchange: symbol.exchange || undefined,
+          currency: symbol.currency || 'SEK',
+          lastPrice: asset.price || 0,
+          change24h: 0,
+          changePercent24h: asset.changePercent || 0,
+          volume24h: 0,
+          totalScore: 50,
+          direction: 'NEUTRAL',
+          confidence: 30,
+          confidenceBreakdown: { freshness: 50, coverage: 30, agreement: 50, reliability: 50, regimeRisk: 50 },
+          signals: [],
+          topContributors: [],
+          horizon: selectedHorizon,
+          lastUpdated: new Date().toISOString(),
+        };
+        setSelectedAsset(basicAsset);
+      }
+    }
+  }, [topUp, topDown, symbols, selectedHorizon]);
+
   // Filter assets by market cap
   const filteredTopUp = useMemo(() => {
     if (selectedMarketCap === 'all') return topUp;
@@ -147,6 +196,16 @@ const Index = () => {
           <>
             {/* Reality Check */}
             <RealityCheck />
+
+            {/* Search */}
+            <div className="glass-card rounded-xl p-4">
+              <h2 className="text-sm font-medium text-muted-foreground mb-3">Sök tillgång</h2>
+              <SearchAssets 
+                assets={searchableAssets} 
+                onSelect={handleSearchSelect}
+                placeholder="Sök aktie, fond, krypto eller metall..."
+              />
+            </div>
 
             {/* Filters */}
             <div className="glass-card rounded-xl p-4 space-y-4">
