@@ -140,7 +140,7 @@ export const analyzeSentiment = async (
   };
 };
 
-// Synchronous version for compatibility (uses cached/estimated values)
+// Synchronous version - returns limited analysis since AI is async
 export const analyzeSentimentSync = (
   ticker: string,
   name: string,
@@ -149,59 +149,34 @@ export const analyzeSentimentSync = (
 ): AnalysisResult => {
   const evidence: Evidence[] = [];
   
-  // Use basic estimation without AI
+  // Cannot do AI sentiment synchronously - indicate data limitation
   evidence.push({
-    type: 'estimation',
-    description: 'Bassentiment-estimering',
-    value: 'Utan AI-analys',
+    type: 'limitation',
+    description: 'Sentimentanalys kräver AI-anrop',
+    value: 'Realtidssentiment ej tillgängligt',
     timestamp: new Date().toISOString(),
     source: 'System',
   });
   
-  let direction: Direction = 'NEUTRAL';
-  let strength = 50;
+  evidence.push({
+    type: 'info',
+    description: 'Datakällor som krävs',
+    value: 'Nyheter, sociala medier, analytikerbetyg',
+    timestamp: new Date().toISOString(),
+    source: 'Sentiment Module',
+  });
   
-  // Asset-type specific sentiment biases
-  if (assetType === 'crypto') {
-    strength = 55; // Slightly bullish crypto sentiment
-    direction = 'UP';
-    evidence.push({
-      type: 'market_sentiment',
-      description: 'Kryptomarknaden generellt positiv',
-      value: 'Baserat på marknadstrend',
-      timestamp: new Date().toISOString(),
-      source: 'Market Conditions',
-    });
-  } else if (assetType === 'metal') {
-    strength = 52;
-    direction = 'NEUTRAL';
-    evidence.push({
-      type: 'market_sentiment',
-      description: 'Ädelmetaller som safe-haven',
-      value: 'Neutral till positiv',
-      timestamp: new Date().toISOString(),
-      source: 'Market Conditions',
-    });
-  } else {
-    // Swedish stocks
-    strength = 50;
-    direction = 'NEUTRAL';
-    evidence.push({
-      type: 'market_sentiment',
-      description: 'Stockholmsbörsen neutral',
-      value: 'Avvaktande marknadsläge',
-      timestamp: new Date().toISOString(),
-      source: 'Market Conditions',
-    });
-  }
-  
+  // Return neutral with low confidence - no mock data
   return {
     module: 'sentiment',
-    direction,
-    strength,
-    confidence: 30,
-    coverage: 15,
+    direction: 'NEUTRAL',
+    strength: 50,
+    confidence: 15, // Very low - no real data
+    coverage: 5, // Minimal coverage
     evidence,
-    metadata: { source: 'sync_estimation' },
+    metadata: { 
+      source: 'no_data',
+      reason: 'Synchronous call - AI sentiment not available',
+    },
   };
 };

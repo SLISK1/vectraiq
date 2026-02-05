@@ -1,122 +1,72 @@
 // Fundamental Analysis Module
-// Stub implementation - requires external financial data API
+// Note: Full fundamental analysis requires external financial data API integration
 
 import { AnalysisResult, PriceData, FundamentalMetrics } from './types';
 import { Direction, Horizon, Evidence } from '@/types/market';
 
-// Simulated fundamental data based on asset type and price trends
-const estimateFundamentals = (
-  priceHistory: PriceData[],
-  assetType: 'stock' | 'crypto' | 'metal',
-  ticker: string
-): FundamentalMetrics => {
-  // For crypto and metals, fundamental metrics are different
-  if (assetType === 'crypto') {
-    return {
-      // Crypto doesn't have traditional P/E, use network value metrics
-      marketCap: undefined,
-    };
+// Calculate basic metrics from price history only
+const calculatePriceBasedMetrics = (
+  priceHistory: PriceData[]
+): { momentum: number; volatility: number; trend: Direction } => {
+  if (priceHistory.length < 10) {
+    return { momentum: 0, volatility: 0, trend: 'NEUTRAL' };
   }
   
-  if (assetType === 'metal') {
-    return {
-      // Metals use supply/demand dynamics
-      marketCap: undefined,
-    };
+  // Calculate price change over different periods
+  const currentPrice = priceHistory[priceHistory.length - 1].price;
+  const weekAgoIdx = Math.max(0, priceHistory.length - 5);
+  const monthAgoIdx = Math.max(0, priceHistory.length - 22);
+  
+  const weekChange = (currentPrice - priceHistory[weekAgoIdx].price) / priceHistory[weekAgoIdx].price;
+  const monthChange = (currentPrice - priceHistory[monthAgoIdx].price) / priceHistory[monthAgoIdx].price;
+  
+  // Calculate volatility from price changes
+  const returns: number[] = [];
+  for (let i = 1; i < priceHistory.length; i++) {
+    returns.push((priceHistory[i].price - priceHistory[i - 1].price) / priceHistory[i - 1].price);
   }
   
-  // For stocks, estimate based on Swedish market averages
-  const swedenMarketAveragePE = 18;
-  const currentPrice = priceHistory[priceHistory.length - 1]?.price ?? 100;
+  const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+  const volatility = Math.sqrt(variance) * Math.sqrt(252) * 100; // Annualized
   
-  // Sector-based estimates
-  const sectorPE: Record<string, number> = {
-    'VOLVO-B': 12,
-    'ERIC-B': 15,
-    'SEB-A': 10,
-    'ASSA-B': 22,
-    'HEXA-B': 25,
-    'ATCO-A': 18,
-    'SAND': 14,
-    'ABB': 20,
-    'SWED-A': 9,
-    'HM-B': 16,
-    'INVE-B': 14,
-    'ALFA': 18,
-    'ESSITY-B': 16,
-    'TEL2-B': 12,
-    'SCA-B': 15,
-  };
+  // Determine trend from momentum
+  const momentum = (weekChange + monthChange * 0.5) * 100;
+  const trend: Direction = momentum > 5 ? 'UP' : momentum < -5 ? 'DOWN' : 'NEUTRAL';
   
-  return {
-    peRatio: sectorPE[ticker] ?? swedenMarketAveragePE,
-    pbRatio: 1.5 + Math.random() * 2, // Typical range
-    debtToEquity: 0.3 + Math.random() * 1.2,
-    roe: 8 + Math.random() * 20,
-    revenueGrowth: -5 + Math.random() * 20,
-    earningsGrowth: -10 + Math.random() * 30,
-    dividendYield: 1 + Math.random() * 5,
-  };
+  return { momentum, volatility, trend };
 };
 
-// Analyze fundamental metrics
-const analyzeFundamentalMetrics = (metrics: FundamentalMetrics): {
+// Analyze price-based indicators as proxy for fundamentals
+const analyzePriceMetrics = (momentum: number, volatility: number): {
   score: number;
   signals: string[];
 } => {
   let score = 0;
   const signals: string[] = [];
   
-  // P/E Analysis
-  if (metrics.peRatio !== undefined) {
-    if (metrics.peRatio < 12) {
-      score += 2;
-      signals.push(`Lågt P/E (${metrics.peRatio.toFixed(1)}) - potentiellt undervärderad`);
-    } else if (metrics.peRatio > 30) {
-      score -= 2;
-      signals.push(`Högt P/E (${metrics.peRatio.toFixed(1)}) - potentiellt övervärderad`);
-    }
+  // Momentum Analysis
+  if (momentum > 10) {
+    score += 2;
+    signals.push(`Stark momentum (${momentum.toFixed(1)}%)`);
+  } else if (momentum > 5) {
+    score += 1;
+    signals.push(`Positiv momentum (${momentum.toFixed(1)}%)`);
+  } else if (momentum < -10) {
+    score -= 2;
+    signals.push(`Negativ momentum (${momentum.toFixed(1)}%)`);
+  } else if (momentum < -5) {
+    score -= 1;
+    signals.push(`Svag momentum (${momentum.toFixed(1)}%)`);
   }
   
-  // ROE Analysis
-  if (metrics.roe !== undefined) {
-    if (metrics.roe > 15) {
-      score += 1;
-      signals.push(`Stark ROE (${metrics.roe.toFixed(1)}%)`);
-    } else if (metrics.roe < 5) {
-      score -= 1;
-      signals.push(`Svag ROE (${metrics.roe.toFixed(1)}%)`);
-    }
-  }
-  
-  // Debt Analysis
-  if (metrics.debtToEquity !== undefined) {
-    if (metrics.debtToEquity < 0.5) {
-      score += 1;
-      signals.push(`Låg skuldsättning (D/E: ${metrics.debtToEquity.toFixed(2)})`);
-    } else if (metrics.debtToEquity > 2) {
-      score -= 1;
-      signals.push(`Hög skuldsättning (D/E: ${metrics.debtToEquity.toFixed(2)})`);
-    }
-  }
-  
-  // Growth Analysis
-  if (metrics.earningsGrowth !== undefined) {
-    if (metrics.earningsGrowth > 15) {
-      score += 2;
-      signals.push(`Stark vinsttillväxt (${metrics.earningsGrowth.toFixed(1)}%)`);
-    } else if (metrics.earningsGrowth < 0) {
-      score -= 1;
-      signals.push(`Negativ vinsttillväxt (${metrics.earningsGrowth.toFixed(1)}%)`);
-    }
-  }
-  
-  // Dividend Analysis
-  if (metrics.dividendYield !== undefined) {
-    if (metrics.dividendYield > 4) {
-      score += 1;
-      signals.push(`Hög direktavkastning (${metrics.dividendYield.toFixed(1)}%)`);
-    }
+  // Volatility Analysis
+  if (volatility < 15) {
+    score += 1;
+    signals.push(`Låg volatilitet (${volatility.toFixed(1)}%)`);
+  } else if (volatility > 40) {
+    score -= 1;
+    signals.push(`Hög volatilitet (${volatility.toFixed(1)}%)`);
   }
   
   return { score, signals };
@@ -142,99 +92,65 @@ export const analyzeFundamental = (
     evidence.push({
       type: 'limitation',
       description: 'Krypto saknar traditionella fundamenta',
-      value: 'Använder on-chain metrics och network value istället',
+      value: 'Analys baserad på prisdata endast',
       timestamp: new Date().toISOString(),
-      source: 'Asset Type',
+      source: 'Prishistorik',
     });
-    
-    return {
-      module: 'fundamental',
-      direction: 'NEUTRAL',
-      strength: 50,
-      confidence: 30,
-      coverage: 20, // Limited data
-      evidence,
-      metadata: { assetType, reason: 'Crypto lacks traditional fundamentals' },
-    };
-  }
-  
-  if (assetType === 'metal') {
+  } else if (assetType === 'metal') {
     evidence.push({
       type: 'limitation',
       description: 'Råvaror värderas efter utbud/efterfrågan',
-      value: 'Fundamentala nyckeltal ej tillämpbara',
+      value: 'Analys baserad på prisdata endast',
       timestamp: new Date().toISOString(),
-      source: 'Asset Type',
+      source: 'Prishistorik',
     });
-    
-    return {
-      module: 'fundamental',
-      direction: 'NEUTRAL',
-      strength: 50,
-      confidence: 30,
-      coverage: 20,
-      evidence,
-      metadata: { assetType, reason: 'Commodities use supply/demand dynamics' },
-    };
+  } else {
+    evidence.push({
+      type: 'limitation',
+      description: 'Fundamentaldata saknas',
+      value: 'P/E, ROE, etc. kräver extern datakälla',
+      timestamp: new Date().toISOString(),
+      source: 'System',
+    });
   }
   
-  // Estimate fundamentals for stocks
-  const metrics = estimateFundamentals(priceHistory, assetType, ticker);
-  const { score, signals } = analyzeFundamentalMetrics(metrics);
+  // Calculate metrics from price data
+  const { momentum, volatility, trend } = calculatePriceBasedMetrics(priceHistory);
+  const { score, signals } = analyzePriceMetrics(momentum, volatility);
   
-  // Add evidence from analysis
-  signals.forEach((signal, index) => {
+  // Add price-based evidence
+  signals.forEach((signal) => {
     evidence.push({
-      type: 'metric',
+      type: 'price_metric',
       description: signal,
       value: score > 0 ? 'Positiv' : score < 0 ? 'Negativ' : 'Neutral',
       timestamp: new Date().toISOString(),
-      source: 'Fundamental Analysis',
+      source: 'Prisanalys',
     });
   });
   
-  // Add key metrics as evidence
-  if (metrics.peRatio) {
+  if (priceHistory.length >= 10) {
     evidence.push({
-      type: 'valuation',
-      description: 'P/E-tal',
-      value: metrics.peRatio.toFixed(1),
+      type: 'data_points',
+      description: 'Datapunkter analyserade',
+      value: `${priceHistory.length} dagars prishistorik`,
       timestamp: new Date().toISOString(),
-      source: 'Valuation Metrics',
+      source: 'Databas',
     });
   }
   
-  if (metrics.dividendYield) {
-    evidence.push({
-      type: 'dividend',
-      description: 'Direktavkastning',
-      value: `${metrics.dividendYield.toFixed(1)}%`,
-      timestamp: new Date().toISOString(),
-      source: 'Dividend Metrics',
-    });
-  }
-  
-  // Disclaimer
-  evidence.push({
-    type: 'disclaimer',
-    description: '⚠️ Estimerade värden',
-    value: 'Kräver integration med finansdatakälla för exakta siffror',
-    timestamp: new Date().toISOString(),
-    source: 'System',
-  });
-  
-  // Determine direction based on score
-  const direction: Direction = score > 1 ? 'UP' : score < -1 ? 'DOWN' : 'NEUTRAL';
+  // Determine direction based on score and trend
+  const direction: Direction = score > 1 ? 'UP' : score < -1 ? 'DOWN' : trend;
   
   // Strength adjusted by horizon relevance
   const baseStrength = Math.min(100, Math.max(0, 50 + score * 10));
   const strength = Math.round(baseStrength * horizonWeight + 50 * (1 - horizonWeight));
   
-  // Coverage is limited since we're using estimates
-  const coverage = 40; // Partial data
+  // Coverage is limited since we only have price data
+  const coverage = priceHistory.length >= 30 ? 35 : priceHistory.length >= 10 ? 25 : 10;
   
-  // Confidence affected by data quality
-  const confidence = Math.round(35 + horizonWeight * 25);
+  // Confidence affected by data availability
+  const confidence = Math.round(25 + (priceHistory.length / 60) * 20 + horizonWeight * 15);
   
   return {
     module: 'fundamental',
@@ -243,6 +159,6 @@ export const analyzeFundamental = (
     confidence: Math.max(0, Math.min(100, confidence)),
     coverage,
     evidence,
-    metadata: { metrics, score, horizonWeight },
+    metadata: { momentum, volatility, score, horizonWeight, dataSource: 'price_only' },
   };
 };

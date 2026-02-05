@@ -27,52 +27,7 @@ const convertToAnalysisPriceData = (history: PriceHistoryPoint[]): PriceData[] =
   }));
 };
 
-// Generate mock price history as fallback
-const generateMockPriceHistory = (
-  currentPrice: number,
-  days: number = 60
-): PriceData[] => {
-  const history: PriceData[] = [];
-  let price = currentPrice * (0.85 + Math.random() * 0.3);
-  
-  for (let i = days; i >= 0; i--) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    
-    const change = (Math.random() - 0.48) * 0.03;
-    price = price * (1 + change);
-    
-    const volatility = 0.02;
-    const high = price * (1 + Math.random() * volatility);
-    const low = price * (1 - Math.random() * volatility);
-    const open = low + Math.random() * (high - low);
-    const close = price;
-    
-    history.push({
-      price: close,
-      open,
-      high,
-      low,
-      close,
-      volume: Math.floor(Math.random() * 1000000 + 100000),
-      timestamp: date.toISOString(),
-    });
-  }
-  
-  if (history.length > 0) {
-    const lastEntry = history[history.length - 1];
-    const adjustment = currentPrice / lastEntry.close;
-    history.forEach(h => {
-      h.price *= adjustment;
-      h.open = (h.open || h.price) * adjustment;
-      h.high = (h.high || h.price) * adjustment;
-      h.low = (h.low || h.price) * adjustment;
-      h.close = (h.close || h.price) * adjustment;
-    });
-  }
-  
-  return history;
-};
+// No mock data - only use real price history from database
 
 // Transform database symbols to RankedAsset format with real analysis
 const transformToRankedAsset = async (
@@ -82,12 +37,18 @@ const transformToRankedAsset = async (
   priceHistoryCache: Map<string, PriceData[]>
 ): Promise<RankedAsset | null> => {
   const price = symbol.latestPrice;
-  const currentPrice = price ? Number(price.price) : 100;
+  const currentPrice = price ? Number(price.price) : 0;
   
-  // Get price history from cache or generate mock
-  let priceHistory = priceHistoryCache.get(symbol.id);
-  if (!priceHistory || priceHistory.length === 0) {
-    priceHistory = generateMockPriceHistory(currentPrice, 60);
+  // Only use real price history - skip if not enough data
+  const priceHistory = priceHistoryCache.get(symbol.id);
+  if (!priceHistory || priceHistory.length < 10) {
+    console.log(`Skipping ${symbol.ticker}: insufficient price history (${priceHistory?.length || 0} points)`);
+    return null;
+  }
+  
+  if (currentPrice <= 0) {
+    console.log(`Skipping ${symbol.ticker}: no valid current price`);
+    return null;
   }
   
   // Create analysis context
@@ -141,6 +102,7 @@ const transformToRankedAsset = async (
     horizon,
     lastUpdated: analysis.lastUpdated,
     predictedReturns: analysis.predictedReturns,
+    trendPrediction: analysis.trendPrediction,
     aiSummary: analysis.aiSummary,
   };
 };
