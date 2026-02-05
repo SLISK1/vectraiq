@@ -13,7 +13,7 @@ import { MarketCapFilter } from '@/components/MarketCapFilter';
 import { SearchAssets } from '@/components/SearchAssets';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols } from '@/hooks/useMarketData';
+import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols, useAddSymbol } from '@/hooks/useMarketData';
 import { usePriceRealtime } from '@/hooks/usePriceRealtime';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -39,6 +39,7 @@ const Index = () => {
   const { data: watchlistData, isLoading: loadingWatchlist } = useWatchlist();
   const addToWatchlistMutation = useAddToWatchlist();
   const refreshPricesMutation = useRefreshPrices();
+  const addSymbolMutation = useAddSymbol();
 
   // Transform database watchlist to component format
   const transformedWatchlist: WatchlistCase[] = (watchlistData || []).map(wc => {
@@ -175,6 +176,25 @@ const Index = () => {
     }
   }, [topUp, topDown, symbols, selectedHorizon]);
 
+  // Handle adding new symbol
+  const handleAddNewSymbol = useCallback(async (ticker: string) => {
+    try {
+      const result = await addSymbolMutation.mutateAsync(ticker);
+      toast({
+        title: result.isNew ? "Tillgång tillagd!" : "Tillgång finns redan",
+        description: result.isNew 
+          ? `${ticker} har lagts till som ${result.detectedType}. Prisdata hämtas i bakgrunden.`
+          : `${ticker} finns redan i systemet.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Kunde inte lägga till tillgång",
+        description: `Det gick inte att lägga till ${ticker}. Kontrollera att tickern är korrekt.`,
+        variant: "destructive",
+      });
+    }
+  }, [addSymbolMutation, toast]);
+
   // Filter assets by market cap
   const filteredTopUp = useMemo(() => {
     if (!topUp) return [];
@@ -205,6 +225,8 @@ const Index = () => {
               <SearchAssets 
                 assets={searchableAssets} 
                 onSelect={handleSearchSelect}
+                onAddNew={handleAddNewSymbol}
+                isAdding={addSymbolMutation.isPending}
                 placeholder="Sök aktie, fond, krypto eller metall..."
               />
             </div>

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Search, X, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Search, X, TrendingUp, TrendingDown, Minus, Plus, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { AssetTypeBadge } from '@/components/AssetTypeBadge';
 import { cn } from '@/lib/utils';
 
@@ -17,10 +18,18 @@ interface SearchableAsset {
 interface SearchAssetsProps {
   assets: SearchableAsset[];
   onSelect: (asset: SearchableAsset) => void;
+  onAddNew?: (ticker: string) => Promise<void>;
   placeholder?: string;
+  isAdding?: boolean;
 }
 
-export const SearchAssets = ({ assets, onSelect, placeholder = "Sök aktie, fond eller krypto..." }: SearchAssetsProps) => {
+export const SearchAssets = ({ 
+  assets, 
+  onSelect, 
+  onAddNew,
+  placeholder = "Sök aktie, fond eller krypto...",
+  isAdding = false
+}: SearchAssetsProps) => {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
 
@@ -41,7 +50,17 @@ export const SearchAssets = ({ assets, onSelect, placeholder = "Sök aktie, fond
     setIsFocused(false);
   };
 
+  const handleAddNew = async () => {
+    if (onAddNew && query.trim()) {
+      await onAddNew(query.trim().toUpperCase());
+      setQuery('');
+      setIsFocused(false);
+    }
+  };
+
   const showResults = isFocused && query.trim().length > 0;
+  const noResults = showResults && filteredAssets.length === 0;
+  const canAdd = noResults && onAddNew && query.trim().length >= 1;
 
   return (
     <div className="relative">
@@ -52,7 +71,7 @@ export const SearchAssets = ({ assets, onSelect, placeholder = "Sök aktie, fond
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setIsFocused(true)}
-          onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+          onBlur={() => setTimeout(() => setIsFocused(false), 300)}
           placeholder={placeholder}
           className="pl-10 pr-10 bg-background/50 border-border/50 focus:border-primary/50"
         />
@@ -69,8 +88,30 @@ export const SearchAssets = ({ assets, onSelect, placeholder = "Sök aktie, fond
       {showResults && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-50">
           {filteredAssets.length === 0 ? (
-            <div className="p-4 text-center text-muted-foreground text-sm">
-              Inga resultat för "{query}"
+            <div className="p-4">
+              <div className="text-center text-muted-foreground text-sm mb-3">
+                Inga resultat för "{query}"
+              </div>
+              {canAdd && (
+                <Button
+                  onClick={handleAddNew}
+                  disabled={isAdding}
+                  className="w-full gap-2"
+                  variant="outline"
+                >
+                  {isAdding ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Lägger till {query.toUpperCase()}...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Lägg till "{query.toUpperCase()}" som ny tillgång
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           ) : (
             <ul className="divide-y divide-border/50">

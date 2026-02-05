@@ -280,3 +280,28 @@ export const useRefreshPrices = () => {
     },
   });
 };
+
+// Add a new symbol to the database
+export const useAddSymbol = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ticker: string) => {
+      const { data, error } = await supabase.functions.invoke('add-symbol', {
+        body: { ticker },
+      });
+
+      if (error) {
+        console.error('Error adding symbol:', error);
+        throw error;
+      }
+
+      return data;
+    },
+    onSuccess: () => {
+      // Invalidate symbols to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['symbols'] });
+      queryClient.invalidateQueries({ queryKey: ['rankedAssets'] });
+    },
+  });
+};
