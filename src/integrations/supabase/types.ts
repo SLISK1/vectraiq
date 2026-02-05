@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      price_history: {
+        Row: {
+          close_price: number
+          created_at: string
+          date: string
+          high_price: number
+          id: string
+          low_price: number
+          open_price: number
+          source: string
+          symbol_id: string
+          volume: number | null
+        }
+        Insert: {
+          close_price: number
+          created_at?: string
+          date: string
+          high_price: number
+          id?: string
+          low_price: number
+          open_price: number
+          source: string
+          symbol_id: string
+          volume?: number | null
+        }
+        Update: {
+          close_price?: number
+          created_at?: string
+          date?: string
+          high_price?: number
+          id?: string
+          low_price?: number
+          open_price?: number
+          source?: string
+          symbol_id?: string
+          volume?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_history_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
