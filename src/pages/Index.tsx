@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Header } from '@/components/Header';
 import { HorizonSelector } from '@/components/HorizonSelector';
 import { TopRankingList } from '@/components/TopRankingList';
@@ -9,7 +9,8 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 import { AssetDetailModal } from '@/components/AssetDetailModal';
 import { AddToWatchlistModal } from '@/components/AddToWatchlistModal';
 import { AuthModal } from '@/components/AuthModal';
-import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS } from '@/types/market';
+import { MarketCapFilter } from '@/components/MarketCapFilter';
+import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory } from '@/types/market';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols } from '@/hooks/useMarketData';
 import { usePriceRealtime } from '@/hooks/usePriceRealtime';
@@ -20,6 +21,7 @@ import { Star, History, BarChart3, Loader2 } from 'lucide-react';
 const Index = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'watchlist' | 'stats' | 'settings'>('dashboard');
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>('1w');
+  const [selectedMarketCap, setSelectedMarketCap] = useState<MarketCapCategory>('all');
   const [selectedAsset, setSelectedAsset] = useState<RankedAsset | null>(null);
   const [assetForWatchlist, setAssetForWatchlist] = useState<RankedAsset | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -124,6 +126,17 @@ const Index = () => {
   const completedWatchlist = transformedWatchlist.filter(w => !!w.resultLockedAt);
   const isLoading = loadingUp || loadingDown;
 
+  // Filter assets by market cap
+  const filteredTopUp = useMemo(() => {
+    if (selectedMarketCap === 'all') return topUp;
+    return topUp?.filter(a => a.marketCapCategory === selectedMarketCap) || [];
+  }, [topUp, selectedMarketCap]);
+
+  const filteredTopDown = useMemo(() => {
+    if (selectedMarketCap === 'all') return topDown;
+    return topDown?.filter(a => a.marketCapCategory === selectedMarketCap) || [];
+  }, [topDown, selectedMarketCap]);
+
   return (
     <div className="min-h-screen bg-background">
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
@@ -135,10 +148,16 @@ const Index = () => {
             {/* Reality Check */}
             <RealityCheck />
 
-            {/* Horizon Selector */}
-            <div className="glass-card rounded-xl p-4">
-              <h2 className="text-sm font-medium text-muted-foreground mb-3">Välj analyshorisont</h2>
-              <HorizonSelector selected={selectedHorizon} onSelect={setSelectedHorizon} />
+            {/* Filters */}
+            <div className="glass-card rounded-xl p-4 space-y-4">
+              <div>
+                <h2 className="text-sm font-medium text-muted-foreground mb-3">Välj analyshorisont</h2>
+                <HorizonSelector selected={selectedHorizon} onSelect={setSelectedHorizon} />
+              </div>
+              <div>
+                <h2 className="text-sm font-medium text-muted-foreground mb-3">Filtrera på börsvärde</h2>
+                <MarketCapFilter selected={selectedMarketCap} onSelect={setSelectedMarketCap} />
+              </div>
             </div>
 
             {/* Rankings Grid */}
@@ -146,7 +165,7 @@ const Index = () => {
               <TopRankingList
                 title="Top 10 UP"
                 direction="UP"
-                assets={topUp}
+                assets={filteredTopUp}
                 isLoading={isLoading}
                 lastUpdated={new Date().toISOString()}
                 onAddToWatchlist={handleAddToWatchlist}
@@ -156,7 +175,7 @@ const Index = () => {
               <TopRankingList
                 title="Top 10 DOWN"
                 direction="DOWN"
-                assets={topDown}
+                assets={filteredTopDown}
                 isLoading={isLoading}
                 lastUpdated={new Date().toISOString()}
                 onAddToWatchlist={handleAddToWatchlist}

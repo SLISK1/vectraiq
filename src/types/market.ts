@@ -45,6 +45,15 @@ export interface Asset {
   marketCap?: number;
 }
 
+export interface PredictedReturns {
+  day1: number;
+  week1: number;
+  year1: number;
+  year5: number;
+}
+
+export type MarketCapCategory = 'small' | 'medium' | 'large' | 'all';
+
 export interface RankedAsset extends Asset {
   totalScore: number;
   direction: Direction;
@@ -54,6 +63,9 @@ export interface RankedAsset extends Asset {
   topContributors: { module: string; contribution: number }[];
   horizon: Horizon;
   lastUpdated: string;
+  predictedReturns?: PredictedReturns;
+  aiSummary?: string;
+  marketCapCategory?: MarketCapCategory;
 }
 
 export interface WatchlistCase {

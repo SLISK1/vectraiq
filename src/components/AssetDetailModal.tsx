@@ -47,6 +47,56 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist }: A
         </DialogHeader>
 
         <div className="space-y-6">
+          {/* AI Summary */}
+          {asset.aiSummary && (
+            <div className="p-4 rounded-xl bg-primary/10 border border-primary/20">
+              <h3 className="font-semibold text-sm mb-2 text-primary">🤖 AI-analys</h3>
+              <p className="text-sm">{asset.aiSummary}</p>
+            </div>
+          )}
+
+          {/* Predicted Returns Grid */}
+          {asset.predictedReturns && (
+            <div className="grid grid-cols-4 gap-3">
+              <div className="p-3 rounded-lg bg-muted/30 text-center">
+                <div className="text-xs text-muted-foreground mb-1">1 dag</div>
+                <div className={cn(
+                  "font-mono font-bold text-lg",
+                  asset.predictedReturns.day1 >= 0 ? "text-up" : "text-down"
+                )}>
+                  {asset.predictedReturns.day1 >= 0 ? '+' : ''}{asset.predictedReturns.day1}%
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/30 text-center">
+                <div className="text-xs text-muted-foreground mb-1">1 vecka</div>
+                <div className={cn(
+                  "font-mono font-bold text-lg",
+                  asset.predictedReturns.week1 >= 0 ? "text-up" : "text-down"
+                )}>
+                  {asset.predictedReturns.week1 >= 0 ? '+' : ''}{asset.predictedReturns.week1}%
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/30 text-center">
+                <div className="text-xs text-muted-foreground mb-1">1 år</div>
+                <div className={cn(
+                  "font-mono font-bold text-lg",
+                  asset.predictedReturns.year1 >= 0 ? "text-up" : "text-down"
+                )}>
+                  {asset.predictedReturns.year1 >= 0 ? '+' : ''}{asset.predictedReturns.year1}%
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/30 text-center">
+                <div className="text-xs text-muted-foreground mb-1">5 år</div>
+                <div className={cn(
+                  "font-mono font-bold text-lg",
+                  asset.predictedReturns.year5 >= 0 ? "text-up" : "text-down"
+                )}>
+                  {asset.predictedReturns.year5 >= 0 ? '+' : ''}{asset.predictedReturns.year5}%
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Top Section: Score + Price Info */}
           <div className="flex flex-col md:flex-row gap-6">
             {/* Score Ring */}

@@ -13,6 +13,13 @@ import { analyzeElliottWave } from './elliottwave';
 import { analyzeSentimentSync } from './sentiment';
 import { analyzeMLSync } from './ml';
 
+export interface PredictedReturns {
+  day1: number;
+  week1: number;
+  year1: number;
+  year5: number;
+}
+
 export interface FullAnalysis {
   signals: ModuleSignal[];
   totalScore: number;
@@ -21,6 +28,8 @@ export interface FullAnalysis {
   confidenceBreakdown: ConfidenceBreakdown;
   topContributors: { module: string; contribution: number }[];
   lastUpdated: string;
+  predictedReturns: PredictedReturns;
+  aiSummary: string;
 }
 
 // Convert AnalysisResult to ModuleSignal
@@ -85,6 +94,45 @@ const calculateTotalConfidence = (breakdown: ConfidenceBreakdown): number => {
     0.20 * breakdown.reliability +
     0.10 * (100 - breakdown.regimeRisk)
   );
+};
+
+// Generate a short AI summary explaining the prediction
+const generateAISummary = (
+  ticker: string,
+  direction: Direction,
+  confidence: number,
+  topModules: string[],
+  signals: ModuleSignal[]
+): string => {
+  const moduleNames: Record<string, string> = {
+    technical: 'teknisk analys',
+    fundamental: 'fundamental data',
+    sentiment: 'marknadssentiment',
+    quant: 'kvantmodeller',
+    macro: 'makroekonomi',
+    volatility: 'volatilitetsanalys',
+    seasonal: 'säsongsmönster',
+    orderFlow: 'orderflöde',
+    ml: 'ML-modeller',
+    elliottWave: 'Elliott Wave',
+  };
+
+  const dirText = direction === 'UP' ? 'stiga' : direction === 'DOWN' ? 'falla' : 'vara sidledes';
+  const confText = confidence >= 70 ? 'hög' : confidence >= 50 ? 'måttlig' : 'låg';
+  
+  // Get evidence from top modules
+  const keyEvidence: string[] = [];
+  for (const mod of topModules) {
+    const signal = signals.find(s => s.module === mod);
+    if (signal?.evidence?.length) {
+      keyEvidence.push(signal.evidence[0].description);
+    }
+  }
+  
+  const moduleList = topModules.map(m => moduleNames[m] || m).join(' och ');
+  const evidenceText = keyEvidence.length > 0 ? ` Nyckelindikationer: ${keyEvidence.slice(0, 2).join('; ')}.` : '';
+  
+  return `${ticker} förväntas ${dirText} baserat på ${moduleList} (${confText} konfidens).${evidenceText}`;
 };
 
 // Run all synchronous analyses
@@ -188,6 +236,22 @@ export const runAnalysis = (
     .slice(0, 3)
     .map(s => ({ module: s.module, contribution: Math.round(s.strength * (s.weight / 100)) }));
   
+  // Calculate predicted returns based on analysis
+  const directionMultiplier = direction === 'UP' ? 1 : direction === 'DOWN' ? -1 : 0;
+  const baseReturn = (normalizedScore - 50) / 50; // -1 to 1
+  const volatilityFactor = confidenceBreakdown.regimeRisk / 100;
+  
+  const predictedReturns: PredictedReturns = {
+    day1: Math.round(baseReturn * 2 * (1 + volatilityFactor) * 100) / 100,
+    week1: Math.round(baseReturn * 5 * (1 + volatilityFactor * 0.8) * 100) / 100,
+    year1: Math.round(baseReturn * 25 * (1 + volatilityFactor * 0.5) * 100) / 100,
+    year5: Math.round(baseReturn * 80 * (1 + volatilityFactor * 0.3) * 100) / 100,
+  };
+  
+  // Generate AI summary
+  const topModuleNames = topContributors.slice(0, 2).map(c => c.module);
+  const aiSummary = generateAISummary(ticker, direction, confidence, topModuleNames, signals);
+  
   return {
     signals,
     totalScore: Math.max(0, Math.min(100, normalizedScore)),
@@ -196,6 +260,8 @@ export const runAnalysis = (
     confidenceBreakdown,
     topContributors,
     lastUpdated: new Date().toISOString(),
+    predictedReturns,
+    aiSummary,
   };
 };
 
