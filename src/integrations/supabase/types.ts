@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      portfolio_holdings: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string | null
+          purchase_date: string
+          purchase_price: number
+          quantity: number
+          symbol_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          purchase_date?: string
+          purchase_price: number
+          quantity: number
+          symbol_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          purchase_date?: string
+          purchase_price?: number
+          quantity?: number
+          symbol_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_holdings_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_history: {
         Row: {
           close_price: number

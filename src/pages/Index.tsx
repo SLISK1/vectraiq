@@ -11,16 +11,17 @@ import { AddToWatchlistModal } from '@/components/AddToWatchlistModal';
 import { AuthModal } from '@/components/AuthModal';
 import { MarketCapFilter } from '@/components/MarketCapFilter';
 import { SearchAssets } from '@/components/SearchAssets';
+import { PortfolioView } from '@/components/PortfolioView';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols, useAddSymbol } from '@/hooks/useMarketData';
 import { usePriceRealtime } from '@/hooks/usePriceRealtime';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Star, History, BarChart3, Loader2 } from 'lucide-react';
+import { Star, History, BarChart3, Loader2, Briefcase } from 'lucide-react';
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'watchlist' | 'stats' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'watchlist' | 'portfolio' | 'stats' | 'settings'>('dashboard');
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>('1w');
   const [selectedMarketCap, setSelectedMarketCap] = useState<MarketCapCategory>('all');
   const [selectedAsset, setSelectedAsset] = useState<RankedAsset | null>(null);
@@ -330,6 +331,22 @@ const Index = () => {
                 </TabsContent>
               </Tabs>
             )}
+          </div>
+        )}
+
+        {/* Portfolio */}
+        {activeTab === 'portfolio' && (
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-primary/20">
+                <Briefcase className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Portfolio</h2>
+                <p className="text-sm text-muted-foreground">Dina innehav och deras utveckling</p>
+              </div>
+            </div>
+            <PortfolioView />
           </div>
         )}
 
