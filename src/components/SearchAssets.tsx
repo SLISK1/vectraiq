@@ -52,9 +52,10 @@ export const SearchAssets = ({
 
   const handleAddNew = async () => {
     if (onAddNew && query.trim()) {
-      await onAddNew(query.trim().toUpperCase());
+      const ticker = query.trim().toUpperCase();
       setQuery('');
       setIsFocused(false);
+      await onAddNew(ticker);
     }
   };
 
