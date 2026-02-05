@@ -8,49 +8,91 @@ import {
   triggerPriceFetch,
   type SymbolWithPrice 
 } from '@/lib/api/database';
-import { Horizon, RankedAsset, Direction, ConfidenceBreakdown, ModuleSignal } from '@/types/market';
+import { Horizon, RankedAsset, Direction } from '@/types/market';
 import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
+import { runAnalysis, createAnalysisContext, PriceData } from '@/lib/analysis';
 
-// Transform database symbols to RankedAsset format with mock analysis
+// Generate mock price history for analysis (until we have real historical data)
+const generateMockPriceHistory = (
+  currentPrice: number,
+  days: number = 60
+): PriceData[] => {
+  const history: PriceData[] = [];
+  let price = currentPrice * (0.85 + Math.random() * 0.3); // Start 85-115% of current
+  
+  for (let i = days; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    
+    // Random walk with slight upward bias
+    const change = (Math.random() - 0.48) * 0.03;
+    price = price * (1 + change);
+    
+    const volatility = 0.02;
+    const high = price * (1 + Math.random() * volatility);
+    const low = price * (1 - Math.random() * volatility);
+    const open = low + Math.random() * (high - low);
+    const close = price;
+    
+    history.push({
+      price: close,
+      open,
+      high,
+      low,
+      close,
+      volume: Math.floor(Math.random() * 1000000 + 100000),
+      timestamp: date.toISOString(),
+    });
+  }
+  
+  // Adjust last price to match current price
+  if (history.length > 0) {
+    const lastEntry = history[history.length - 1];
+    const adjustment = currentPrice / lastEntry.close;
+    history.forEach(h => {
+      h.price *= adjustment;
+      h.open = (h.open || h.price) * adjustment;
+      h.high = (h.high || h.price) * adjustment;
+      h.low = (h.low || h.price) * adjustment;
+      h.close = (h.close || h.price) * adjustment;
+    });
+  }
+  
+  return history;
+};
+
+// Transform database symbols to RankedAsset format with real analysis
 const transformToRankedAsset = (
   symbol: SymbolWithPrice, 
   horizon: Horizon, 
-  direction: Direction
-): RankedAsset => {
+  filterDirection: 'UP' | 'DOWN'
+): RankedAsset | null => {
   const price = symbol.latestPrice;
+  const currentPrice = price ? Number(price.price) : 100;
   
-  const generateMockSignal = (module: string): ModuleSignal => ({
-    module,
-    direction: Math.random() > 0.3 ? direction : (Math.random() > 0.5 ? 'NEUTRAL' : (direction === 'UP' ? 'DOWN' : 'UP')),
-    strength: Math.floor(Math.random() * 40 + 40),
-    horizon,
-    confidence: Math.floor(Math.random() * 30 + 50),
-    evidence: [],
-    coverage: Math.floor(Math.random() * 30 + 70),
-    weight: 10,
-  });
-
-  const signals = [
-    'technical', 'fundamental', 'sentiment', 'elliottWave', 
-    'quant', 'macro', 'volatility', 'seasonal', 'orderFlow', 'ml'
-  ].map(generateMockSignal);
-
-  const confidenceBreakdown: ConfidenceBreakdown = {
-    freshness: Math.floor(Math.random() * 30 + 60),
-    coverage: Math.floor(Math.random() * 25 + 70),
-    agreement: Math.floor(Math.random() * 40 + 50),
-    reliability: Math.floor(Math.random() * 30 + 55),
-    regimeRisk: Math.floor(Math.random() * 40 + 20),
-  };
-
-  const confidence = Math.floor(
-    0.25 * confidenceBreakdown.freshness +
-    0.20 * confidenceBreakdown.coverage +
-    0.25 * confidenceBreakdown.agreement +
-    0.20 * confidenceBreakdown.reliability +
-    0.10 * (100 - confidenceBreakdown.regimeRisk)
+  // Generate mock price history for analysis
+  const priceHistory = generateMockPriceHistory(currentPrice, 60);
+  
+  // Create analysis context
+  const context = createAnalysisContext(
+    symbol.ticker,
+    symbol.name,
+    symbol.asset_type as 'stock' | 'crypto' | 'metal',
+    symbol.currency,
+    currentPrice,
+    priceHistory,
+    horizon
   );
-
+  
+  // Run full analysis
+  const analysis = runAnalysis(context);
+  
+  // Only include assets that match the filter direction
+  // For NEUTRAL, we'll include them with lower scores
+  if (analysis.direction !== filterDirection && analysis.direction !== 'NEUTRAL') {
+    return null;
+  }
+  
   return {
     ticker: symbol.ticker,
     name: symbol.name,
@@ -58,23 +100,19 @@ const transformToRankedAsset = (
     sector: symbol.sector || undefined,
     exchange: symbol.exchange || undefined,
     currency: symbol.currency,
-    lastPrice: price ? Number(price.price) : 100,
+    lastPrice: currentPrice,
     change24h: price ? Number(price.change_24h || 0) : 0,
     changePercent24h: price ? Number(price.change_percent_24h || 0) : 0,
     volume24h: price ? Number(price.volume || 0) : 0,
     marketCap: price?.market_cap ? Number(price.market_cap) : undefined,
-    totalScore: Math.floor(Math.random() * 30 + 50),
-    direction,
-    confidence,
-    confidenceBreakdown,
-    signals,
-    topContributors: signals
-      .filter(s => s.direction === direction)
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 3)
-      .map(s => ({ module: s.module, contribution: s.strength })),
+    totalScore: analysis.totalScore,
+    direction: analysis.direction === 'NEUTRAL' ? filterDirection : analysis.direction,
+    confidence: analysis.confidence,
+    confidenceBreakdown: analysis.confidenceBreakdown,
+    signals: analysis.signals,
+    topContributors: analysis.topContributors,
     horizon,
-    lastUpdated: price?.recorded_at || new Date().toISOString(),
+    lastUpdated: analysis.lastUpdated,
   };
 };
 
@@ -92,6 +130,7 @@ export const useRankedAssets = (horizon: Horizon, direction: 'UP' | 'DOWN') => {
   const rankedAssets: RankedAsset[] = symbols
     ? symbols
         .map(s => transformToRankedAsset(s, horizon, direction))
+        .filter((a): a is RankedAsset => a !== null)
         .sort((a, b) => b.totalScore - a.totalScore)
         .slice(0, 10)
     : [];
