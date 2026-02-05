@@ -52,6 +52,27 @@ export interface PredictedReturns {
   year5: number;
 }
 
+export interface TrendPrediction {
+  trendDuration: {
+    minDays: number;
+    maxDays: number;
+    likelyDays: number;
+  };
+  stopLoss: {
+    price: number;
+    percentage: number;
+    method: 'atr' | 'support' | 'volatility';
+  };
+  takeProfit: {
+    conservative: { price: number; percentage: number };
+    moderate: { price: number; percentage: number };
+    aggressive: { price: number; percentage: number };
+  };
+  riskRewardRatio: number;
+  trendStrength: number; // 0-100
+  reversalRisk: number; // 0-100
+}
+
 export type MarketCapCategory = 'small' | 'medium' | 'large' | 'all';
 
 export interface RankedAsset extends Asset {
@@ -64,6 +85,7 @@ export interface RankedAsset extends Asset {
   horizon: Horizon;
   lastUpdated: string;
   predictedReturns?: PredictedReturns;
+  trendPrediction?: TrendPrediction;
   aiSummary?: string;
   marketCapCategory?: MarketCapCategory;
 }

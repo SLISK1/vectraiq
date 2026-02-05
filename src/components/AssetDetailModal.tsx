@@ -5,6 +5,7 @@ import { DirectionBadge } from './DirectionBadge';
 import { AssetTypeBadge } from './AssetTypeBadge';
 import { ConfidenceBreakdownCard } from './ConfidenceBreakdownCard';
 import { ModuleSignalTable } from './ModuleSignalTable';
+import { TrendPredictionCard } from './TrendPredictionCard';
 import { cn } from '@/lib/utils';
 import { Star, ExternalLink } from 'lucide-react';
 import { Button } from './ui/button';
@@ -137,6 +138,16 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist }: A
               )}
             </div>
           </div>
+
+          {/* Trend Prediction & Stop/Loss */}
+          {asset.trendPrediction && (
+            <TrendPredictionCard 
+              prediction={asset.trendPrediction}
+              direction={asset.direction}
+              currentPrice={asset.lastPrice}
+              currency={asset.currency}
+            />
+          )}
 
           {/* Confidence Breakdown */}
           <ConfidenceBreakdownCard 
