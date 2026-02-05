@@ -4,6 +4,7 @@ import { usePortfolio, useSymbols, useAddHolding, useDeleteHolding, useUpdateHol
 import { PortfolioHoldingCard } from './PortfolioHoldingCard';
 import { AddHoldingModal } from './AddHoldingModal';
 import { EditHoldingModal } from './EditHoldingModal';
+import { PortfolioChart } from './PortfolioChart';
 import { Button } from '@/components/ui/button';
 import { Briefcase, Plus, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
@@ -96,6 +97,9 @@ export const PortfolioView = () => {
           </p>
         </div>
       </div>
+
+      {/* Portfolio Chart */}
+      {holdings.length > 0 && <PortfolioChart />}
 
       {/* Add button */}
       <div className="flex justify-end">
