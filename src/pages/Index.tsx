@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { HorizonSelector } from '@/components/HorizonSelector';
 import { TopRankingList } from '@/components/TopRankingList';
@@ -8,93 +8,117 @@ import { StatsPanel } from '@/components/StatsPanel';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { AssetDetailModal } from '@/components/AssetDetailModal';
 import { AddToWatchlistModal } from '@/components/AddToWatchlistModal';
-import { Horizon, RankedAsset, WatchlistCase } from '@/types/market';
-import { generateRankedAssets, MOCK_WATCHLIST } from '@/data/mockData';
+import { AuthModal } from '@/components/AuthModal';
+import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS } from '@/types/market';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols } from '@/hooks/useMarketData';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Star, History, BarChart3 } from 'lucide-react';
-import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
-
-const generateId = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+import { Star, History, BarChart3, Loader2 } from 'lucide-react';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'watchlist' | 'stats' | 'settings'>('dashboard');
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>('1w');
-  const [isLoading, setIsLoading] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<RankedAsset | null>(null);
   const [assetForWatchlist, setAssetForWatchlist] = useState<RankedAsset | null>(null);
-  const [watchlist, setWatchlist] = useState<WatchlistCase[]>(MOCK_WATCHLIST);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const { user } = useAuth();
   const { toast } = useToast();
 
-  // Generate ranked assets based on selected horizon
-  const topUp = useMemo(() => generateRankedAssets(selectedHorizon, 'UP', 10), [selectedHorizon]);
-  const topDown = useMemo(() => generateRankedAssets(selectedHorizon, 'DOWN', 10), [selectedHorizon]);
+  // Data hooks
+  const { data: topUp, isLoading: loadingUp } = useRankedAssets(selectedHorizon, 'UP');
+  const { data: topDown, isLoading: loadingDown } = useRankedAssets(selectedHorizon, 'DOWN');
+  const { data: symbols } = useSymbols();
+  const { data: watchlistData, isLoading: loadingWatchlist } = useWatchlist();
+  const addToWatchlistMutation = useAddToWatchlist();
+  const refreshPricesMutation = useRefreshPrices();
 
-  const handleRefresh = useCallback(() => {
-    setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+  // Transform database watchlist to component format
+  const transformedWatchlist: WatchlistCase[] = (watchlistData || []).map(wc => {
+    const symbol = symbols?.find(s => s.id === wc.symbol_id);
+    const latestPrice = symbol?.latestPrice;
+    
+    return {
+      id: wc.id,
+      ticker: symbol?.ticker || 'N/A',
+      asset: {
+        ticker: symbol?.ticker || 'N/A',
+        name: symbol?.name || 'Unknown',
+        type: (symbol?.asset_type || 'stock') as 'stock' | 'crypto' | 'metal',
+        sector: symbol?.sector || undefined,
+        exchange: symbol?.exchange || undefined,
+        currency: symbol?.currency || 'SEK',
+        lastPrice: latestPrice ? Number(latestPrice.price) : Number(wc.entry_price),
+        change24h: latestPrice ? Number(latestPrice.change_24h || 0) : 0,
+        changePercent24h: latestPrice ? Number(latestPrice.change_percent_24h || 0) : 0,
+        volume24h: latestPrice ? Number(latestPrice.volume || 0) : 0,
+      },
+      savedAt: wc.created_at,
+      horizon: wc.horizon as Horizon,
+      predictionDirection: wc.prediction_direction as 'UP' | 'DOWN' | 'NEUTRAL',
+      entryPrice: Number(wc.entry_price),
+      entryPriceSource: wc.entry_price_source,
+      targetEndTime: wc.target_end_time,
+      confidenceAtSave: wc.confidence_at_save,
+      modelSnapshotId: wc.model_snapshot_id || '',
+      currentPrice: latestPrice ? Number(latestPrice.price) : undefined,
+      currentReturn: latestPrice 
+        ? ((Number(latestPrice.price) - Number(wc.entry_price)) / Number(wc.entry_price)) * 100 
+        : undefined,
+      exitPrice: wc.exit_price ? Number(wc.exit_price) : undefined,
+      returnPct: wc.return_pct ? Number(wc.return_pct) : undefined,
+      hit: wc.hit ?? undefined,
+      resultLockedAt: wc.result_locked_at ?? undefined,
+    };
+  });
+
+  const handleRefresh = useCallback(async () => {
+    try {
+      await refreshPricesMutation.mutateAsync();
       toast({
         title: 'Data uppdaterad',
-        description: 'Senaste analyserna har laddats.',
+        description: 'Senaste priserna har hämtats.',
       });
-    }, 1500);
-  }, [toast]);
+    } catch (error) {
+      toast({
+        title: 'Fel',
+        description: 'Kunde inte uppdatera priser.',
+        variant: 'destructive',
+      });
+    }
+  }, [refreshPricesMutation, toast]);
 
   const handleAddToWatchlist = (asset: RankedAsset) => {
+    if (!user) {
+      setShowAuthModal(true);
+      toast({
+        title: 'Logga in krävs',
+        description: 'Du måste vara inloggad för att spara till watchlist.',
+      });
+      return;
+    }
     setAssetForWatchlist(asset);
   };
 
-  const handleConfirmWatchlist = (asset: RankedAsset, horizon: Horizon) => {
-    const getTargetDate = (h: Horizon): Date => {
-      const now = new Date();
-      switch (h) {
-        case '1d': return addDays(now, 1);
-        case '1w': return addWeeks(now, 1);
-        case '1mo': return addMonths(now, 1);
-        case '1y': return addYears(now, 1);
-        default: return addWeeks(now, 1);
-      }
-    };
-
-    const newCase: WatchlistCase = {
-      id: generateId(),
-      ticker: asset.ticker,
-      asset: {
-        ticker: asset.ticker,
-        name: asset.name,
-        type: asset.type,
-        sector: asset.sector,
-        exchange: asset.exchange,
-        currency: asset.currency,
-        lastPrice: asset.lastPrice,
-        change24h: asset.change24h,
-        changePercent24h: asset.changePercent24h,
-        volume24h: asset.volume24h,
-        marketCap: asset.marketCap,
-      },
-      savedAt: new Date().toISOString(),
-      horizon,
-      predictionDirection: asset.direction,
-      entryPrice: asset.lastPrice,
-      entryPriceSource: 'MarketLens',
-      targetEndTime: getTargetDate(horizon).toISOString(),
-      confidenceAtSave: asset.confidence,
-      modelSnapshotId: `snap-${new Date().toISOString().split('T')[0]}`,
-      currentPrice: asset.lastPrice,
-      currentReturn: 0,
-    };
-
-    setWatchlist(prev => [newCase, ...prev]);
-    toast({
-      title: 'Tillagd i watchlist',
-      description: `${asset.ticker} har lagts till med horisont ${horizon}.`,
-    });
+  const handleConfirmWatchlist = async (asset: RankedAsset, horizon: Horizon) => {
+    try {
+      await addToWatchlistMutation.mutateAsync({ asset, horizon });
+      toast({
+        title: 'Tillagd i watchlist',
+        description: `${asset.ticker} har lagts till med horisont ${HORIZON_LABELS[horizon]}.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Fel',
+        description: 'Kunde inte lägga till i watchlist.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const activeWatchlist = watchlist.filter(w => !w.resultLockedAt);
-  const completedWatchlist = watchlist.filter(w => !!w.resultLockedAt);
+  const activeWatchlist = transformedWatchlist.filter(w => !w.resultLockedAt);
+  const completedWatchlist = transformedWatchlist.filter(w => !!w.resultLockedAt);
+  const isLoading = loadingUp || loadingDown;
 
   return (
     <div className="min-h-screen bg-background">
@@ -142,44 +166,64 @@ const Index = () => {
         {/* Watchlist */}
         {activeTab === 'watchlist' && (
           <div className="space-y-6">
-            <Tabs defaultValue="active" className="w-full">
-              <TabsList className="grid w-full max-w-md grid-cols-2">
-                <TabsTrigger value="active" className="gap-2">
-                  <Star className="w-4 h-4" />
-                  Aktiva ({activeWatchlist.length})
-                </TabsTrigger>
-                <TabsTrigger value="history" className="gap-2">
-                  <History className="w-4 h-4" />
-                  Historik ({completedWatchlist.length})
-                </TabsTrigger>
-              </TabsList>
+            {!user ? (
+              <div className="glass-card rounded-xl p-8 text-center">
+                <Star className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">Logga in för att se din watchlist</h3>
+                <p className="text-muted-foreground mb-4">
+                  Skapa ett konto för att spara tillgångar och följa dina prediktioner.
+                </p>
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                >
+                  Logga in
+                </button>
+              </div>
+            ) : loadingWatchlist ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <Tabs defaultValue="active" className="w-full">
+                <TabsList className="grid w-full max-w-md grid-cols-2">
+                  <TabsTrigger value="active" className="gap-2">
+                    <Star className="w-4 h-4" />
+                    Aktiva ({activeWatchlist.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="history" className="gap-2">
+                    <History className="w-4 h-4" />
+                    Historik ({completedWatchlist.length})
+                  </TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="active" className="mt-6 space-y-3">
-                {activeWatchlist.length === 0 ? (
-                  <div className="glass-card rounded-xl p-8 text-center text-muted-foreground">
-                    <Star className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>Inga aktiva bevakningar. Lägg till från Dashboard!</p>
-                  </div>
-                ) : (
-                  activeWatchlist.map((wc) => (
-                    <WatchlistCard key={wc.id} watchlistCase={wc} />
-                  ))
-                )}
-              </TabsContent>
+                <TabsContent value="active" className="mt-6 space-y-3">
+                  {activeWatchlist.length === 0 ? (
+                    <div className="glass-card rounded-xl p-8 text-center text-muted-foreground">
+                      <Star className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p>Inga aktiva bevakningar. Lägg till från Dashboard!</p>
+                    </div>
+                  ) : (
+                    activeWatchlist.map((wc) => (
+                      <WatchlistCard key={wc.id} watchlistCase={wc} />
+                    ))
+                  )}
+                </TabsContent>
 
-              <TabsContent value="history" className="mt-6 space-y-3">
-                {completedWatchlist.length === 0 ? (
-                  <div className="glass-card rounded-xl p-8 text-center text-muted-foreground">
-                    <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>Ingen historik ännu.</p>
-                  </div>
-                ) : (
-                  completedWatchlist.map((wc) => (
-                    <WatchlistCard key={wc.id} watchlistCase={wc} />
-                  ))
-                )}
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="history" className="mt-6 space-y-3">
+                  {completedWatchlist.length === 0 ? (
+                    <div className="glass-card rounded-xl p-8 text-center text-muted-foreground">
+                      <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p>Ingen historik ännu.</p>
+                    </div>
+                  ) : (
+                    completedWatchlist.map((wc) => (
+                      <WatchlistCard key={wc.id} watchlistCase={wc} />
+                    ))
+                  )}
+                </TabsContent>
+              </Tabs>
+            )}
           </div>
         )}
 
@@ -224,6 +268,8 @@ const Index = () => {
         onClose={() => setAssetForWatchlist(null)}
         onConfirm={handleConfirmWatchlist}
       />
+
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 };
