@@ -11,23 +11,16 @@ const CRYPTO_IDS: Record<string, string> = {
   'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot', 'LINK': 'chainlink',
 };
 
-// Metal futures symbols for Yahoo
-const METAL_YAHOO: Record<string, string> = {
-  'XAU': 'GC=F', 'XAG': 'SI=F', 'XPT': 'PL=F', 'XPD': 'PA=F',
-};
-
-// Swedish stock suffixes
+// Swedish stocks mapped to Finnhub format
 const SWEDISH_STOCKS = ['VOLVO-B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
   'SAND', 'HEXA-B', 'INVE-B', 'SWED-A', 'ESSITY-B', 'SKF-B', 'TELIA', 'KINV-B', 'ELUX-B'];
 
-// Realistic base prices for fallback
-const BASE_PRICES: Record<string, number> = {
-  'VOLVO-B': 285, 'ERIC-B': 68, 'SEB-A': 142, 'ATCO-A': 178, 'ASSA-B': 312,
-  'HM-B': 156, 'SAND': 218, 'HEXA-B': 124, 'INVE-B': 278, 'SWED-A': 215,
-  'ESSITY-B': 282, 'SKF-B': 198, 'TELIA': 28, 'KINV-B': 89, 'ELUX-B': 78,
-  'BTC': 98500, 'ETH': 3200, 'SOL': 185, 'XRP': 2.5, 'ADA': 0.85,
-  'AVAX': 32, 'DOT': 6.5, 'LINK': 22,
-  'XAU': 2680, 'XAG': 31, 'XPT': 980, 'XPD': 1040,
+// Metal symbols
+const METALS = ['XAU', 'XAG', 'XPT', 'XPD'];
+
+// Alpha Vantage metal mapping
+const ALPHA_METALS: Record<string, string> = {
+  'XAU': 'XAU', 'XAG': 'XAG', 'XPT': 'XPT', 'XPD': 'XPD',
 };
 
 Deno.serve(async (req) => {
@@ -40,6 +33,9 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
+
+    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
+    const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
 
     const { data: symbols, error: symError } = await supabase
       .from('symbols')
@@ -55,7 +51,6 @@ Deno.serve(async (req) => {
     }
 
     if (!symbols?.length) {
-      console.log('No symbols found');
       return new Response(JSON.stringify({ updated: 0, reason: 'no symbols' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -65,16 +60,15 @@ Deno.serve(async (req) => {
     const priceRecords: any[] = [];
     const errors: string[] = [];
 
-    // Fetch crypto from CoinGecko
+    // 1. Fetch crypto from CoinGecko (free, no API key)
     const cryptoTickers = symbols.filter(s => CRYPTO_IDS[s.ticker]);
     if (cryptoTickers.length) {
       const ids = cryptoTickers.map(s => CRYPTO_IDS[s.ticker]).join(',');
-      console.log(`Fetching crypto: ${ids}`);
+      console.log(`Fetching crypto from CoinGecko: ${ids}`);
       try {
         const res = await fetch(
           `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true`
         );
-        console.log(`CoinGecko status: ${res.status}`);
         if (res.ok) {
           const data = await res.json();
           for (const s of cryptoTickers) {
@@ -100,60 +94,97 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch stocks and metals from Yahoo Finance
-    const yahooSymbols: { symbol: any; yahoo: string }[] = [];
-    for (const s of symbols) {
-      if (METAL_YAHOO[s.ticker]) {
-        yahooSymbols.push({ symbol: s, yahoo: METAL_YAHOO[s.ticker] });
-      } else if (SWEDISH_STOCKS.includes(s.ticker)) {
-        yahooSymbols.push({ symbol: s, yahoo: `${s.ticker}.ST` });
-      }
-    }
-
-    if (yahooSymbols.length) {
-      const tickers = yahooSymbols.map(x => x.yahoo).join(',');
-      console.log(`Fetching Yahoo: ${tickers}`);
-      try {
-        const res = await fetch(
-          `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(tickers)}`,
-          { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
-        );
-        console.log(`Yahoo status: ${res.status}`);
-        if (res.ok) {
-          const data = await res.json();
-          const quotes = data?.quoteResponse?.result || [];
-          console.log(`Yahoo quotes received: ${quotes.length}`);
-          for (const { symbol, yahoo } of yahooSymbols) {
-            const q = quotes.find((x: any) => x.symbol === yahoo);
-            if (q?.regularMarketPrice) {
+    // 2. Fetch Swedish stocks from Finnhub
+    if (FINNHUB_API_KEY) {
+      const stockSymbols = symbols.filter(s => SWEDISH_STOCKS.includes(s.ticker));
+      console.log(`Fetching ${stockSymbols.length} stocks from Finnhub`);
+      
+      for (const s of stockSymbols) {
+        try {
+          // Finnhub format: TICKER.ST for Stockholm
+          const finnhubSymbol = `${s.ticker.replace('-', '_')}.ST`;
+          const res = await fetch(
+            `https://finnhub.io/api/v1/quote?symbol=${finnhubSymbol}&token=${FINNHUB_API_KEY}`
+          );
+          
+          if (res.ok) {
+            const data = await res.json();
+            if (data.c && data.c > 0) {
               priceRecords.push({
-                symbol_id: symbol.id,
-                price: q.regularMarketPrice,
-                change_24h: q.regularMarketChange || 0,
-                change_percent_24h: q.regularMarketChangePercent || 0,
-                volume: q.regularMarketVolume || 0,
-                market_cap: q.marketCap,
-                high_price: q.regularMarketDayHigh,
-                low_price: q.regularMarketDayLow,
-                source: METAL_YAHOO[symbol.ticker] ? 'yahoo-metals' : 'yahoo-finance',
+                symbol_id: s.id,
+                price: data.c, // current price
+                change_24h: data.d || 0, // change
+                change_percent_24h: data.dp || 0, // change percent
+                high_price: data.h,
+                low_price: data.l,
+                open_price: data.o,
+                volume: 0, // Quote doesn't include volume
+                source: 'finnhub',
               });
             }
           }
-        } else {
-          errors.push(`Yahoo: ${res.status}`);
+          // Rate limit: 60 calls/minute
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (e) {
+          console.error(`Finnhub error for ${s.ticker}:`, e);
+          errors.push(`Finnhub ${s.ticker}: ${e}`);
         }
-      } catch (e) { 
-        console.error('Yahoo error:', e);
-        errors.push(`Yahoo: ${e}`);
       }
+    } else {
+      console.log('FINNHUB_API_KEY not configured, skipping stocks');
     }
 
-    // Add fallback prices for symbols not fetched from external APIs
+    // 3. Fetch metals from Alpha Vantage
+    if (ALPHA_VANTAGE_API_KEY) {
+      const metalSymbols = symbols.filter(s => METALS.includes(s.ticker));
+      console.log(`Fetching ${metalSymbols.length} metals from Alpha Vantage`);
+      
+      for (const s of metalSymbols) {
+        try {
+          // Use CURRENCY_EXCHANGE_RATE for metals (XAU/USD, etc.)
+          const res = await fetch(
+            `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${s.ticker}&to_currency=USD&apikey=${ALPHA_VANTAGE_API_KEY}`
+          );
+          
+          if (res.ok) {
+            const data = await res.json();
+            const rate = data['Realtime Currency Exchange Rate'];
+            if (rate?.['5. Exchange Rate']) {
+              const price = parseFloat(rate['5. Exchange Rate']);
+              priceRecords.push({
+                symbol_id: s.id,
+                price,
+                change_24h: 0, // Alpha Vantage doesn't provide in this endpoint
+                change_percent_24h: 0,
+                volume: 0,
+                source: 'alphavantage',
+              });
+            }
+          }
+          // Rate limit: 25 calls/day for free tier
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (e) {
+          console.error(`Alpha Vantage error for ${s.ticker}:`, e);
+          errors.push(`AlphaVantage ${s.ticker}: ${e}`);
+        }
+      }
+    } else {
+      console.log('ALPHA_VANTAGE_API_KEY not configured, skipping metals');
+    }
+
+    // 4. Add fallback for any symbols not fetched
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
     const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id));
     
     if (missingSymbols.length > 0) {
-      console.log(`Adding fallback for ${missingSymbols.length} symbols`);
+      console.log(`Adding fallback for ${missingSymbols.length} missing symbols`);
+      const BASE_PRICES: Record<string, number> = {
+        'VOLVO-B': 285, 'ERIC-B': 68, 'SEB-A': 142, 'ATCO-A': 178, 'ASSA-B': 312,
+        'HM-B': 156, 'SAND': 218, 'HEXA-B': 124, 'INVE-B': 278, 'SWED-A': 215,
+        'ESSITY-B': 282, 'SKF-B': 198, 'TELIA': 28, 'KINV-B': 89, 'ELUX-B': 78,
+        'XAU': 2680, 'XAG': 31, 'XPT': 980, 'XPD': 1040,
+      };
+      
       for (const s of missingSymbols) {
         const basePrice = BASE_PRICES[s.ticker] || 100;
         const variation = (Math.random() - 0.5) * 0.02;

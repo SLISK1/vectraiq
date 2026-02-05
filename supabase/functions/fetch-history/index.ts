@@ -11,6 +11,10 @@ const CRYPTO_IDS: Record<string, string> = {
   'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot', 'LINK': 'chainlink',
 };
 
+// Swedish stocks
+const SWEDISH_STOCKS = ['VOLVO-B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
+  'SAND', 'HEXA-B', 'INVE-B', 'SWED-A', 'ESSITY-B', 'SKF-B', 'TELIA', 'KINV-B', 'ELUX-B'];
+
 interface HistoryRequest {
   tickers?: string[];
   days?: number;
@@ -27,6 +31,9 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
+    const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
+    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
+
     // Parse request body
     let requestedTickers: string[] | undefined;
     let days = 60;
@@ -36,7 +43,7 @@ Deno.serve(async (req) => {
       requestedTickers = body.tickers;
       days = body.days || 60;
     } catch {
-      // Use defaults if no body
+      // Use defaults
     }
 
     // Get symbols
@@ -47,16 +54,9 @@ Deno.serve(async (req) => {
     
     const { data: symbols, error: symError } = await query;
 
-    if (symError) {
-      console.error('Symbol fetch error:', symError);
-      return new Response(JSON.stringify({ error: symError.message }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (!symbols?.length) {
-      return new Response(JSON.stringify({ updated: 0, reason: 'no symbols' }), {
+    if (symError || !symbols?.length) {
+      return new Response(JSON.stringify({ error: symError?.message || 'no symbols' }), {
+        status: symError ? 500 : 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -66,25 +66,22 @@ Deno.serve(async (req) => {
     const results: { ticker: string; records: number; source: string }[] = [];
     const errors: string[] = [];
 
-    // Fetch crypto historical data from CoinGecko
+    // 1. Fetch crypto historical data from CoinGecko
     const cryptoSymbols = symbols.filter(s => CRYPTO_IDS[s.ticker]);
     
     for (const symbol of cryptoSymbols) {
       const coinId = CRYPTO_IDS[symbol.ticker];
-      console.log(`Fetching history for ${symbol.ticker} (${coinId})`);
+      console.log(`Fetching history for ${symbol.ticker} from CoinGecko`);
       
       try {
-        // CoinGecko market_chart endpoint - returns OHLC data
         const res = await fetch(
           `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`
         );
         
         if (res.ok) {
           const data = await res.json();
-          // OHLC format: [[timestamp, open, high, low, close], ...]
           
           if (Array.isArray(data) && data.length > 0) {
-            // Deduplicate by date - keep only the last entry for each date
             const byDate = new Map<string, any>();
             for (const candle of data) {
               const dateStr = new Date(candle[0]).toISOString().split('T')[0];
@@ -102,7 +99,6 @@ Deno.serve(async (req) => {
             
             const historyRecords = Array.from(byDate.values());
 
-            // Upsert to handle duplicates
             const { error: insertError } = await supabase
               .from('price_history')
               .upsert(historyRecords, { 
@@ -111,32 +107,150 @@ Deno.serve(async (req) => {
               });
 
             if (insertError) {
-              console.error(`Insert error for ${symbol.ticker}:`, insertError);
               errors.push(`${symbol.ticker}: ${insertError.message}`);
             } else {
               results.push({ ticker: symbol.ticker, records: historyRecords.length, source: 'coingecko' });
             }
           }
         } else {
-          console.error(`CoinGecko error for ${symbol.ticker}: ${res.status}`);
-          errors.push(`${symbol.ticker}: HTTP ${res.status}`);
+          errors.push(`${symbol.ticker}: CoinGecko HTTP ${res.status}`);
         }
         
-        // Rate limiting - CoinGecko free tier is 10-30 calls/minute
         await new Promise(resolve => setTimeout(resolve, 2500));
         
       } catch (e) {
-        console.error(`Error fetching ${symbol.ticker}:`, e);
         errors.push(`${symbol.ticker}: ${e}`);
       }
     }
 
-    // For non-crypto symbols, we need an API key (Alpha Vantage, Finnhub, etc.)
-    // For now, log which ones we couldn't fetch
-    const nonCryptoSymbols = symbols.filter(s => !CRYPTO_IDS[s.ticker]);
-    if (nonCryptoSymbols.length > 0) {
-      console.log(`Skipped ${nonCryptoSymbols.length} non-crypto symbols (need Alpha Vantage API key)`);
+    // 2. Fetch Swedish stocks from Yahoo Finance (free, no API key needed)
+    const stockSymbols = symbols.filter(s => SWEDISH_STOCKS.includes(s.ticker));
+    console.log(`Fetching history for ${stockSymbols.length} Swedish stocks from Yahoo Finance`);
+    
+    for (const symbol of stockSymbols) {
+      try {
+        const yahooSymbol = `${symbol.ticker}.ST`;
+        const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+        const period2 = Math.floor(Date.now() / 1000);
+        
+        console.log(`Trying Yahoo Finance for ${symbol.ticker} as ${yahooSymbol}`);
+        
+        const res = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?period1=${period1}&period2=${period2}&interval=1d`,
+          { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
+        );
+        
+        if (res.ok) {
+          const data = await res.json();
+          const result = data.chart?.result?.[0];
+          
+          if (result?.timestamp && result?.indicators?.quote?.[0]) {
+            const quotes = result.indicators.quote[0];
+            const historyRecords: any[] = [];
+            
+            for (let i = 0; i < result.timestamp.length; i++) {
+              if (quotes.close?.[i] != null) {
+                const dateStr = new Date(result.timestamp[i] * 1000).toISOString().split('T')[0];
+                historyRecords.push({
+                  symbol_id: symbol.id,
+                  date: dateStr,
+                  open_price: quotes.open?.[i] || quotes.close[i],
+                  high_price: quotes.high?.[i] || quotes.close[i],
+                  low_price: quotes.low?.[i] || quotes.close[i],
+                  close_price: quotes.close[i],
+                  volume: quotes.volume?.[i] || null,
+                  source: 'yahoo',
+                });
+              }
+            }
+
+            if (historyRecords.length > 0) {
+              const { error: insertError } = await supabase
+                .from('price_history')
+                .upsert(historyRecords, { 
+                  onConflict: 'symbol_id,date,source',
+                  ignoreDuplicates: true 
+                });
+
+              if (insertError) {
+                errors.push(`${symbol.ticker}: ${insertError.message}`);
+              } else {
+                results.push({ ticker: symbol.ticker, records: historyRecords.length, source: 'yahoo' });
+              }
+            }
+          }
+        } else {
+          console.log(`Yahoo HTTP error for ${symbol.ticker}: ${res.status}`);
+        }
+        
+        // Rate limit: be nice to Yahoo
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+      } catch (e) {
+        console.error(`Yahoo error for ${symbol.ticker}:`, e);
+        errors.push(`${symbol.ticker}: ${e}`);
+      }
     }
+
+    // 3. For metals, use Alpha Vantage if available
+    if (ALPHA_VANTAGE_API_KEY) {
+      const metalSymbols = symbols.filter(s => ['XAU', 'XAG', 'XPT', 'XPD'].includes(s.ticker));
+      console.log(`Fetching history for ${metalSymbols.length} metals from Alpha Vantage`);
+      
+      for (const symbol of metalSymbols.slice(0, 2)) { // Limit due to rate limits
+        try {
+          // Use FX_DAILY for precious metals
+          const res = await fetch(
+            `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=${symbol.ticker}&to_symbol=USD&outputsize=compact&apikey=${ALPHA_VANTAGE_API_KEY}`
+          );
+          
+          if (res.ok) {
+            const data = await res.json();
+            const timeSeries = data['Time Series FX (Daily)'];
+            
+            if (timeSeries) {
+              const historyRecords = Object.entries(timeSeries)
+                .slice(0, days)
+                .map(([date, values]: [string, any]) => ({
+                  symbol_id: symbol.id,
+                  date,
+                  open_price: parseFloat(values['1. open']),
+                  high_price: parseFloat(values['2. high']),
+                  low_price: parseFloat(values['3. low']),
+                  close_price: parseFloat(values['4. close']),
+                  volume: null,
+                  source: 'alphavantage',
+                }));
+
+              if (historyRecords.length > 0) {
+                const { error: insertError } = await supabase
+                  .from('price_history')
+                  .upsert(historyRecords, { 
+                    onConflict: 'symbol_id,date,source',
+                    ignoreDuplicates: true 
+                  });
+
+                if (insertError) {
+                  errors.push(`${symbol.ticker}: ${insertError.message}`);
+                } else {
+                  results.push({ ticker: symbol.ticker, records: historyRecords.length, source: 'alphavantage' });
+                }
+              }
+            } else if (data.Note || data.Information) {
+              console.log('Alpha Vantage rate limit or issue:', data.Note || data.Information);
+            }
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 12000));
+          
+        } catch (e) {
+          errors.push(`${symbol.ticker}: ${e}`);
+        }
+      }
+    }
+
+    // 4. Finnhub for US stocks (if we had any) - keep for future use
+    // Swedish stocks require premium on Finnhub
 
     const totalRecords = results.reduce((sum, r) => sum + r.records, 0);
     console.log(`Fetched ${totalRecords} historical records for ${results.length} symbols`);
@@ -145,7 +259,6 @@ Deno.serve(async (req) => {
       success: true,
       fetched: results,
       totalRecords,
-      skipped: nonCryptoSymbols.map(s => s.ticker),
       errors: errors.length ? errors : undefined,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
