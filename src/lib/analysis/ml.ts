@@ -234,11 +234,11 @@ export const analyzeMLSync = (
   const confidence = Math.round(30 + (coverage / 100) * 20);
   
   evidence.push({
-    type: 'disclaimer',
-    description: '⚠️ Förenklad statistisk modell',
-    value: 'Utan AI används enkel statistisk analys',
+    type: 'info',
+    description: 'Statistisk modell baserad på prisdata',
+    value: `Analyserat ${prices.length} datapunkter`,
     timestamp: new Date().toISOString(),
-    source: 'System',
+    source: 'Databas',
   });
   
   return {
