@@ -352,7 +352,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      asset_type: "stock" | "crypto" | "metal"
+      asset_type: "stock" | "crypto" | "metal" | "fund"
       horizon_type: "1s" | "1m" | "1h" | "1d" | "1w" | "1mo" | "1y"
       signal_direction: "UP" | "DOWN" | "NEUTRAL"
     }
@@ -482,7 +482,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      asset_type: ["stock", "crypto", "metal"],
+      asset_type: ["stock", "crypto", "metal", "fund"],
       horizon_type: ["1s", "1m", "1h", "1d", "1w", "1mo", "1y"],
       signal_direction: ["UP", "DOWN", "NEUTRAL"],
     },

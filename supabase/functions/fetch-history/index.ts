@@ -11,9 +11,25 @@ const CRYPTO_IDS: Record<string, string> = {
   'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot', 'LINK': 'chainlink',
 };
 
-// Swedish stocks
-const SWEDISH_STOCKS = ['VOLV_B', 'ERIC-B', 'SEB-A', 'ATCO-A', 'ASSA-B', 'HM-B', 
-  'SAND', 'HEXA-B', 'INVE-B', 'SWED-A', 'ESSITY-B', 'SKF-B', 'TELIA', 'KINV-B', 'ELUX-B'];
+// Swedish/Nordic stocks - ticker to Yahoo symbol mapping
+const NORDIC_STOCKS: Record<string, string> = {
+  'VOLV_B': 'VOLV-B.ST', 'ERIC-B': 'ERIC-B.ST', 'SEB-A': 'SEB-A.ST', 
+  'ATCO-A': 'ATCO-A.ST', 'ASSA-B': 'ASSA-B.ST', 'HM-B': 'HM-B.ST',
+  'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST', 
+  'SWED-A': 'SWED-A.ST', 'ESSITY-B': 'ESSITY-B.ST', 'SKF-B': 'SKF-B.ST', 
+  'TELIA': 'TELIA.ST', 'KINV-B': 'KINV-B.ST', 'ELUX-B': 'ELUX-B.ST',
+  // New stocks from user portfolio
+  'ABB': 'ABB.ST', 'ALFA': 'ALFA.ST', 'CAST': 'CAST.ST', 'EQT': 'EQT.ST',
+  'FLAT': 'FLAT-B.ST', 'NEOBO': 'NEOBO.ST',
+  'SITOW': 'SITOWS.HE', // Helsinki
+};
+
+// Swedish funds - ticker to Morningstar/Avanza ID (for future API integration)
+const SWEDISH_FUNDS: Record<string, string> = {
+  'SWE-ASIA': 'F00000WLQU', 'SWE-USA': 'F00000WLQS', 'SWE-GLOB': 'F00000WLQR',
+  'SWE-TECH': 'F00000WLQT', 'SWE-SMAL': 'F00000WLQP', 'HB-ENRG': 'F00000Z8ZX',
+  'SPLT-INV': 'F00000NCKP',
+};
 
 // US stocks (fetch via Yahoo Finance - no API key needed)
 const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ'];
@@ -126,14 +142,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Fetch Swedish stocks from Yahoo Finance (free, no API key needed)
-    const stockSymbols = symbols.filter(s => SWEDISH_STOCKS.includes(s.ticker));
-    console.log(`Fetching history for ${stockSymbols.length} Swedish stocks from Yahoo Finance`);
+    // 2. Fetch Nordic stocks from Yahoo Finance (free, no API key needed)
+    const stockSymbols = symbols.filter(s => NORDIC_STOCKS[s.ticker]);
+    console.log(`Fetching history for ${stockSymbols.length} Nordic stocks from Yahoo Finance`);
     
     for (const symbol of stockSymbols) {
       try {
-        // Yahoo Finance format: replace underscore with dash for Swedish stocks
-        const yahooSymbol = `${symbol.ticker.replace('_', '-')}.ST`;
+        // Use mapping for correct Yahoo symbol
+        const yahooSymbol = NORDIC_STOCKS[symbol.ticker];
         const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
         const period2 = Math.floor(Date.now() / 1000);
         
