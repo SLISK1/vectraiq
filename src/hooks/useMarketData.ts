@@ -405,3 +405,41 @@ export const useDeleteHolding = () => {
     },
   });
 };
+
+export const useUpdateHolding = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { 
+      id: string;
+      data: { 
+        quantity: number; 
+        purchasePrice: number; 
+        purchaseDate: string; 
+        notes?: string 
+      }
+    }) => {
+      const { data: holding, error } = await supabase
+        .from('portfolio_holdings')
+        .update({
+          quantity: data.quantity,
+          purchase_price: data.purchasePrice,
+          purchase_date: data.purchaseDate,
+          notes: data.notes || null,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating holding:', error);
+        throw error;
+      }
+
+      return holding;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+    },
+  });
+};

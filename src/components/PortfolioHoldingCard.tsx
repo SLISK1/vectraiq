@@ -1,28 +1,21 @@
-import { Trash2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Trash2, TrendingUp, TrendingDown, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AssetTypeBadge } from './AssetTypeBadge';
 import { formatCurrency } from '@/lib/utils';
 import type { SymbolWithPrice } from '@/lib/api/database';
 import type { AssetType } from '@/types/market';
+import type { PortfolioHolding } from '@/hooks/useMarketData';
 import { format } from 'date-fns';
 import { sv } from 'date-fns/locale';
-
-interface PortfolioHolding {
-  id: string;
-  symbol_id: string;
-  quantity: number;
-  purchase_price: number;
-  purchase_date: string;
-  notes?: string | null;
-}
 
 interface PortfolioHoldingCardProps {
   holding: PortfolioHolding;
   symbol?: SymbolWithPrice;
+  onEdit: () => void;
   onDelete: () => void;
 }
 
-export const PortfolioHoldingCard = ({ holding, symbol, onDelete }: PortfolioHoldingCardProps) => {
+export const PortfolioHoldingCard = ({ holding, symbol, onEdit, onDelete }: PortfolioHoldingCardProps) => {
   const currentPrice = symbol?.latestPrice ? Number(symbol.latestPrice.price) : holding.purchase_price;
   const investedValue = holding.quantity * holding.purchase_price;
   const currentValue = holding.quantity * currentPrice;
@@ -82,15 +75,25 @@ export const PortfolioHoldingCard = ({ holding, symbol, onDelete }: PortfolioHol
           </p>
         </div>
 
-        {/* Delete button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onDelete}
-          className="text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="w-4 h-4" />
-        </Button>
+        {/* Action buttons */}
+        <div className="flex flex-col gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onEdit}
+            className="text-muted-foreground hover:text-primary"
+          >
+            <Pencil className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onDelete}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );

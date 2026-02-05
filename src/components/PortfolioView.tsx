@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { usePortfolio, useSymbols, useAddHolding, useDeleteHolding } from '@/hooks/useMarketData';
+import { usePortfolio, useSymbols, useAddHolding, useDeleteHolding, useUpdateHolding, type PortfolioHolding } from '@/hooks/useMarketData';
 import { PortfolioHoldingCard } from './PortfolioHoldingCard';
 import { AddHoldingModal } from './AddHoldingModal';
+import { EditHoldingModal } from './EditHoldingModal';
 import { Button } from '@/components/ui/button';
 import { Briefcase, Plus, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
@@ -13,7 +14,9 @@ export const PortfolioView = () => {
   const { data: symbols } = useSymbols();
   const addHoldingMutation = useAddHolding();
   const deleteHoldingMutation = useDeleteHolding();
+  const updateHoldingMutation = useUpdateHolding();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingHolding, setEditingHolding] = useState<PortfolioHolding | null>(null);
 
   if (!user) {
     return (
@@ -53,6 +56,11 @@ export const PortfolioView = () => {
 
   const handleDeleteHolding = async (id: string) => {
     await deleteHoldingMutation.mutateAsync(id);
+  };
+
+  const handleUpdateHolding = async (id: string, data: { quantity: number; purchasePrice: number; purchaseDate: string; notes?: string }) => {
+    await updateHoldingMutation.mutateAsync({ id, data });
+    setEditingHolding(null);
   };
 
   return (
@@ -119,6 +127,7 @@ export const PortfolioView = () => {
                 key={holding.id}
                 holding={holding}
                 symbol={symbol}
+                onEdit={() => setEditingHolding(holding)}
                 onDelete={() => handleDeleteHolding(holding.id)}
               />
             );
@@ -133,6 +142,16 @@ export const PortfolioView = () => {
         onAdd={handleAddHolding}
         symbols={symbols || []}
         isAdding={addHoldingMutation.isPending}
+      />
+
+      {/* Edit Modal */}
+      <EditHoldingModal
+        isOpen={!!editingHolding}
+        onClose={() => setEditingHolding(null)}
+        onUpdate={handleUpdateHolding}
+        holding={editingHolding}
+        symbol={editingHolding ? symbols?.find(s => s.id === editingHolding.symbol_id) : undefined}
+        isUpdating={updateHoldingMutation.isPending}
       />
     </div>
   );
