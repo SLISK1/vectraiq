@@ -109,6 +109,16 @@ const transformToRankedAsset = async (
     return null;
   }
   
+  // Helper to get market cap category
+  const getMarketCapCategory = (marketCap?: number): 'small' | 'medium' | 'large' => {
+    if (!marketCap) return 'small';
+    if (marketCap >= 10_000_000_000) return 'large';
+    if (marketCap >= 2_000_000_000) return 'medium';
+    return 'small';
+  };
+
+  const marketCapValue = price?.market_cap ? Number(price.market_cap) : undefined;
+  
   return {
     ticker: symbol.ticker,
     name: symbol.name,
@@ -120,7 +130,8 @@ const transformToRankedAsset = async (
     change24h: price ? Number(price.change_24h || 0) : 0,
     changePercent24h: price ? Number(price.change_percent_24h || 0) : 0,
     volume24h: price ? Number(price.volume || 0) : 0,
-    marketCap: price?.market_cap ? Number(price.market_cap) : undefined,
+    marketCap: marketCapValue,
+    marketCapCategory: getMarketCapCategory(marketCapValue),
     totalScore: analysis.totalScore,
     direction: analysis.direction === 'NEUTRAL' ? filterDirection : analysis.direction,
     confidence: analysis.confidence,
@@ -129,6 +140,8 @@ const transformToRankedAsset = async (
     topContributors: analysis.topContributors,
     horizon,
     lastUpdated: analysis.lastUpdated,
+    predictedReturns: analysis.predictedReturns,
+    aiSummary: analysis.aiSummary,
   };
 };
 

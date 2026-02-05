@@ -69,6 +69,19 @@ export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, classN
               {formatChange(asset.changePercent24h)}
             </span>
           </div>
+
+          {/* Predicted Returns */}
+          {asset.predictedReturns && (
+            <div className="flex items-center gap-2 mt-2 text-xs">
+              <span className="text-muted-foreground">Prognos:</span>
+              <span className={cn("font-mono", asset.predictedReturns.day1 >= 0 ? "text-up" : "text-down")}>
+                1d {asset.predictedReturns.day1 >= 0 ? '+' : ''}{asset.predictedReturns.day1}%
+              </span>
+              <span className={cn("font-mono", asset.predictedReturns.week1 >= 0 ? "text-up" : "text-down")}>
+                1v {asset.predictedReturns.week1 >= 0 ? '+' : ''}{asset.predictedReturns.week1}%
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Confidence & Contributors */}
