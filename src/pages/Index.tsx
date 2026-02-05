@@ -10,6 +10,7 @@ import { AssetDetailModal } from '@/components/AssetDetailModal';
 import { AddToWatchlistModal } from '@/components/AddToWatchlistModal';
 import { AuthModal } from '@/components/AuthModal';
 import { MarketCapFilter } from '@/components/MarketCapFilter';
+import { AssetTypeFilter } from '@/components/AssetTypeFilter';
 import { SearchAssets } from '@/components/SearchAssets';
 import { PortfolioView } from '@/components/PortfolioView';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
@@ -24,6 +25,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'watchlist' | 'portfolio' | 'stats' | 'settings'>('dashboard');
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>('1w');
   const [selectedMarketCap, setSelectedMarketCap] = useState<MarketCapCategory>('all');
+  const [selectedAssetType, setSelectedAssetType] = useState<AssetType | 'all'>('all');
   const [selectedAsset, setSelectedAsset] = useState<RankedAsset | null>(null);
   const [assetForWatchlist, setAssetForWatchlist] = useState<RankedAsset | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -196,18 +198,24 @@ const Index = () => {
     }
   }, [addSymbolMutation, toast]);
 
-  // Filter assets by market cap
+  // Filter assets by market cap and asset type
   const filteredTopUp = useMemo(() => {
     if (!topUp) return [];
-    if (selectedMarketCap === 'all') return topUp;
-    return topUp.filter(a => a.marketCapCategory === selectedMarketCap);
-  }, [topUp, selectedMarketCap]);
+    return topUp.filter(a => {
+      const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
+      const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
+      return matchesMarketCap && matchesAssetType;
+    });
+  }, [topUp, selectedMarketCap, selectedAssetType]);
 
   const filteredTopDown = useMemo(() => {
     if (!topDown) return [];
-    if (selectedMarketCap === 'all') return topDown;
-    return topDown.filter(a => a.marketCapCategory === selectedMarketCap);
-  }, [topDown, selectedMarketCap]);
+    return topDown.filter(a => {
+      const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
+      const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
+      return matchesMarketCap && matchesAssetType;
+    });
+  }, [topDown, selectedMarketCap, selectedAssetType]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -241,6 +249,10 @@ const Index = () => {
               <div>
                 <h2 className="text-sm font-medium text-muted-foreground mb-3">Filtrera på börsvärde</h2>
                 <MarketCapFilter selected={selectedMarketCap} onSelect={setSelectedMarketCap} />
+              </div>
+              <div>
+                <h2 className="text-sm font-medium text-muted-foreground mb-3">Filtrera på tillgångstyp</h2>
+                <AssetTypeFilter selected={selectedAssetType} onSelect={setSelectedAssetType} />
               </div>
             </div>
 
