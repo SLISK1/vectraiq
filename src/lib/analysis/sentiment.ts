@@ -140,43 +140,135 @@ export const analyzeSentiment = async (
   };
 };
 
-// Synchronous version - returns limited analysis since AI is async
+// Synchronous version - uses momentum proxy when price data is available
 export const analyzeSentimentSync = (
   ticker: string,
   name: string,
   assetType: 'stock' | 'crypto' | 'metal',
-  horizon: Horizon
+  horizon: Horizon,
+  priceHistory?: { price: number; close?: number; timestamp: string }[]
 ): AnalysisResult => {
   const evidence: Evidence[] = [];
   
-  // Cannot do AI sentiment synchronously - indicate data limitation
-  evidence.push({
-    type: 'limitation',
-    description: 'Sentimentanalys kräver AI-anrop',
-    value: 'Realtidssentiment ej tillgängligt',
-    timestamp: new Date().toISOString(),
-    source: 'System',
-  });
+  let direction: Direction = 'NEUTRAL';
+  let strength = 50;
+  let confidence = 40; // Base confidence higher than before
+  let coverage = 35; // Base coverage
   
-  evidence.push({
-    type: 'info',
-    description: 'Datakällor som krävs',
-    value: 'Nyheter, sociala medier, analytikerbetyg',
-    timestamp: new Date().toISOString(),
-    source: 'Sentiment Module',
-  });
+  // If we have price history, calculate momentum-based sentiment proxy
+  if (priceHistory && priceHistory.length >= 5) {
+    const prices = priceHistory.map(p => p.close ?? p.price);
+    const recentPrices = prices.slice(-10);
+    
+    // Calculate short-term momentum (5-day)
+    const shortTermReturns: number[] = [];
+    for (let i = 1; i < Math.min(6, recentPrices.length); i++) {
+      shortTermReturns.push((recentPrices[recentPrices.length - i] - recentPrices[recentPrices.length - i - 1]) / recentPrices[recentPrices.length - i - 1]);
+    }
+    const avgShortReturn = shortTermReturns.length > 0
+      ? shortTermReturns.reduce((a, b) => a + b, 0) / shortTermReturns.length
+      : 0;
+    
+    // Calculate medium-term momentum if we have enough data
+    let avgMediumReturn = 0;
+    if (prices.length >= 20) {
+      const mediumReturns: number[] = [];
+      for (let i = 1; i < Math.min(20, prices.length); i++) {
+        mediumReturns.push((prices[prices.length - i] - prices[prices.length - i - 1]) / prices[prices.length - i - 1]);
+      }
+      avgMediumReturn = mediumReturns.reduce((a, b) => a + b, 0) / mediumReturns.length;
+    }
+    
+    // Combine short and medium term momentum
+    const combinedMomentum = avgShortReturn * 0.6 + avgMediumReturn * 0.4;
+    
+    // Determine direction and strength based on momentum
+    if (combinedMomentum > 0.008) {
+      direction = 'UP';
+      strength = Math.min(80, 55 + combinedMomentum * 400);
+      confidence = 50;
+    } else if (combinedMomentum < -0.008) {
+      direction = 'DOWN';
+      strength = Math.min(80, 55 + Math.abs(combinedMomentum) * 400);
+      confidence = 50;
+    } else {
+      // Weak or no momentum
+      direction = 'NEUTRAL';
+      strength = 50;
+      confidence = 45;
+    }
+    
+    // Check for momentum consistency (all same direction = higher confidence)
+    const positiveReturns = shortTermReturns.filter(r => r > 0).length;
+    const consistencyRatio = shortTermReturns.length > 0
+      ? Math.max(positiveReturns, shortTermReturns.length - positiveReturns) / shortTermReturns.length
+      : 0.5;
+    
+    if (consistencyRatio > 0.8) {
+      confidence += 8;
+      evidence.push({
+        type: 'consistency',
+        description: 'Konsistent prisrörelse',
+        value: `${Math.round(consistencyRatio * 100)}% dagar i samma riktning`,
+        timestamp: new Date().toISOString(),
+        source: 'Momentum Proxy',
+      });
+    }
+    
+    evidence.push({
+      type: 'momentum_proxy',
+      description: 'Sentiment baserat på prismomentum',
+      value: `${combinedMomentum >= 0 ? '+' : ''}${(combinedMomentum * 100).toFixed(2)}%`,
+      timestamp: new Date().toISOString(),
+      source: 'Price Momentum Proxy',
+    });
+    
+    coverage = Math.min(60, 35 + Math.floor(priceHistory.length / 5));
+  } else {
+    evidence.push({
+      type: 'limitation',
+      description: 'Begränsad prisdata för sentimentproxy',
+      value: 'Använder basestimering',
+      timestamp: new Date().toISOString(),
+      source: 'System',
+    });
+  }
   
-  // Return neutral with low confidence - no mock data
+  // Asset type adjustments
+  if (assetType === 'crypto') {
+    confidence -= 5; // Crypto sentiment is less predictable
+    evidence.push({
+      type: 'asset_adjustment',
+      description: 'Krypto har högre sentimentvolatilitet',
+      value: '-5% konfidensjustering',
+      timestamp: new Date().toISOString(),
+      source: 'Asset Analysis',
+    });
+  } else if (assetType === 'metal') {
+    confidence += 5; // Metals tend to have more stable sentiment patterns
+    evidence.push({
+      type: 'asset_adjustment',
+      description: 'Ädelmetaller har stabilare sentiment',
+      value: '+5% konfidensjustering',
+      timestamp: new Date().toISOString(),
+      source: 'Asset Analysis',
+    });
+  }
+  
+  // Horizon adjustment - sentiment is more reliable for shorter horizons
+  const horizonMultiplier = horizon === '1d' ? 1.1 : horizon === '1w' ? 1.0 : horizon === '1mo' ? 0.9 : 0.85;
+  confidence = Math.round(confidence * horizonMultiplier);
+  
   return {
     module: 'sentiment',
-    direction: 'NEUTRAL',
-    strength: 50,
-    confidence: 15, // Very low - no real data
-    coverage: 5, // Minimal coverage
+    direction,
+    strength: Math.round(strength),
+    confidence: Math.max(35, Math.min(65, confidence)),
+    coverage,
     evidence,
     metadata: { 
-      source: 'no_data',
-      reason: 'Synchronous call - AI sentiment not available',
+      source: 'momentum_proxy',
+      method: priceHistory && priceHistory.length >= 5 ? 'price_momentum' : 'base_estimate',
     },
   };
 };

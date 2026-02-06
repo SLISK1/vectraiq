@@ -52,30 +52,52 @@ const calculateModuleScore = (signal: ModuleSignal): number => {
   return directionMultiplier * signal.strength * (signal.weight / 100);
 };
 
-// Calculate confidence breakdown
+// Calculate confidence breakdown with weighted metrics
 const calculateConfidenceBreakdown = (
   signals: ModuleSignal[],
-  priceDataAge: number // minutes since last update
+  priceDataAge: number, // minutes since last update
+  isDailyData: boolean = true
 ): ConfidenceBreakdown => {
-  // Freshness: based on data age
-  const freshness = Math.max(0, 100 - priceDataAge * 2); // Degrade 2% per minute
+  // Freshness: adapt for daily vs intraday data
+  // For daily data: full freshness if < 24h old, gentle decay after
+  // For intraday: degrade 2% per minute as before
+  let freshness: number;
+  if (isDailyData) {
+    if (priceDataAge < 1440) { // < 24 hours
+      freshness = 95;
+    } else if (priceDataAge < 2880) { // < 48 hours
+      freshness = 85;
+    } else {
+      // After 48h, gentle decay: lose 1% per hour
+      freshness = Math.max(50, 85 - (priceDataAge - 2880) / 60);
+    }
+  } else {
+    freshness = Math.max(0, 100 - priceDataAge * 2);
+  }
   
-  // Coverage: average of all module coverages
-  const coverage = signals.length > 0
-    ? Math.round(signals.reduce((sum, s) => sum + s.coverage, 0) / signals.length)
+  // Calculate total weight for weighted averages
+  const totalWeight = signals.reduce((sum, s) => sum + s.weight, 0);
+  
+  // Coverage: weighted average based on module weights
+  // Modules with higher weights matter more for coverage calculation
+  const coverage = totalWeight > 0
+    ? Math.round(signals.reduce((sum, s) => sum + s.coverage * s.weight, 0) / totalWeight)
     : 0;
   
-  // Agreement: how many modules agree on direction
-  const upVotes = signals.filter(s => s.direction === 'UP').length;
-  const downVotes = signals.filter(s => s.direction === 'DOWN').length;
-  const totalVotes = upVotes + downVotes;
-  const agreement = totalVotes > 0
-    ? Math.round((Math.max(upVotes, downVotes) / signals.length) * 100)
+  // Agreement: weighted by both module weight AND strength
+  // Strong signals from important modules count more
+  const upWeight = signals.filter(s => s.direction === 'UP')
+    .reduce((sum, s) => sum + s.weight * (s.strength / 100), 0);
+  const downWeight = signals.filter(s => s.direction === 'DOWN')
+    .reduce((sum, s) => sum + s.weight * (s.strength / 100), 0);
+  const totalDirWeight = upWeight + downWeight;
+  const agreement = totalDirWeight > 0
+    ? Math.round((Math.max(upWeight, downWeight) / totalDirWeight) * 100)
     : 50;
   
-  // Reliability: average confidence of modules
-  const reliability = signals.length > 0
-    ? Math.round(signals.reduce((sum, s) => sum + s.confidence, 0) / signals.length)
+  // Reliability: weighted average of module confidences
+  const reliability = totalWeight > 0
+    ? Math.round(signals.reduce((sum, s) => sum + s.confidence * s.weight, 0) / totalWeight)
     : 50;
   
   // Regime Risk: based on volatility module if available
@@ -89,11 +111,12 @@ const calculateConfidenceBreakdown = (
 
 // Calculate total confidence from breakdown
 const calculateTotalConfidence = (breakdown: ConfidenceBreakdown): number => {
+  // Adjusted weights: freshness less important for daily data strategies
   return Math.round(
-    0.25 * breakdown.freshness +
-    0.20 * breakdown.coverage +
-    0.25 * breakdown.agreement +
-    0.20 * breakdown.reliability +
+    0.15 * breakdown.freshness +    // Reduced from 0.25
+    0.25 * breakdown.coverage +     // Increased from 0.20
+    0.25 * breakdown.agreement +    // Same
+    0.25 * breakdown.reliability +  // Increased from 0.20
     0.10 * (100 - breakdown.regimeRisk)
   );
 };
@@ -186,9 +209,9 @@ export const runAnalysis = (
     results.push(analyzeMeasuredMoves(priceHistory, currentPrice, horizon));
   }
   
-  // 9. Sentiment Analysis (sync version)
+  // 9. Sentiment Analysis (sync version) - pass priceHistory for momentum proxy
   if (weights.sentiment > 0) {
-    results.push(analyzeSentimentSync(ticker, name, assetType, horizon));
+    results.push(analyzeSentimentSync(ticker, name, assetType, horizon, priceHistory));
   }
   
   // 10. ML Analysis (sync version)
@@ -228,7 +251,10 @@ export const runAnalysis = (
     ? (Date.now() - new Date(priceHistory[priceHistory.length - 1].timestamp).getTime()) / 60000
     : 60;
   
-  const confidenceBreakdown = calculateConfidenceBreakdown(signals, priceDataAge);
+  // Determine if we're using daily data (typical for most horizons)
+  const isDailyData = horizon !== '1s' && horizon !== '1m' && horizon !== '1h';
+  
+  const confidenceBreakdown = calculateConfidenceBreakdown(signals, priceDataAge, isDailyData);
   const confidence = calculateTotalConfidence(confidenceBreakdown);
   
   // Get top contributors

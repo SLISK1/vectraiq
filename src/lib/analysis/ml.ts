@@ -140,21 +140,22 @@ export const analyzeMLSync = (
   const evidence: Evidence[] = [];
   const prices = priceHistory.map(p => p.close ?? p.price);
   
-  if (prices.length < 10) {
+  // Lowered threshold from 50 to 15 for broader applicability
+  if (prices.length < 15) {
     return {
       module: 'ml',
       direction: 'NEUTRAL',
       strength: 50,
-      confidence: 20,
-      coverage: Math.round((prices.length / 50) * 100),
+      confidence: 25,
+      coverage: Math.round((prices.length / 30) * 100),
       evidence: [{
         type: 'limitation',
-        description: 'Otillräcklig data för ML-analys',
-        value: `Har ${prices.length} datapunkter, behöver minst 50`,
+        description: 'Begränsad data för ML-analys',
+        value: `Har ${prices.length} datapunkter, optimalt 50+`,
         timestamp: new Date().toISOString(),
         source: 'ML Module',
       }],
-      metadata: { reason: 'Insufficient data' },
+      metadata: { reason: 'Limited data' },
     };
   }
   
@@ -230,8 +231,17 @@ export const analyzeMLSync = (
   
   const direction: Direction = score > 0 ? 'UP' : score < 0 ? 'DOWN' : 'NEUTRAL';
   const strength = Math.min(100, Math.max(0, 50 + score * 15));
-  const coverage = Math.min(100, Math.round((prices.length / 100) * 100));
-  const confidence = Math.round(30 + (coverage / 100) * 20);
+  
+  // Enhanced coverage calculation - more generous for shorter histories
+  const coverage = prices.length >= 100 ? 85 :
+                   prices.length >= 50 ? 70 :
+                   prices.length >= 30 ? 55 :
+                   Math.round((prices.length / 30) * 55);
+  
+  // Enhanced confidence based on data quality and feature clarity
+  const dataQualityBonus = Math.min(20, prices.length / 5);
+  const featureClarity = Math.abs(score) > 1 ? 10 : Math.abs(score) > 0 ? 5 : 0;
+  const confidence = Math.round(35 + dataQualityBonus + featureClarity);
   
   evidence.push({
     type: 'info',
@@ -245,7 +255,7 @@ export const analyzeMLSync = (
     module: 'ml',
     direction,
     strength,
-    confidence: Math.max(20, Math.min(60, confidence)),
+    confidence: Math.max(35, Math.min(70, confidence)),
     coverage,
     evidence,
     metadata: {
@@ -253,6 +263,7 @@ export const analyzeMLSync = (
       stdDev,
       recentMomentum,
       trendStrength,
+      featureClarity,
       source: 'statistical',
     },
   };
