@@ -48,14 +48,17 @@ export interface TechnicalIndicators {
 }
 
 export interface FundamentalMetrics {
-  peRatio?: number;
-  pbRatio?: number;
-  debtToEquity?: number;
-  roe?: number;
-  revenueGrowth?: number;
-  earningsGrowth?: number;
-  dividendYield?: number;
-  marketCap?: number;
+  peRatio?: number | null;
+  pbRatio?: number | null;
+  debtToEquity?: number | null;
+  roe?: number | null;
+  revenueGrowth?: number | null;
+  earningsGrowth?: number | null;
+  dividendYield?: number | null;
+  marketCap?: number | null;
+  week52High?: number | null;
+  week52Low?: number | null;
+  lastUpdated?: string;
 }
 
 export interface SentimentData {
@@ -119,4 +122,10 @@ export interface AnalysisContext {
   priceHistory: PriceData[];
   fundamentals?: FundamentalMetrics;
   macro?: MacroData;
+}
+
+// Metadata structure stored in symbols.metadata
+export interface SymbolMetadata {
+  fundamentals?: FundamentalMetrics;
+  [key: string]: unknown;
 }

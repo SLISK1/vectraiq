@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { FundamentalMetrics, SymbolMetadata } from "@/lib/analysis/types";
 
 export type Symbol = Tables<'symbols'>;
 export type RawPrice = Tables<'raw_prices'>;
@@ -8,6 +9,7 @@ export type Signal = Tables<'signals'>;
 
 export interface SymbolWithPrice extends Symbol {
   latestPrice?: RawPrice;
+  fundamentals?: FundamentalMetrics;
 }
 
 // Fetch all symbols with their latest prices
@@ -50,10 +52,29 @@ export const fetchSymbolsWithPrices = async (): Promise<SymbolWithPrice[]> => {
     }
   });
 
-  return symbols.map(symbol => ({
-    ...symbol,
-    latestPrice: latestPrices.get(symbol.id),
-  }));
+  return symbols.map(symbol => {
+    // Parse fundamentals from metadata if available
+    const metadata = symbol.metadata as SymbolMetadata | null;
+    const fundamentals = metadata?.fundamentals;
+    
+    return {
+      ...symbol,
+      latestPrice: latestPrices.get(symbol.id),
+      fundamentals: fundamentals ? {
+        peRatio: fundamentals.peRatio,
+        pbRatio: fundamentals.pbRatio,
+        roe: fundamentals.roe,
+        debtToEquity: fundamentals.debtToEquity,
+        dividendYield: fundamentals.dividendYield,
+        marketCap: fundamentals.marketCap,
+        revenueGrowth: fundamentals.revenueGrowth,
+        earningsGrowth: fundamentals.earningsGrowth,
+        week52High: fundamentals.week52High,
+        week52Low: fundamentals.week52Low,
+        lastUpdated: fundamentals.lastUpdated,
+      } : undefined,
+    };
+  });
 };
 
 // Fetch user's watchlist
