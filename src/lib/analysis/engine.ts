@@ -9,7 +9,7 @@ import { analyzeSeasonal } from './seasonal';
 import { analyzeFundamental } from './fundamental';
 import { analyzeMacro } from './macro';
 import { analyzeOrderFlow } from './orderflow';
-import { analyzeElliottWave } from './elliottwave';
+import { analyzeMeasuredMoves } from './measuredmoves';
 import { analyzeSentimentSync } from './sentiment';
 import { analyzeMLSync } from './ml';
 import { calculateTrendPrediction } from './trendPrediction';
@@ -116,7 +116,7 @@ const generateAISummary = (
     seasonal: 'säsongsmönster',
     orderFlow: 'orderflöde',
     ml: 'ML-modeller',
-    elliottWave: 'Elliott Wave',
+    measuredMoves: 'measured moves',
   };
 
   const dirText = direction === 'UP' ? 'stiga' : direction === 'DOWN' ? 'falla' : 'vara sidledes';
@@ -181,9 +181,9 @@ export const runAnalysis = (
     results.push(analyzeOrderFlow(priceHistory, currentPrice, horizon));
   }
   
-  // 8. Elliott Wave Analysis
-  if (weights.elliottWave > 0 && priceHistory.length >= 30) {
-    results.push(analyzeElliottWave(priceHistory, currentPrice, horizon));
+  // 8. Measured Moves Analysis
+  if (weights.measuredMoves > 0 && priceHistory.length >= 20) {
+    results.push(analyzeMeasuredMoves(priceHistory, currentPrice, horizon));
   }
   
   // 9. Sentiment Analysis (sync version)
