@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
 };
 
 // Crypto ticker to CoinGecko ID mapping
@@ -28,7 +28,6 @@ const NORDIC_STOCKS: Record<string, { yahoo: string; finnhub: string }> = {
   'TELIA': { yahoo: 'TELIA.ST', finnhub: 'TELIA.ST' },
   'KINV-B': { yahoo: 'KINV-B.ST', finnhub: 'KINV_B.ST' },
   'ELUX-B': { yahoo: 'ELUX-B.ST', finnhub: 'ELUX_B.ST' },
-  // New stocks from user portfolio
   'ABB': { yahoo: 'ABB.ST', finnhub: 'ABB.ST' },
   'ALFA': { yahoo: 'ALFA.ST', finnhub: 'ALFA.ST' },
   'CAST': { yahoo: 'CAST.ST', finnhub: 'CAST.ST' },
@@ -57,10 +56,42 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    // === AUTHENTICATION CHECK ===
+    // Allow internal calls from other edge functions (marked with X-Internal-Call header and service key)
+    const isInternalCall = req.headers.get('x-internal-call') === 'true';
+    const authHeader = req.headers.get('authorization');
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // For internal calls with service key, skip user validation
+    // For external calls, validate the user token
+    if (!isInternalCall) {
+      const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+
+      const token = authHeader.replace('Bearer ', '');
+      const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getUser(token);
+      
+      if (claimsError || !claimsData?.user) {
+        return new Response(JSON.stringify({ error: 'Invalid token' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Service role client for database operations
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
@@ -202,7 +233,6 @@ Deno.serve(async (req) => {
       
       for (const s of metalSymbols) {
         try {
-          // Use CURRENCY_EXCHANGE_RATE for metals (XAU/USD, etc.)
           const res = await fetch(
             `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${s.ticker}&to_currency=USD&apikey=${ALPHA_VANTAGE_API_KEY}`
           );
@@ -215,14 +245,13 @@ Deno.serve(async (req) => {
               priceRecords.push({
                 symbol_id: s.id,
                 price,
-                change_24h: 0, // Alpha Vantage doesn't provide in this endpoint
+                change_24h: 0,
                 change_percent_24h: 0,
                 volume: 0,
                 source: 'alphavantage',
               });
             }
           }
-          // Rate limit: 25 calls/day for free tier
           await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (e) {
           console.error(`Alpha Vantage error for ${s.ticker}:`, e);
@@ -233,23 +262,19 @@ Deno.serve(async (req) => {
       console.log('ALPHA_VANTAGE_API_KEY not configured, skipping metals');
     }
 
-    // 4. Add fallback for any symbols not fetched
+    // 5. Add fallback for any symbols not fetched
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
     const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id));
     
     if (missingSymbols.length > 0) {
       console.log(`Adding fallback for ${missingSymbols.length} missing symbols`);
       const BASE_PRICES: Record<string, number> = {
-        // Swedish stocks
         'VOLV_B': 285, 'ERIC-B': 68, 'SEB-A': 142, 'ATCO-A': 178, 'ASSA-B': 312,
         'HM-B': 185, 'SAND': 218, 'HEXA-B': 124, 'INVE-B': 358, 'SWED-A': 215,
         'ESSITY-B': 282, 'SKF-B': 198, 'TELIA': 28, 'KINV-B': 89, 'ELUX-B': 78,
-        // New stocks from portfolio
         'ABB': 772, 'ALFA': 506, 'CAST': 109, 'EQT': 284, 'FLAT': 10.8,
         'NEOBO': 18.5, 'SITOW': 2.3,
-        // Metals
         'XAU': 2680, 'XAG': 31, 'XPT': 980, 'XPD': 1040,
-        // Swedish funds (NAV)
         'SWE-ASIA': 145, 'SWE-USA': 234, 'SWE-GLOB': 189,
         'SWE-TECH': 78, 'SWE-SMAL': 112, 'HB-ENRG': 95, 'SPLT-INV': 298,
       };

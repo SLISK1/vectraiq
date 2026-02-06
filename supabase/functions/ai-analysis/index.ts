@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -19,12 +21,66 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // === AUTHENTICATION CHECK ===
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+    // Validate the JWT token
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getUser(token);
+    
+    if (claimsError || !claimsData?.user) {
+      return new Response(JSON.stringify({ error: "Invalid token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // === API KEY CHECK ===
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    const { type, ticker, name, assetType, horizon, priceHistory, currentPrice }: AnalysisRequest = await req.json();
+    // === INPUT VALIDATION ===
+    const body = await req.json();
+    const { type, ticker, name, assetType, horizon, priceHistory, currentPrice }: AnalysisRequest = body;
+
+    // Validate required fields
+    if (!type || !ticker || !name || !assetType || !horizon) {
+      return new Response(JSON.stringify({ error: "Missing required fields" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Validate type
+    if (!['sentiment', 'ml_prediction', 'pattern_recognition'].includes(type)) {
+      return new Response(JSON.stringify({ error: "Invalid analysis type" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Validate ticker format
+    if (!/^[A-Z0-9_-]{1,12}$/i.test(ticker)) {
+      return new Response(JSON.stringify({ error: "Invalid ticker format" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     let systemPrompt = "";
     let userPrompt = "";

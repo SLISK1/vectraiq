@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
 };
 
 // Crypto ticker to CoinGecko ID mapping
@@ -18,10 +18,9 @@ const NORDIC_STOCKS: Record<string, string> = {
   'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST', 
   'SWED-A': 'SWED-A.ST', 'ESSITY-B': 'ESSITY-B.ST', 'SKF-B': 'SKF-B.ST', 
   'TELIA': 'TELIA.ST', 'KINV-B': 'KINV-B.ST', 'ELUX-B': 'ELUX-B.ST',
-  // New stocks from user portfolio
   'ABB': 'ABB.ST', 'ALFA': 'ALFA.ST', 'CAST': 'CAST.ST', 'EQT': 'EQT.ST',
   'FLAT': 'FLAT-B.ST', 'NEOBO': 'NEOBO.ST',
-  'SITOW': 'SITOWS.HE', // Helsinki
+  'SITOW': 'SITOWS.HE',
 };
 
 // Swedish funds - ticker to Morningstar/Avanza ID (for future API integration)
@@ -45,17 +44,49 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    // === AUTHENTICATION CHECK ===
+    // Allow internal calls from other edge functions (marked with X-Internal-Call header and service key)
+    const isInternalCall = req.headers.get('x-internal-call') === 'true';
+    const authHeader = req.headers.get('authorization');
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // For internal calls with service key, skip user validation
+    // For external calls, validate the user token
+    if (!isInternalCall) {
+      const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+
+      const token = authHeader.replace('Bearer ', '');
+      const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getUser(token);
+      
+      if (claimsError || !claimsData?.user) {
+        return new Response(JSON.stringify({ error: 'Invalid token' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Service role client for database operations
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
 
     // Parse request body - default to 365 days for better ML/trend analysis
     let requestedTickers: string[] | undefined;
-    let days = 365; // Increased from 60 to 365 for better analysis coverage
+    let days = 365;
     
     try {
       const body: HistoryRequest = await req.json();
@@ -148,7 +179,6 @@ Deno.serve(async (req) => {
     
     for (const symbol of stockSymbols) {
       try {
-        // Use mapping for correct Yahoo symbol
         const yahooSymbol = NORDIC_STOCKS[symbol.ticker];
         const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
         const period2 = Math.floor(Date.now() / 1000);
@@ -203,7 +233,6 @@ Deno.serve(async (req) => {
           console.log(`Yahoo HTTP error for ${symbol.ticker}: ${res.status}`);
         }
         
-        // Rate limit: be nice to Yahoo
         await new Promise(resolve => setTimeout(resolve, 500));
         
       } catch (e) {
@@ -218,7 +247,7 @@ Deno.serve(async (req) => {
     
     for (const symbol of usStockSymbols) {
       try {
-        const yahooSymbol = symbol.ticker; // US stocks use plain ticker
+        const yahooSymbol = symbol.ticker;
         const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
         const period2 = Math.floor(Date.now() / 1000);
         
@@ -272,7 +301,6 @@ Deno.serve(async (req) => {
           console.log(`Yahoo HTTP error for ${symbol.ticker}: ${res.status}`);
         }
         
-        // Rate limit: be nice to Yahoo
         await new Promise(resolve => setTimeout(resolve, 500));
         
       } catch (e) {
@@ -286,9 +314,8 @@ Deno.serve(async (req) => {
       const metalSymbols = symbols.filter(s => ['XAU', 'XAG', 'XPT', 'XPD'].includes(s.ticker));
       console.log(`Fetching history for ${metalSymbols.length} metals from Alpha Vantage`);
       
-      for (const symbol of metalSymbols.slice(0, 2)) { // Limit due to rate limits
+      for (const symbol of metalSymbols.slice(0, 2)) {
         try {
-          // Use FX_DAILY for precious metals
           const res = await fetch(
             `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=${symbol.ticker}&to_symbol=USD&outputsize=compact&apikey=${ALPHA_VANTAGE_API_KEY}`
           );
