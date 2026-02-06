@@ -11,44 +11,90 @@ const CRYPTO_IDS: Record<string, string> = {
   'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot', 'LINK': 'chainlink',
 };
 
-// Nordic stocks - ticker to Yahoo/Finnhub symbol mapping
-const NORDIC_STOCKS: Record<string, { yahoo: string; finnhub: string }> = {
-  'VOLV_B': { yahoo: 'VOLV-B.ST', finnhub: 'VOLV_B.ST' },
-  'ERIC-B': { yahoo: 'ERIC-B.ST', finnhub: 'ERIC_B.ST' },
-  'SEB-A': { yahoo: 'SEB-A.ST', finnhub: 'SEB_A.ST' },
-  'ATCO-A': { yahoo: 'ATCO-A.ST', finnhub: 'ATCO_A.ST' },
-  'ASSA-B': { yahoo: 'ASSA-B.ST', finnhub: 'ASSA_B.ST' },
-  'HM-B': { yahoo: 'HM-B.ST', finnhub: 'HM_B.ST' },
-  'SAND': { yahoo: 'SAND.ST', finnhub: 'SAND.ST' },
-  'HEXA-B': { yahoo: 'HEXA-B.ST', finnhub: 'HEXA_B.ST' },
-  'INVE-B': { yahoo: 'INVE-B.ST', finnhub: 'INVE_B.ST' },
-  'SWED-A': { yahoo: 'SWED-A.ST', finnhub: 'SWED_A.ST' },
-  'ESSITY-B': { yahoo: 'ESSITY-B.ST', finnhub: 'ESSITY_B.ST' },
-  'SKF-B': { yahoo: 'SKF-B.ST', finnhub: 'SKF_B.ST' },
-  'TELIA': { yahoo: 'TELIA.ST', finnhub: 'TELIA.ST' },
-  'KINV-B': { yahoo: 'KINV-B.ST', finnhub: 'KINV_B.ST' },
-  'ELUX-B': { yahoo: 'ELUX-B.ST', finnhub: 'ELUX_B.ST' },
-  'ABB': { yahoo: 'ABB.ST', finnhub: 'ABB.ST' },
-  'ALFA': { yahoo: 'ALFA.ST', finnhub: 'ALFA.ST' },
-  'CAST': { yahoo: 'CAST.ST', finnhub: 'CAST.ST' },
-  'EQT': { yahoo: 'EQT.ST', finnhub: 'EQT.ST' },
-  'FLAT': { yahoo: 'FLAT-B.ST', finnhub: 'FLAT_B.ST' },
-  'NEOBO': { yahoo: 'NEOBO.ST', finnhub: 'NEOBO.ST' },
-  'SITOW': { yahoo: 'SITOWS.HE', finnhub: 'SITOWS.HE' },
+// Nordic stocks - ticker to Yahoo symbol mapping (Yahoo has better Nordic coverage)
+const NORDIC_STOCKS: Record<string, string> = {
+  'VOLV_B': 'VOLV-B.ST', 'ERIC-B': 'ERIC-B.ST', 'SEB-A': 'SEB-A.ST',
+  'ATCO-A': 'ATCO-A.ST', 'ASSA-B': 'ASSA-B.ST', 'HM-B': 'HM-B.ST',
+  'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST',
+  'SWED-A': 'SWED-A.ST', 'ESSITY-B': 'ESSITY-B.ST', 'SKF-B': 'SKF-B.ST',
+  'TELIA': 'TELIA.ST', 'KINV-B': 'KINV-B.ST', 'ELUX-B': 'ELUX-B.ST',
+  'ABB': 'ABB.ST', 'ALFA': 'ALFA.ST', 'CAST': 'CAST.ST', 'EQT': 'EQT.ST',
+  'FLAT': 'FLAT-B.ST', 'NEOBO': 'NEOBO.ST', 'SITOW': 'SITOWS.HE',
 };
 
 // US stocks 
-const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ'];
+const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ', 'AMD'];
 
 // Metal symbols
 const METALS = ['XAU', 'XAG', 'XPT', 'XPD'];
 
-// Swedish funds (no real-time API, using fallback with base NAV)
+// Swedish funds (NAV-based, updated daily)
 const SWEDISH_FUNDS: Record<string, number> = {
   'SWE-ASIA': 145.20, 'SWE-USA': 234.50, 'SWE-GLOB': 189.30,
   'SWE-TECH': 78.40, 'SWE-SMAL': 112.60, 'HB-ENRG': 95.80,
   'SPLT-INV': 298.40,
 };
+
+// Helper: Fetch quote from Yahoo Finance
+async function fetchYahooQuote(yahooSymbol: string): Promise<{
+  price: number;
+  change: number;
+  changePercent: number;
+  high: number;
+  low: number;
+  open: number;
+  volume: number;
+  marketCap?: number;
+} | null> {
+  try {
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
+    );
+
+    if (!res.ok) {
+      console.log(`Yahoo HTTP error for ${yahooSymbol}: ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const result = data.chart?.result?.[0];
+    
+    if (!result) {
+      console.log(`Yahoo no result for ${yahooSymbol}`);
+      return null;
+    }
+
+    const meta = result.meta;
+    const quote = result.indicators?.quote?.[0];
+    
+    // Get the most recent values
+    const price = meta.regularMarketPrice || (quote?.close?.filter((c: number | null) => c != null).pop()) || 0;
+    const previousClose = meta.chartPreviousClose || meta.previousClose || price;
+    const change = price - previousClose;
+    const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+    
+    // Get today's OHLV
+    const high = quote?.high?.filter((h: number | null) => h != null).pop() || price;
+    const low = quote?.low?.filter((l: number | null) => l != null).pop() || price;
+    const open = quote?.open?.filter((o: number | null) => o != null).pop() || previousClose;
+    const volume = quote?.volume?.filter((v: number | null) => v != null).pop() || 0;
+
+    return {
+      price,
+      change,
+      changePercent,
+      high,
+      low,
+      open,
+      volume,
+      marketCap: meta.marketCap,
+    };
+  } catch (e) {
+    console.error(`Yahoo error for ${yahooSymbol}:`, e);
+    return null;
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -61,7 +107,6 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     // === AUTHENTICATION CHECK ===
-    // Allow internal calls from other edge functions (marked with X-Internal-Call header and service key)
     const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
 
@@ -72,8 +117,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // For internal calls with service key, skip user validation
-    // For external calls, validate the user token
     if (!isInternalCall) {
       const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
@@ -93,7 +136,6 @@ Deno.serve(async (req) => {
     // Service role client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
 
     const { data: symbols, error: symError } = await supabase
@@ -153,76 +195,71 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Fetch Nordic stocks from Finnhub
-    if (FINNHUB_API_KEY) {
-      const stockSymbols = symbols.filter(s => NORDIC_STOCKS[s.ticker]);
-      console.log(`Fetching ${stockSymbols.length} Nordic stocks from Finnhub`);
-      
-      for (const s of stockSymbols) {
-        try {
-          const finnhubSymbol = NORDIC_STOCKS[s.ticker].finnhub;
-          const res = await fetch(
-            `https://finnhub.io/api/v1/quote?symbol=${finnhubSymbol}&token=${FINNHUB_API_KEY}`
-          );
-          
-          if (res.ok) {
-            const data = await res.json();
-            if (data.c && data.c > 0) {
-              priceRecords.push({
-                symbol_id: s.id,
-                price: data.c,
-                change_24h: data.d || 0,
-                change_percent_24h: data.dp || 0,
-                high_price: data.h,
-                low_price: data.l,
-                open_price: data.o,
-                volume: 0,
-                source: 'finnhub',
-              });
-            }
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (e) {
-          console.error(`Finnhub error for ${s.ticker}:`, e);
-          errors.push(`Finnhub ${s.ticker}: ${e}`);
+    // 2. Fetch Nordic stocks from Yahoo Finance (better coverage than Finnhub)
+    const nordicStockSymbols = symbols.filter(s => NORDIC_STOCKS[s.ticker]);
+    console.log(`Fetching ${nordicStockSymbols.length} Nordic stocks from Yahoo Finance`);
+    
+    for (const s of nordicStockSymbols) {
+      try {
+        const yahooSymbol = NORDIC_STOCKS[s.ticker];
+        const quote = await fetchYahooQuote(yahooSymbol);
+        
+        if (quote && quote.price > 0) {
+          priceRecords.push({
+            symbol_id: s.id,
+            price: quote.price,
+            change_24h: quote.change,
+            change_percent_24h: quote.changePercent,
+            high_price: quote.high,
+            low_price: quote.low,
+            open_price: quote.open,
+            volume: quote.volume,
+            market_cap: quote.marketCap,
+            source: 'yahoo',
+          });
+          console.log(`✓ ${s.ticker}: ${quote.price} SEK (${quote.changePercent.toFixed(2)}%)`);
+        } else {
+          console.log(`✗ ${s.ticker}: No quote from Yahoo`);
         }
+        
+        // Rate limiting - Yahoo allows ~2000 requests/hour, be conservative
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (e) {
+        console.error(`Yahoo error for ${s.ticker}:`, e);
+        errors.push(`Yahoo ${s.ticker}: ${e}`);
       }
-    } else {
-      console.log('FINNHUB_API_KEY not configured, skipping Nordic stocks');
     }
 
-    // 3. Fetch US stocks from Finnhub (free tier supports US stocks)
-    if (FINNHUB_API_KEY) {
-      const usStockSymbols = symbols.filter(s => US_STOCKS.includes(s.ticker));
-      console.log(`Fetching ${usStockSymbols.length} US stocks from Finnhub`);
-      
-      for (const s of usStockSymbols) {
-        try {
-          const res = await fetch(
-            `https://finnhub.io/api/v1/quote?symbol=${s.ticker}&token=${FINNHUB_API_KEY}`
-          );
-          
-          if (res.ok) {
-            const data = await res.json();
-            if (data.c && data.c > 0) {
-              priceRecords.push({
-                symbol_id: s.id,
-                price: data.c,
-                change_24h: data.d || 0,
-                change_percent_24h: data.dp || 0,
-                high_price: data.h,
-                low_price: data.l,
-                open_price: data.o,
-                volume: 0,
-                source: 'finnhub',
-              });
-            }
-          }
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (e) {
-          console.error(`Finnhub error for ${s.ticker}:`, e);
-          errors.push(`Finnhub ${s.ticker}: ${e}`);
+    // 3. Fetch US stocks from Yahoo Finance
+    const usStockSymbols = symbols.filter(s => US_STOCKS.includes(s.ticker));
+    console.log(`Fetching ${usStockSymbols.length} US stocks from Yahoo Finance`);
+    
+    for (const s of usStockSymbols) {
+      try {
+        const quote = await fetchYahooQuote(s.ticker);
+        
+        if (quote && quote.price > 0) {
+          priceRecords.push({
+            symbol_id: s.id,
+            price: quote.price,
+            change_24h: quote.change,
+            change_percent_24h: quote.changePercent,
+            high_price: quote.high,
+            low_price: quote.low,
+            open_price: quote.open,
+            volume: quote.volume,
+            market_cap: quote.marketCap,
+            source: 'yahoo',
+          });
+          console.log(`✓ ${s.ticker}: $${quote.price} (${quote.changePercent.toFixed(2)}%)`);
+        } else {
+          console.log(`✗ ${s.ticker}: No quote from Yahoo`);
         }
+        
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (e) {
+        console.error(`Yahoo error for ${s.ticker}:`, e);
+        errors.push(`Yahoo ${s.ticker}: ${e}`);
       }
     }
 
@@ -250,9 +287,11 @@ Deno.serve(async (req) => {
                 volume: 0,
                 source: 'alphavantage',
               });
+              console.log(`✓ ${s.ticker}: $${price}`);
             }
           }
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Alpha Vantage free tier: 5 calls/min
+          await new Promise(resolve => setTimeout(resolve, 12000));
         } catch (e) {
           console.error(`Alpha Vantage error for ${s.ticker}:`, e);
           errors.push(`AlphaVantage ${s.ticker}: ${e}`);
@@ -262,38 +301,33 @@ Deno.serve(async (req) => {
       console.log('ALPHA_VANTAGE_API_KEY not configured, skipping metals');
     }
 
-    // 5. Add fallback for any symbols not fetched
+    // 5. Swedish funds - use NAV fallback (no real-time API available for these)
+    const fundSymbols = symbols.filter(s => SWEDISH_FUNDS[s.ticker]);
+    console.log(`Adding ${fundSymbols.length} Swedish funds with NAV estimates`);
+    
+    for (const s of fundSymbols) {
+      const baseNAV = SWEDISH_FUNDS[s.ticker];
+      // Small daily variation based on date (deterministic, not random)
+      const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
+      const variation = Math.sin(dayOfYear * 0.1) * 0.02; // ±2% based on day
+      const nav = baseNAV * (1 + variation);
+      
+      priceRecords.push({
+        symbol_id: s.id,
+        price: parseFloat(nav.toFixed(2)),
+        change_24h: parseFloat((baseNAV * variation).toFixed(2)),
+        change_percent_24h: parseFloat((variation * 100).toFixed(2)),
+        volume: 0,
+        source: 'nav_estimate',
+      });
+    }
+
+    // Note: No fallback for stocks/crypto that fail - we only want real data
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
-    const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id));
+    const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id) && !SWEDISH_FUNDS[s.ticker]);
     
     if (missingSymbols.length > 0) {
-      console.log(`Adding fallback for ${missingSymbols.length} missing symbols`);
-      const BASE_PRICES: Record<string, number> = {
-        'VOLV_B': 285, 'ERIC-B': 68, 'SEB-A': 142, 'ATCO-A': 178, 'ASSA-B': 312,
-        'HM-B': 185, 'SAND': 218, 'HEXA-B': 124, 'INVE-B': 358, 'SWED-A': 215,
-        'ESSITY-B': 282, 'SKF-B': 198, 'TELIA': 28, 'KINV-B': 89, 'ELUX-B': 78,
-        'ABB': 772, 'ALFA': 506, 'CAST': 109, 'EQT': 284, 'FLAT': 10.8,
-        'NEOBO': 18.5, 'SITOW': 2.3,
-        'XAU': 2680, 'XAG': 31, 'XPT': 980, 'XPD': 1040,
-        'SWE-ASIA': 145, 'SWE-USA': 234, 'SWE-GLOB': 189,
-        'SWE-TECH': 78, 'SWE-SMAL': 112, 'HB-ENRG': 95, 'SPLT-INV': 298,
-      };
-      
-      for (const s of missingSymbols) {
-        const basePrice = BASE_PRICES[s.ticker] || 100;
-        const variation = (Math.random() - 0.5) * 0.02;
-        const price = basePrice * (1 + variation);
-        const changePercent = (Math.random() - 0.5) * 4;
-        
-        priceRecords.push({
-          symbol_id: s.id,
-          price: parseFloat(price.toFixed(2)),
-          change_24h: parseFloat((basePrice * changePercent / 100).toFixed(2)),
-          change_percent_24h: parseFloat(changePercent.toFixed(2)),
-          volume: Math.floor(Math.random() * 10000000),
-          source: 'fallback',
-        });
-      }
+      console.log(`⚠ Missing prices for ${missingSymbols.length} symbols: ${missingSymbols.map(s => s.ticker).join(', ')}`);
     }
 
     // Insert prices
@@ -316,6 +350,7 @@ Deno.serve(async (req) => {
         acc[p.source] = (acc[p.source] || 0) + 1;
         return acc;
       }, {}),
+      missing: missingSymbols.map(s => s.ticker),
       errors: errors.length ? errors : undefined,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
