@@ -117,7 +117,7 @@ export interface HorizonWeights {
   technical: number;
   fundamental: number;
   sentiment: number;
-  elliottWave: number;
+  measuredMoves: number;
   quant: number;
   macro: number;
   volatility: number;
@@ -127,13 +127,13 @@ export interface HorizonWeights {
 }
 
 export const DEFAULT_WEIGHTS: Record<Horizon, HorizonWeights> = {
-  '1s': { technical: 30, fundamental: 0, sentiment: 10, elliottWave: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0 },
-  '1m': { technical: 30, fundamental: 0, sentiment: 10, elliottWave: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0 },
-  '1h': { technical: 28, fundamental: 2, sentiment: 15, elliottWave: 0, quant: 18, macro: 5, volatility: 18, seasonal: 2, orderFlow: 12, ml: 0 },
-  '1d': { technical: 25, fundamental: 5, sentiment: 15, elliottWave: 0, quant: 15, macro: 10, volatility: 15, seasonal: 3, orderFlow: 10, ml: 2 },
-  '1w': { technical: 20, fundamental: 15, sentiment: 15, elliottWave: 0, quant: 20, macro: 10, volatility: 10, seasonal: 5, orderFlow: 3, ml: 2 },
-  '1mo': { technical: 15, fundamental: 25, sentiment: 10, elliottWave: 0, quant: 20, macro: 15, volatility: 10, seasonal: 5, orderFlow: 0, ml: 0 },
-  '1y': { technical: 5, fundamental: 35, sentiment: 5, elliottWave: 0, quant: 20, macro: 20, volatility: 5, seasonal: 10, orderFlow: 0, ml: 0 },
+  '1s': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0 },
+  '1m': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0 },
+  '1h': { technical: 28, fundamental: 2, sentiment: 15, measuredMoves: 0, quant: 18, macro: 5, volatility: 18, seasonal: 2, orderFlow: 12, ml: 0 },
+  '1d': { technical: 22, fundamental: 5, sentiment: 12, measuredMoves: 8, quant: 15, macro: 10, volatility: 13, seasonal: 3, orderFlow: 10, ml: 2 },
+  '1w': { technical: 18, fundamental: 15, sentiment: 12, measuredMoves: 10, quant: 18, macro: 10, volatility: 8, seasonal: 5, orderFlow: 2, ml: 2 },
+  '1mo': { technical: 12, fundamental: 25, sentiment: 8, measuredMoves: 12, quant: 18, macro: 15, volatility: 8, seasonal: 2, orderFlow: 0, ml: 0 },
+  '1y': { technical: 5, fundamental: 32, sentiment: 5, measuredMoves: 10, quant: 18, macro: 18, volatility: 5, seasonal: 7, orderFlow: 0, ml: 0 },
 };
 
 export const HORIZON_LABELS: Record<Horizon, string> = {
@@ -160,7 +160,7 @@ export const MODULE_NAMES: Record<string, string> = {
   technical: 'Teknisk Analys',
   fundamental: 'Fundamental Analys',
   sentiment: 'Sentiment',
-  elliottWave: 'Elliott Wave',
+  measuredMoves: 'Measured Moves',
   quant: 'Kvantmodeller',
   macro: 'Makroekonomi',
   volatility: 'Volatilitet',

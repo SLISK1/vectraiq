@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 
 const editableHorizons: Horizon[] = ['1d', '1w', '1mo', '1y'];
-const modules = ['technical', 'fundamental', 'sentiment', 'elliottWave', 'quant', 'macro', 'volatility', 'seasonal', 'orderFlow', 'ml'] as const;
+const modules = ['technical', 'fundamental', 'sentiment', 'measuredMoves', 'quant', 'macro', 'volatility', 'seasonal', 'orderFlow', 'ml'] as const;
 
 export const SettingsPanel = () => {
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>('1w');
