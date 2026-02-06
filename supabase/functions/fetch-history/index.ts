@@ -53,14 +53,14 @@ Deno.serve(async (req) => {
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
 
-    // Parse request body
+    // Parse request body - default to 365 days for better ML/trend analysis
     let requestedTickers: string[] | undefined;
-    let days = 60;
+    let days = 365; // Increased from 60 to 365 for better analysis coverage
     
     try {
       const body: HistoryRequest = await req.json();
       requestedTickers = body.tickers;
-      days = body.days || 60;
+      days = body.days || 365;
     } catch {
       // Use defaults
     }
@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Fetching history for ${symbols.length} symbols, ${days} days`);
+    console.log(`Fetching history for ${symbols.length} symbols, ${days} days (targeting 12 months for optimal ML analysis)`);
     
     const results: { ticker: string; records: number; source: string }[] = [];
     const errors: string[] = [];
