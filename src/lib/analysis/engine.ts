@@ -189,9 +189,9 @@ export const runAnalysis = (
     results.push(analyzeSeasonal(priceHistory, currentPrice, horizon, assetType));
   }
   
-  // 5. Fundamental Analysis
+  // 5. Fundamental Analysis (pass fundamentals from context if available)
   if (weights.fundamental > 0) {
-    results.push(analyzeFundamental(priceHistory, currentPrice, horizon, assetType, ticker));
+    results.push(analyzeFundamental(priceHistory, currentPrice, horizon, assetType, ticker, context.fundamentals));
   }
   
   // 6. Macro Analysis
@@ -330,7 +330,8 @@ export const createAnalysisContext = (
   currency: string,
   currentPrice: number,
   priceHistory: PriceData[],
-  horizon: Horizon
+  horizon: Horizon,
+  fundamentals?: import('./types').FundamentalMetrics
 ): AnalysisContext => ({
   ticker,
   name,
@@ -339,4 +340,5 @@ export const createAnalysisContext = (
   horizon,
   currentPrice,
   priceHistory,
+  fundamentals,
 });

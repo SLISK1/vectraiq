@@ -64,7 +64,7 @@ const transformToRankedAsset = async (
     return null;
   }
   
-  // Create analysis context
+  // Create analysis context - include fundamentals if available
   const context = createAnalysisContext(
     symbol.ticker,
     symbol.name,
@@ -72,7 +72,8 @@ const transformToRankedAsset = async (
     symbol.currency,
     currentPrice,
     priceHistory,
-    horizon
+    horizon,
+    symbol.fundamentals // Pass fundamentals from symbol data
   );
   
   // Run full analysis
