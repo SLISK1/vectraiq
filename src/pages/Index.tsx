@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Header } from '@/components/Header';
 import { HorizonSelector } from '@/components/HorizonSelector';
 import { TopRankingList } from '@/components/TopRankingList';
@@ -43,6 +43,29 @@ const Index = () => {
   const addToWatchlistMutation = useAddToWatchlist();
   const refreshPricesMutation = useRefreshPrices();
   const addSymbolMutation = useAddSymbol();
+
+  // Auto-refresh prices on mount if user is logged in and data is stale
+  useEffect(() => {
+    if (user && !refreshPricesMutation.isPending) {
+      // Check if prices need refresh (do it once on mount)
+      const lastRefresh = sessionStorage.getItem('lastPriceRefresh');
+      const now = Date.now();
+      const fiveMinutes = 5 * 60 * 1000;
+      
+      if (!lastRefresh || now - parseInt(lastRefresh) > fiveMinutes) {
+        console.log('[Index] Auto-refreshing prices...');
+        refreshPricesMutation.mutate(undefined, {
+          onSuccess: () => {
+            sessionStorage.setItem('lastPriceRefresh', now.toString());
+            console.log('[Index] Price refresh complete');
+          },
+          onError: (err) => {
+            console.log('[Index] Price refresh failed:', err);
+          }
+        });
+      }
+    }
+  }, [user]); // Only run on mount/user change
 
   // Transform database watchlist to component format
   const transformedWatchlist: WatchlistCase[] = (watchlistData || []).map(wc => {
