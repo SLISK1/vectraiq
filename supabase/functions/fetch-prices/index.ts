@@ -5,10 +5,25 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
 };
 
-// Crypto ticker to CoinGecko ID mapping
+// Crypto ticker to CoinGecko ID mapping - use exact IDs from CoinGecko
 const CRYPTO_IDS: Record<string, string> = {
-  'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'ripple',
-  'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot', 'LINK': 'chainlink',
+  'BTC': 'bitcoin',
+  'ETH': 'ethereum', 
+  'SOL': 'solana',
+  'XRP': 'ripple',
+  'ADA': 'cardano',
+  'AVAX': 'avalanche-2',
+  'DOT': 'polkadot',
+  'LINK': 'chainlink',
+  'DOGE': 'dogecoin',
+  'MATIC': 'matic-network',
+  'LTC': 'litecoin',
+  'UNI': 'uniswap',
+  'ATOM': 'cosmos',
+  'NEAR': 'near',
+  'APT': 'aptos',
+  'ARB': 'arbitrum',
+  'OP': 'optimism',
 };
 
 // Nordic stocks - ticker to Yahoo symbol mapping (comprehensive Nordic coverage)
