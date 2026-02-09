@@ -28,44 +28,64 @@ const CRYPTO_IDS: Record<string, string> = {
 
 // Nordic stocks - ticker to Yahoo symbol mapping (comprehensive Nordic coverage)
 const NORDIC_STOCKS: Record<string, string> = {
-  // Sweden - Large Cap
+  // Sweden - Large Cap (>€10B market cap)
   'VOLV_B': 'VOLV-B.ST', 'ERIC-B': 'ERIC-B.ST', 'SEB-A': 'SEB-A.ST',
   'ATCO-A': 'ATCO-A.ST', 'ASSA-B': 'ASSA-B.ST', 'HM-B': 'HM-B.ST',
   'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST',
   'SWED-A': 'SWED-A.ST', 'ESSITY-B': 'ESSITY-B.ST', 'SKF-B': 'SKF-B.ST',
   'TELIA': 'TELIA.ST', 'KINV-B': 'KINV-B.ST', 'ELUX-B': 'ELUX-B.ST',
   'ABB': 'ABB.ST', 'ALFA': 'ALFA.ST', 'CAST': 'CAST.ST', 'EQT': 'EQT.ST',
-  'FLAT': 'FLAT-B.ST', 'NEOBO': 'NEOBO.ST',
-  // New Swedish stocks
   'NIBE-B': 'NIBE-B.ST', 'EVO': 'EVO.ST', 'BOL': 'BOL.ST',
   'GETI-B': 'GETI-B.ST', 'SAAB-B': 'SAAB-B.ST', 'SHB-A': 'SHB-A.ST',
+  'NDA-SE': 'NDA-SE.ST', 'AZN': 'AZN.ST', 'EMBRAC-B': 'EMBRAC-B.ST',
+  
+  // Sweden - Mid Cap (€2-10B market cap)
   'SINCH': 'SINCH.ST', 'SSAB-A': 'SSAB-A.ST', 'TEL2-B': 'TEL2-B.ST',
   'AXFO': 'AXFO.ST', 'LUND-B': 'LUND-B.ST', 'LIFCO-B': 'LIFCO-B.ST',
   'SWMA': 'SWMA.ST', 'LATO-B': 'LATO-B.ST', 'INDU-C': 'INDU-C.ST',
   'WALL-B': 'WALL-B.ST', 'FABG': 'FABG.ST', 'HUFV-A': 'HUFV-A.ST',
   'BILL': 'BILL.ST', 'LOOMIS': 'LOOMIS.ST', 'SAGA-B': 'SAGA-B.ST',
-  'CATE': 'CATE.ST', 'WIHL': 'WIHL.ST', 'BALD-B': 'BALD-B.ST',
-  'NDA-SE': 'NDA-SE.ST', 'AZN': 'AZN.ST', 'EMBRAC-B': 'EMBRAC-B.ST',
   'AAK': 'AAK.ST', 'TREL-B': 'TREL-B.ST', 'AF-B': 'AF-B.ST',
   'HPOL-B': 'HUSQ-B.ST', 'SCA-B': 'SCA-B.ST', 'SECU-B': 'SECU-B.ST',
-  'MTRS': 'MTRS.ST', 'DUNI': 'DUNI.ST', 'BETS-B': 'BETS-B.ST',
-  'KIND-SDB': 'KIND-SDB.ST', 'CLAS-B': 'CLAS-B.ST', 'BUFAB': 'BUFAB.ST',
-  'THULE': 'THULE.ST', 'NOLA-B': 'NOLA-B.ST', 'SYSR': 'SYSR.ST',
-  'BRAV': 'BRAV.ST', 'SAVE': 'SAVE.ST', 'AVAZ-B': 'AZA.ST',
-  'RESURS': 'RESURS.ST',
+  'THULE': 'THULE.ST', 'BRAV': 'BRAV.ST',
+  'FLAT': 'FLAT-B.ST', 'CATE': 'CATE.ST', 'WIHL': 'WIHL.ST',
+  
+  // Sweden - Small Cap (<€2B market cap)
+  'BALD-B': 'BALD-B.ST', 'MTRS': 'MTRS.ST', 'DUNI': 'DUNI.ST',
+  'BETS-B': 'BETS-B.ST', 'KIND-SDB': 'KIND-SDB.ST', 'CLAS-B': 'CLAS-B.ST',
+  'BUFAB': 'BUFAB.ST', 'NOLA-B': 'NOLA-B.ST', 'SYSR': 'SYSR.ST',
+  'SAVE': 'SAVE.ST', 'AVAZ-B': 'AZA.ST', 'RESURS': 'RESURS.ST', 'NEOBO': 'NEOBO.ST',
+  // Additional Small Cap Swedish stocks
+  'TROAX': 'TROAX.ST', 'AMBEA': 'AMBEA.ST', 'BULTEN': 'BULTEN.ST',
+  'CIBUS': 'CIBUS.ST', 'CLA-B': 'CLA-B.ST', 'BONAV-B': 'BONAV-B.ST',
+  'BURE': 'BURE.ST', 'COOR': 'COOR.ST', 'DIOS': 'DIOS.ST',
+  'ELAN-B': 'ELAN-B.ST', 'ELTEL': 'ELTEL.ST', 'FM': 'FM.ST',
+  'HEMFOSA': 'HEMFOSA.ST', 'HMS': 'HMS.ST', 'HEBA-B': 'HEBA-B.ST',
+  'KABE-B': 'KABE-B.ST', 'KARO': 'KARO.ST', 'KFAST-B': 'KFAST-B.ST',
+  'LIAB': 'LIAB.ST', 'LIME': 'LIME.ST', 'MEKO': 'MEKO.ST',
+  'MIPS': 'MIPS.ST', 'NETI-B': 'NETI-B.ST', 'NP3': 'NP3.ST',
+  'OEM-B': 'OEM-B.ST', 'ORTI-B': 'ORTI-B.ST', 'PEAB-B': 'PEAB-B.ST',
+  'PRIC-B': 'PRIC-B.ST', 'RATO-B': 'RATO-B.ST', 'RAYSH': 'RAYS.ST',
+  'VITR': 'VITR.ST', 'VNV': 'VNV.ST', 'XVIVO': 'XVIVO.ST',
+  
   // Norway (Oslo Børs)
   'EQNR': 'EQNR.OL', 'DNB': 'DNB.OL', 'TEL': 'TEL.OL',
   'MOWI': 'MOWI.OL', 'SALM': 'SALM.OL', 'YAR': 'YAR.OL',
   'ORK': 'ORK.OL', 'AKRBP': 'AKRBP.OL', 'KAHOT': 'KAHOT.OL', 'AUSS': 'AUSS.OL',
+  'TOM': 'TOM.OL', 'BAKKA': 'BAKKA.OL', 'AFG': 'AFG.OL',
+  
   // Denmark (OMX Copenhagen)
   'NOVO-B': 'NOVO-B.CO', 'MAERSK-B': 'MAERSK-B.CO', 'CARL-B': 'CARL-B.CO',
   'VWS': 'VWS.CO', 'DSV': 'DSV.CO', 'ORSTED': 'ORSTED.CO',
   'COLO-B': 'COLO-B.CO', 'DEMANT': 'DEMANT.CO', 'PNDORA': 'PNDORA.CO', 'GN': 'GN.CO',
+  'JYSK': 'JYSK.CO', 'FLS': 'FLS.CO', 'TRYG': 'TRYG.CO',
+  
   // Finland (OMX Helsinki)
   'SITOW': 'SITOWS.HE', 'NOKIA': 'NOKIA.HE', 'FORTUM': 'FORTUM.HE',
   'NESTE': 'NESTE.HE', 'UPM': 'UPM.HE', 'SAMPO': 'SAMPO.HE',
   'KNEBV': 'KNEBV.HE', 'WRT1V': 'WRT1V.HE', 'STERV': 'STERV.HE',
-  'KESKOB': 'KESKOB.HE', 'ELISA': 'ELISA.HE',
+  'KESKOB': 'KESKOB.HE', 'ELISA': 'ELISA.HE', 'ORNBV': 'ORNBV.HE',
+  'TYRES': 'TYRES.HE', 'METSB': 'METSB.HE',
 };
 
 // US stocks 
@@ -81,8 +101,61 @@ const SWEDISH_FUNDS: Record<string, number> = {
   'SPLT-INV': 298.40,
 };
 
-// Helper: Fetch quote from Yahoo Finance
+// Helper: Fetch quote from Yahoo Finance using quote endpoint (has marketCap)
 async function fetchYahooQuote(yahooSymbol: string): Promise<{
+  price: number;
+  change: number;
+  changePercent: number;
+  high: number;
+  low: number;
+  open: number;
+  volume: number;
+  marketCap?: number;
+} | null> {
+  try {
+    // Use quoteSummary endpoint which includes marketCap
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooSymbol}`,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
+    );
+
+    if (!res.ok) {
+      console.log(`Yahoo HTTP error for ${yahooSymbol}: ${res.status}`);
+      // Fall back to chart endpoint
+      return fetchYahooChartQuote(yahooSymbol);
+    }
+
+    const data = await res.json();
+    const quote = data.quoteResponse?.result?.[0];
+    
+    if (!quote) {
+      console.log(`Yahoo no quote for ${yahooSymbol}, trying chart`);
+      return fetchYahooChartQuote(yahooSymbol);
+    }
+
+    const price = quote.regularMarketPrice || 0;
+    const previousClose = quote.regularMarketPreviousClose || price;
+    const change = quote.regularMarketChange || (price - previousClose);
+    const changePercent = quote.regularMarketChangePercent || (previousClose > 0 ? (change / previousClose) * 100 : 0);
+
+    return {
+      price,
+      change,
+      changePercent,
+      high: quote.regularMarketDayHigh || price,
+      low: quote.regularMarketDayLow || price,
+      open: quote.regularMarketOpen || previousClose,
+      volume: quote.regularMarketVolume || 0,
+      marketCap: quote.marketCap, // This is properly returned from /quote endpoint
+    };
+  } catch (e) {
+    console.error(`Yahoo quote error for ${yahooSymbol}:`, e);
+    return fetchYahooChartQuote(yahooSymbol);
+  }
+}
+
+// Fallback: Fetch quote from Yahoo Finance chart endpoint
+async function fetchYahooChartQuote(yahooSymbol: string): Promise<{
   price: number;
   change: number;
   changePercent: number;
@@ -99,7 +172,7 @@ async function fetchYahooQuote(yahooSymbol: string): Promise<{
     );
 
     if (!res.ok) {
-      console.log(`Yahoo HTTP error for ${yahooSymbol}: ${res.status}`);
+      console.log(`Yahoo chart HTTP error for ${yahooSymbol}: ${res.status}`);
       return null;
     }
 
@@ -107,20 +180,18 @@ async function fetchYahooQuote(yahooSymbol: string): Promise<{
     const result = data.chart?.result?.[0];
     
     if (!result) {
-      console.log(`Yahoo no result for ${yahooSymbol}`);
+      console.log(`Yahoo chart no result for ${yahooSymbol}`);
       return null;
     }
 
     const meta = result.meta;
     const quote = result.indicators?.quote?.[0];
     
-    // Get the most recent values
     const price = meta.regularMarketPrice || (quote?.close?.filter((c: number | null) => c != null).pop()) || 0;
     const previousClose = meta.chartPreviousClose || meta.previousClose || price;
     const change = price - previousClose;
     const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
     
-    // Get today's OHLV
     const high = quote?.high?.filter((h: number | null) => h != null).pop() || price;
     const low = quote?.low?.filter((l: number | null) => l != null).pop() || price;
     const open = quote?.open?.filter((o: number | null) => o != null).pop() || previousClose;
@@ -134,10 +205,10 @@ async function fetchYahooQuote(yahooSymbol: string): Promise<{
       low,
       open,
       volume,
-      marketCap: meta.marketCap,
+      marketCap: undefined, // Chart endpoint doesn't have marketCap
     };
   } catch (e) {
-    console.error(`Yahoo error for ${yahooSymbol}:`, e);
+    console.error(`Yahoo chart error for ${yahooSymbol}:`, e);
     return null;
   }
 }
