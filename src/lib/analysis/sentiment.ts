@@ -3,6 +3,7 @@
 import { AnalysisResult, SentimentData } from './types';
 import { Direction, Horizon, Evidence } from '@/types/market';
 import { supabase } from '@/integrations/supabase/client';
+import { getCacheKey, getFromCache, setInCache } from './cache';
 
 export interface SentimentAnalysisResult {
   direction: Direction;
@@ -14,6 +15,9 @@ export interface SentimentAnalysisResult {
   evidence: Evidence[];
 }
 
+// Cache TTL: 5 minutes for sentiment
+const SENTIMENT_CACHE_TTL = 5 * 60 * 1000;
+
 // Call AI for sentiment analysis
 export const fetchAISentiment = async (
   ticker: string,
@@ -23,6 +27,13 @@ export const fetchAISentiment = async (
   currentPrice?: number
 ): Promise<SentimentAnalysisResult | null> => {
   try {
+    // Check cache first
+    const cacheKey = getCacheKey('sentiment', ticker, horizon);
+    const cached = getFromCache<SentimentAnalysisResult>(cacheKey, SENTIMENT_CACHE_TTL);
+    if (cached) {
+      return cached;
+    }
+
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
     
@@ -49,6 +60,8 @@ export const fetchAISentiment = async (
 
     if (data?.success && data?.result) {
       console.log(`AI sentiment received for ${ticker}:`, data.result.direction, data.result.confidence);
+      // Cache the result
+      setInCache(cacheKey, data.result);
       return data.result;
     }
 
