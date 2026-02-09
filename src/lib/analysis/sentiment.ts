@@ -23,6 +23,14 @@ export const fetchAISentiment = async (
   currentPrice?: number
 ): Promise<SentimentAnalysisResult | null> => {
   try {
+    // Check if user is authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      console.log('AI sentiment: No session, using fallback');
+      return null;
+    }
+
     const { data, error } = await supabase.functions.invoke('ai-analysis', {
       body: {
         type: 'sentiment',
@@ -40,6 +48,7 @@ export const fetchAISentiment = async (
     }
 
     if (data?.success && data?.result) {
+      console.log(`AI sentiment received for ${ticker}:`, data.result.direction, data.result.confidence);
       return data.result;
     }
 

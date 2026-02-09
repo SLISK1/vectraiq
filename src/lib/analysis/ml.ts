@@ -23,6 +23,14 @@ export const fetchAIMLPrediction = async (
   currentPrice: number
 ): Promise<MLAnalysisResult | null> => {
   try {
+    // Check if user is authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      console.log('AI ML: No session, using fallback');
+      return null;
+    }
+
     const { data, error } = await supabase.functions.invoke('ai-analysis', {
       body: {
         type: 'ml_prediction',
@@ -44,6 +52,7 @@ export const fetchAIMLPrediction = async (
     }
 
     if (data?.success && data?.result) {
+      console.log(`AI ML received for ${ticker}:`, data.result.direction, data.result.confidence);
       return data.result;
     }
 
