@@ -7,50 +7,85 @@ const corsHeaders = {
 
 // Crypto ticker to CoinGecko ID mapping
 const CRYPTO_IDS: Record<string, string> = {
-  'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'ripple',
-  'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot', 'LINK': 'chainlink',
+  'BTC': 'bitcoin',
+  'ETH': 'ethereum', 
+  'SOL': 'solana',
+  'XRP': 'ripple',
+  'ADA': 'cardano',
+  'AVAX': 'avalanche-2',
+  'DOT': 'polkadot',
+  'LINK': 'chainlink',
+  'DOGE': 'dogecoin',
+  'MATIC': 'matic-network',
+  'LTC': 'litecoin',
+  'UNI': 'uniswap',
+  'ATOM': 'cosmos',
+  'NEAR': 'near',
+  'APT': 'aptos',
+  'ARB': 'arbitrum',
+  'OP': 'optimism',
 };
 
 // Nordic stocks - ticker to Yahoo symbol mapping (comprehensive Nordic coverage)
 const NORDIC_STOCKS: Record<string, string> = {
-  // Sweden - Large Cap
+  // Sweden - Large Cap (>€10B market cap)
   'VOLV_B': 'VOLV-B.ST', 'ERIC-B': 'ERIC-B.ST', 'SEB-A': 'SEB-A.ST',
   'ATCO-A': 'ATCO-A.ST', 'ASSA-B': 'ASSA-B.ST', 'HM-B': 'HM-B.ST',
   'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST',
   'SWED-A': 'SWED-A.ST', 'ESSITY-B': 'ESSITY-B.ST', 'SKF-B': 'SKF-B.ST',
   'TELIA': 'TELIA.ST', 'KINV-B': 'KINV-B.ST', 'ELUX-B': 'ELUX-B.ST',
   'ABB': 'ABB.ST', 'ALFA': 'ALFA.ST', 'CAST': 'CAST.ST', 'EQT': 'EQT.ST',
-  'FLAT': 'FLAT-B.ST', 'NEOBO': 'NEOBO.ST',
-  // New Swedish stocks
   'NIBE-B': 'NIBE-B.ST', 'EVO': 'EVO.ST', 'BOL': 'BOL.ST',
   'GETI-B': 'GETI-B.ST', 'SAAB-B': 'SAAB-B.ST', 'SHB-A': 'SHB-A.ST',
+  'NDA-SE': 'NDA-SE.ST', 'AZN': 'AZN.ST', 'EMBRAC-B': 'EMBRAC-B.ST',
+  
+  // Sweden - Mid Cap (€2-10B market cap)
   'SINCH': 'SINCH.ST', 'SSAB-A': 'SSAB-A.ST', 'TEL2-B': 'TEL2-B.ST',
   'AXFO': 'AXFO.ST', 'LUND-B': 'LUND-B.ST', 'LIFCO-B': 'LIFCO-B.ST',
   'SWMA': 'SWMA.ST', 'LATO-B': 'LATO-B.ST', 'INDU-C': 'INDU-C.ST',
   'WALL-B': 'WALL-B.ST', 'FABG': 'FABG.ST', 'HUFV-A': 'HUFV-A.ST',
   'BILL': 'BILL.ST', 'LOOMIS': 'LOOMIS.ST', 'SAGA-B': 'SAGA-B.ST',
-  'CATE': 'CATE.ST', 'WIHL': 'WIHL.ST', 'BALD-B': 'BALD-B.ST',
-  'NDA-SE': 'NDA-SE.ST', 'AZN': 'AZN.ST', 'EMBRAC-B': 'EMBRAC-B.ST',
   'AAK': 'AAK.ST', 'TREL-B': 'TREL-B.ST', 'AF-B': 'AF-B.ST',
   'HPOL-B': 'HUSQ-B.ST', 'SCA-B': 'SCA-B.ST', 'SECU-B': 'SECU-B.ST',
-  'MTRS': 'MTRS.ST', 'DUNI': 'DUNI.ST', 'BETS-B': 'BETS-B.ST',
-  'KIND-SDB': 'KIND-SDB.ST', 'CLAS-B': 'CLAS-B.ST', 'BUFAB': 'BUFAB.ST',
-  'THULE': 'THULE.ST', 'NOLA-B': 'NOLA-B.ST', 'SYSR': 'SYSR.ST',
-  'BRAV': 'BRAV.ST', 'SAVE': 'SAVE.ST', 'AVAZ-B': 'AZA.ST',
-  'RESURS': 'RESURS.ST',
+  'THULE': 'THULE.ST', 'BRAV': 'BRAV.ST',
+  'FLAT': 'FLAT-B.ST', 'CATE': 'CATE.ST', 'WIHL': 'WIHL.ST',
+  
+  // Sweden - Small Cap (<€2B market cap)
+  'BALD-B': 'BALD-B.ST', 'MTRS': 'MTRS.ST', 'DUNI': 'DUNI.ST',
+  'BETS-B': 'BETS-B.ST', 'KIND-SDB': 'KIND-SDB.ST', 'CLAS-B': 'CLAS-B.ST',
+  'BUFAB': 'BUFAB.ST', 'NOLA-B': 'NOLA-B.ST', 'SYSR': 'SYSR.ST',
+  'SAVE': 'SAVE.ST', 'AVAZ-B': 'AZA.ST', 'RESURS': 'RESURS.ST', 'NEOBO': 'NEOBO.ST',
+  // Additional Small Cap Swedish stocks
+  'TROAX': 'TROAX.ST', 'AMBEA': 'AMBEA.ST', 'BULTEN': 'BULTEN.ST',
+  'CIBUS': 'CIBUS.ST', 'CLA-B': 'CLA-B.ST', 'BONAV-B': 'BONAV-B.ST',
+  'BURE': 'BURE.ST', 'COOR': 'COOR.ST', 'DIOS': 'DIOS.ST',
+  'ELAN-B': 'ELAN-B.ST', 'ELTEL': 'ELTEL.ST', 'FM': 'FM.ST',
+  'HEMFOSA': 'HEMFOSA.ST', 'HMS': 'HMS.ST', 'HEBA-B': 'HEBA-B.ST',
+  'KABE-B': 'KABE-B.ST', 'KARO': 'KARO.ST', 'KFAST-B': 'KFAST-B.ST',
+  'LIAB': 'LIAB.ST', 'LIME': 'LIME.ST', 'MEKO': 'MEKO.ST',
+  'MIPS': 'MIPS.ST', 'NETI-B': 'NETI-B.ST', 'NP3': 'NP3.ST',
+  'OEM-B': 'OEM-B.ST', 'ORTI-B': 'ORTI-B.ST', 'PEAB-B': 'PEAB-B.ST',
+  'PRIC-B': 'PRIC-B.ST', 'RATO-B': 'RATO-B.ST', 'RAYSH': 'RAYS.ST',
+  'VITR': 'VITR.ST', 'VNV': 'VNV.ST', 'XVIVO': 'XVIVO.ST',
+  
   // Norway (Oslo Børs)
   'EQNR': 'EQNR.OL', 'DNB': 'DNB.OL', 'TEL': 'TEL.OL',
   'MOWI': 'MOWI.OL', 'SALM': 'SALM.OL', 'YAR': 'YAR.OL',
   'ORK': 'ORK.OL', 'AKRBP': 'AKRBP.OL', 'KAHOT': 'KAHOT.OL', 'AUSS': 'AUSS.OL',
+  'TOM': 'TOM.OL', 'BAKKA': 'BAKKA.OL', 'AFG': 'AFG.OL',
+  
   // Denmark (OMX Copenhagen)
   'NOVO-B': 'NOVO-B.CO', 'MAERSK-B': 'MAERSK-B.CO', 'CARL-B': 'CARL-B.CO',
   'VWS': 'VWS.CO', 'DSV': 'DSV.CO', 'ORSTED': 'ORSTED.CO',
   'COLO-B': 'COLO-B.CO', 'DEMANT': 'DEMANT.CO', 'PNDORA': 'PNDORA.CO', 'GN': 'GN.CO',
+  'JYSK': 'JYSK.CO', 'FLS': 'FLS.CO', 'TRYG': 'TRYG.CO',
+  
   // Finland (OMX Helsinki)
   'SITOW': 'SITOWS.HE', 'NOKIA': 'NOKIA.HE', 'FORTUM': 'FORTUM.HE',
   'NESTE': 'NESTE.HE', 'UPM': 'UPM.HE', 'SAMPO': 'SAMPO.HE',
   'KNEBV': 'KNEBV.HE', 'WRT1V': 'WRT1V.HE', 'STERV': 'STERV.HE',
-  'KESKOB': 'KESKOB.HE', 'ELISA': 'ELISA.HE',
+  'KESKOB': 'KESKOB.HE', 'ELISA': 'ELISA.HE', 'ORNBV': 'ORNBV.HE',
+  'TYRES': 'TYRES.HE', 'METSB': 'METSB.HE',
 };
 
 // Swedish funds - ticker to Morningstar/Avanza ID (for future API integration)
