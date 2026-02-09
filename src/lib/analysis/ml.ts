@@ -3,6 +3,7 @@
 import { AnalysisResult, PriceData, MLPrediction } from './types';
 import { Direction, Horizon, Evidence } from '@/types/market';
 import { supabase } from '@/integrations/supabase/client';
+import { getCacheKey, getFromCache, setInCache } from './cache';
 
 export interface MLAnalysisResult {
   direction: Direction;
@@ -12,6 +13,9 @@ export interface MLAnalysisResult {
   modelFeatures?: string[];
   evidence: Evidence[];
 }
+
+// Cache TTL: 5 minutes for ML predictions
+const ML_CACHE_TTL = 5 * 60 * 1000;
 
 // Call AI for ML prediction
 export const fetchAIMLPrediction = async (
@@ -23,6 +27,13 @@ export const fetchAIMLPrediction = async (
   currentPrice: number
 ): Promise<MLAnalysisResult | null> => {
   try {
+    // Check cache first
+    const cacheKey = getCacheKey('ml', ticker, horizon);
+    const cached = getFromCache<MLAnalysisResult>(cacheKey, ML_CACHE_TTL);
+    if (cached) {
+      return cached;
+    }
+
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
     
@@ -53,6 +64,8 @@ export const fetchAIMLPrediction = async (
 
     if (data?.success && data?.result) {
       console.log(`AI ML received for ${ticker}:`, data.result.direction, data.result.confidence);
+      // Cache the result
+      setInCache(cacheKey, data.result);
       return data.result;
     }
 
