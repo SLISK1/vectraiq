@@ -224,6 +224,26 @@ const Index = () => {
   // Filter assets by market cap and asset type
   const filteredTopUp = useMemo(() => {
     if (!topUp) return [];
+    
+    // Special "rocket" filter: Top 10 by confidence * predicted growth
+    if (selectedMarketCap === 'rocket') {
+      const allAssets = [...(topUp || [])];
+      // Sort by confidence * predicted month/year return
+      return allAssets
+        .filter(a => selectedAssetType === 'all' || a.type === selectedAssetType)
+        .map(a => ({
+          asset: a,
+          // Calculate rocket score: confidence * max of month/year predicted return
+          rocketScore: a.confidence * Math.max(
+            Math.abs(a.predictedReturns?.year1 || 0),
+            Math.abs((a.predictedReturns?.week1 || 0) * 4) // Extrapolate week to month
+          )
+        }))
+        .sort((a, b) => b.rocketScore - a.rocketScore)
+        .slice(0, 10)
+        .map(r => r.asset);
+    }
+    
     return topUp.filter(a => {
       const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
       const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
@@ -233,6 +253,12 @@ const Index = () => {
 
   const filteredTopDown = useMemo(() => {
     if (!topDown) return [];
+    
+    // For rocket mode, don't show DOWN list - rocket is about growth
+    if (selectedMarketCap === 'rocket') {
+      return [];
+    }
+    
     return topDown.filter(a => {
       const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
       const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
@@ -280,9 +306,9 @@ const Index = () => {
             </div>
 
             {/* Rankings Grid */}
-            <div className="grid lg:grid-cols-2 gap-6">
+            <div className={selectedMarketCap === 'rocket' ? '' : 'grid lg:grid-cols-2 gap-6'}>
               <TopRankingList
-                title="Top 10 UP"
+                title={selectedMarketCap === 'rocket' ? '🚀 Top 10 Raket - Högst konfidens & tillväxtpotential' : 'Top 10 UP'}
                 direction="UP"
                 assets={filteredTopUp}
                 isLoading={isLoading}
@@ -291,16 +317,18 @@ const Index = () => {
                 onAssetClick={setSelectedAsset}
                 onRefresh={handleRefresh}
               />
-              <TopRankingList
-                title="Top 10 DOWN"
-                direction="DOWN"
-                assets={filteredTopDown}
-                isLoading={isLoading}
-                lastUpdated={new Date().toISOString()}
-                onAddToWatchlist={handleAddToWatchlist}
-                onAssetClick={setSelectedAsset}
-                onRefresh={handleRefresh}
-              />
+              {selectedMarketCap !== 'rocket' && (
+                <TopRankingList
+                  title="Top 10 DOWN"
+                  direction="DOWN"
+                  assets={filteredTopDown}
+                  isLoading={isLoading}
+                  lastUpdated={new Date().toISOString()}
+                  onAddToWatchlist={handleAddToWatchlist}
+                  onAssetClick={setSelectedAsset}
+                  onRefresh={handleRefresh}
+                />
+              )}
             </div>
           </>
         )}

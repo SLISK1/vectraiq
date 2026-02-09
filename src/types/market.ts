@@ -73,7 +73,7 @@ export interface TrendPrediction {
   reversalRisk: number; // 0-100
 }
 
-export type MarketCapCategory = 'small' | 'medium' | 'large' | 'all';
+export type MarketCapCategory = 'small' | 'medium' | 'large' | 'all' | 'rocket';
 
 export interface RankedAsset extends Asset {
   totalScore: number;
