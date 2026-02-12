@@ -13,7 +13,9 @@ import { MarketCapFilter } from '@/components/MarketCapFilter';
 import { AssetTypeFilter } from '@/components/AssetTypeFilter';
 import { SearchAssets } from '@/components/SearchAssets';
 import { PortfolioView } from '@/components/PortfolioView';
+import { ScreenerPage } from '@/pages/ScreenerPage';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
+import type { TabId } from '@/components/Header';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols, useAddSymbol } from '@/hooks/useMarketData';
 import { usePriceRealtime } from '@/hooks/usePriceRealtime';
@@ -22,7 +24,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Star, History, BarChart3, Loader2, Briefcase } from 'lucide-react';
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'watchlist' | 'portfolio' | 'stats' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>('1w');
   const [selectedMarketCap, setSelectedMarketCap] = useState<MarketCapCategory>('all');
   const [selectedAssetType, setSelectedAssetType] = useState<AssetType | 'all'>('all');
@@ -412,6 +414,9 @@ const Index = () => {
             <PortfolioView />
           </div>
         )}
+
+        {/* Screener */}
+        {activeTab === 'screener' && <ScreenerPage />}
 
         {/* Stats */}
         {activeTab === 'stats' && (
