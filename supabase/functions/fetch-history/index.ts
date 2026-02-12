@@ -239,12 +239,20 @@ Deno.serve(async (req) => {
     }
 
     // 2. Fetch Nordic stocks from Yahoo Finance (free, no API key needed)
-    const stockSymbols = symbols.filter(s => NORDIC_STOCKS[s.ticker]);
+    // Include symbols that have a mapping OR whose ticker already ends with .ST/.OL/.CO/.HE
+    const stockSymbols = symbols.filter(s => 
+      NORDIC_STOCKS[s.ticker] || 
+      s.ticker.endsWith('.ST') || 
+      s.ticker.endsWith('.OL') || 
+      s.ticker.endsWith('.CO') || 
+      s.ticker.endsWith('.HE')
+    );
     console.log(`Fetching history for ${stockSymbols.length} Nordic stocks from Yahoo Finance`);
     
     for (const symbol of stockSymbols) {
       try {
-        const yahooSymbol = NORDIC_STOCKS[symbol.ticker];
+        // Use mapping if available, otherwise use ticker directly (if it ends with .ST etc.)
+        const yahooSymbol = NORDIC_STOCKS[symbol.ticker] || symbol.ticker;
         const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
         const period2 = Math.floor(Date.now() / 1000);
         
