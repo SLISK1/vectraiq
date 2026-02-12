@@ -1,143 +1,76 @@
 
-# Lägg till Fundamentalanalysdata
+
+# Aktiescreener a la Avanza
 
 ## Sammanfattning
+Bygga en ny "Screener"-flik i appen med en Avanza-inspirerad aktiescreener som visar alla tillgangar i en sorterbar tabell med filter, plus sektorkategorier for enkel navigering. Dessutom lagga till fler svenska aktier i databasen.
 
-Systemet har redan typdefinitioner (`FundamentalMetrics`) och strukturer för fundamentaldata, men använder idag endast prisbaserade proxy-indikatorer. Vi ska integrera riktiga fundamentaldata (P/E, P/B, ROE, etc.) från Finnhub API för att förbättra analysmodulens precision.
+## Del 1: Lagga till fler svenska aktier
 
-## Nuläge
+Du har redan 191 aktier pa OMX Stockholm. Vi lagger till ytterligare ~150-200 aktier for att tacka bredare (sma- och medelstora bolag som saknas). Detta gors via SQL INSERT i databasen med `ON CONFLICT DO NOTHING` for att undvika dubbletter.
 
-- **Fundamentalmodulen** (`fundamental.ts`) visar "Fundamentaldata saknas" och beräknar endast momentum/volatilitet från prisdata
-- **FundamentalMetrics interface** finns redan med P/E, P/B, debt-to-equity, ROE, etc.
-- **Finnhub API-nyckel** är redan konfigurerad i secrets
-- **symbols-tabellen** har ett tomt `metadata` JSONB-fält som kan användas för att lagra fundamentaldata
+Fokus pa:
+- Small Cap-bolag som saknas (t.ex. Prostatype Genomics, Simris Group, PixelFox, etc.)
+- Mid Cap-bolag som saknas
+- NGM-listade bolag
+- First North-bolag (populara)
 
-## Lösning
+## Del 2: Ny "Screener"-flik
 
-### Steg 1: Skapa ny edge function för fundamentaldata
+### Ny navigeringsflik
+Lagga till "Screener" som en ny flik i Header-komponenten, bredvid Dashboard, Watchlist, Portfolio, etc.
 
-Skapa `supabase/functions/fetch-fundamentals/index.ts` som:
-- Anropar Finnhub Basic Financials API (`/stock/metric?symbol=X&metric=all`)
-- Extraherar relevanta nyckeltal: P/E, P/B, ROE, debt-to-equity, dividend yield, market cap
-- Sparar data i `symbols.metadata` JSONB-fält
-- Körs schemalagt (dagligen) och vid behov
+### Kategorisida (som Avanza "Kategorier")
+- Rutnit med sektorkategorier: Energi, Finans, Teknologi, Halsovaird, Industri, Fastigheter, Material, Konsumentvaror, Kommunikation, Utilities
+- Varje kategori ar en klickbar kort med ikon
+- Klick filtrerar tabellen pa den sektorn
 
-### Steg 2: Uppdatera analysmodulen
+### Aktiescreener-tabell (som Avanza "Aktiescreener")
+En sorterbar tabell med kolumner:
+- **Namn** (ticker + bolagsnamn)
+- **Utv. idag** (change_percent_24h)
+- **Senast** (sista pris + valuta)
+- **Sektor**
+- **P/E-tal** (fran fundamentaldata i metadata)
+- **Direktavk.** (dividend yield fran metadata)
+- **Borsvarde** (market cap)
+- **Signal** (VectraIQ:s UP/DOWN/NEUTRAL-riktning)
 
-Modifiera `src/lib/analysis/fundamental.ts`:
-- Ta emot `FundamentalMetrics` som optional parameter
-- Använd riktiga nyckeltal när tillgängligt
-- Behåll prisbaserade proxies som fallback
-- Ge högre konfidens och coverage när riktiga data finns
+### Filter
+Dropdown-/knappfilter ovanfor tabellen:
+- **Bransch** (sektor-filter)
+- **Borsvarde** (Small/Mid/Large Cap)
+- **Tillgangstyp** (Aktier/Krypto/Fonder/Metaller)
+- **Sok pa namn** (textsokning)
 
-### Steg 3: Uppdatera dataflödet
+Alla filter ar kombinerbara och tabellen uppdateras i realtid.
 
-Modifiera `src/lib/api/database.ts` och `useMarketData.ts`:
-- Inkludera metadata i symbol-queries
-- Parsa fundamentaldata från metadata
-- Skicka till analyskontext
-
-### Steg 4: Visa fundamentaldata i UI
-
-Uppdatera `ModuleSignalTable` eller skapa en ny komponent för att visa:
-- P/E-tal med jämförelse mot branschsnitt
-- ROE och skuldsättningsgrad
-- Utdelningsavkastning
+### Sortering
+Klickbara kolumnrubriker som sorterar stigande/fallande (med pil-ikon).
 
 ## Tekniska detaljer
 
-### Finnhub Basic Financials API
+### Nya filer
+- `src/pages/ScreenerPage.tsx` - Huvudsidan med tabs for Kategorier/Screener
+- `src/components/screener/ScreenerTable.tsx` - Sorterbar tabell
+- `src/components/screener/ScreenerFilters.tsx` - Filterrad
+- `src/components/screener/SectorCategories.tsx` - Sektorkategori-rutnit
 
-Endpoint: `GET /stock/metric?symbol=AAPL&metric=all`
+### Andrade filer
+- `src/components/Header.tsx` - Lagg till "Screener"-flik
+- `src/pages/Index.tsx` - Rendera ScreenerPage nar screener-flik ar aktiv
 
-Returnerar bl.a.:
-```text
-metric: {
-  "10DayAverageTradingVolume": 42.61,
-  "52WeekHigh": 150.0,
-  "52WeekLow": 89.14,
-  "peBasicExclExtraTTM": 28.5,
-  "pbQuarterly": 12.3,
-  "roeTTM": 85.2,
-  "debtEquityTTM": 1.95,
-  "dividendYieldIndicatedAnnual": 0.65,
-  "marketCapitalization": 2890000
-}
-```
+### Dataflode
+Screener-tabellen anvander befintlig `useSymbols()` hook som redan hamtar alla symbols med priser. Ingen ny edge function behovs - all data finns redan i databasen.
 
-### Edge function: fetch-fundamentals
+### Databas
+SQL INSERT for ~150-200 nya svenska aktier (Small Cap, First North, NGM) med korrekta tickers, namn, sektor och exchange.
 
-```text
-supabase/functions/fetch-fundamentals/index.ts:
+## Implementeringsordning
+1. Lagg till nya aktier i databasen
+2. Skapa ScreenerTable-komponenten med sortering
+3. Skapa ScreenerFilters-komponenten
+4. Skapa SectorCategories-komponenten
+5. Skapa ScreenerPage som kombinerar allt
+6. Uppdatera Header och Index for ny flik
 
-1. Autentisering (intern anrop med service key)
-2. Hämta aktiesymboler från symbols-tabellen
-3. Loop genom symboler:
-   - Anropa Finnhub /stock/metric endpoint
-   - Extrahera: peRatio, pbRatio, roe, debtToEquity, dividendYield
-   - Uppdatera symbols.metadata
-4. Rate limiting: 60 req/min på Finnhub free tier
-```
-
-### Uppdaterad FundamentalMetrics
-
-```text
-metadata.fundamentals = {
-  peRatio: number,
-  pbRatio: number,
-  roe: number,
-  debtToEquity: number,
-  dividendYield: number,
-  revenueGrowth: number,
-  earningsGrowth: number,
-  lastUpdated: string
-}
-```
-
-### Analyslogik
-
-```text
-Om fundamentals finns:
-  - P/E < 15: +2 poäng ("Lågt P/E-tal")
-  - P/E 15-25: 0 poäng ("Normalt P/E")
-  - P/E > 25: -1 poäng ("Högt P/E-tal")
-  
-  - ROE > 15%: +2 poäng ("Stark avkastning på eget kapital")
-  - ROE 8-15%: +1 poäng
-  - ROE < 8%: -1 poäng
-  
-  - Debt/Equity < 0.5: +1 poäng ("Låg skuldsättning")
-  - Debt/Equity > 2: -2 poäng ("Hög skuldsättning")
-  
-  Coverage höjs från 50% till 85%
-  Confidence höjs med +15-20%
-
-Om fundamentals saknas:
-  - Fortsätt använda prisbaserade proxies (nuvarande logik)
-```
-
-## Filer som ändras
-
-| Fil | Ändring |
-|-----|---------|
-| `supabase/functions/fetch-fundamentals/index.ts` | **Ny** - Edge function för att hämta fundamentaldata |
-| `src/lib/analysis/fundamental.ts` | Uppdatera för att använda riktiga nyckeltal |
-| `src/lib/analysis/types.ts` | Utöka FundamentalMetrics om nödvändigt |
-| `src/lib/api/database.ts` | Inkludera metadata i queries |
-| `src/hooks/useMarketData.ts` | Skicka fundamentals till analyskontext |
-| `src/lib/analysis/engine.ts` | Skicka fundamentals till analyzeFundamental |
-
-## Begränsningar
-
-- **Endast aktier**: Finnhub Basic Financials fungerar bara för aktier, inte krypto/metaller
-- **Rate limiting**: Finnhub free tier har 60 anrop/minut - behöver batcha
-- **Nordiska aktier**: Kan ha begränsad täckning i Finnhub - US-aktier har bäst data
-
-## Förväntad förbättring
-
-| Mätpunkt | Före | Efter |
-|----------|------|-------|
-| Fundamental coverage | 45-70% | 75-95% |
-| Fundamental confidence | 35-75% | 55-85% |
-| Evidens-datapunkter | 3-5 | 8-12 |
-| Meddelande i UI | "Fundamentaldata saknas" | P/E, ROE, etc. visas |
