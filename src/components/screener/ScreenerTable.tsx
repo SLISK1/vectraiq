@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import type { SymbolWithPrice } from '@/lib/api/database';
 
-type SortKey = 'name' | 'changePercent' | 'price' | 'sector' | 'pe' | 'dividendYield' | 'marketCap';
+type SortKey = 'name' | 'changePercent' | 'price' | 'sector' | 'pe' | 'dividendYield' | 'marketCap' | 'signal';
 type SortDir = 'asc' | 'desc';
 
 interface ScreenerTableProps {
@@ -41,6 +41,16 @@ const getPE = (symbol: SymbolWithPrice): number | null => {
 const getDividendYield = (symbol: SymbolWithPrice): number | null => {
   const meta = symbol.metadata as any;
   return meta?.fundamentals?.dividendYield ?? null;
+};
+
+type SignalDirection = 'UP' | 'DOWN' | 'NEUTRAL' | null;
+
+const getSignalFromPrice = (symbol: SymbolWithPrice): SignalDirection => {
+  if (!symbol.latestPrice) return null;
+  const change = Number(symbol.latestPrice.change_percent_24h || 0);
+  if (change > 1) return 'UP';
+  if (change < -1) return 'DOWN';
+  return 'NEUTRAL';
 };
 
 export const ScreenerTable = ({
@@ -129,6 +139,14 @@ export const ScreenerTable = ({
           valA = getMarketCapValue(a);
           valB = getMarketCapValue(b);
           break;
+        case 'signal': {
+          const dirMap = { 'UP': 2, 'NEUTRAL': 1, 'DOWN': 0 };
+          const sA = getSignalFromPrice(a);
+          const sB = getSignalFromPrice(b);
+          valA = sA ? dirMap[sA] : -1;
+          valB = sB ? dirMap[sB] : -1;
+          break;
+        }
       }
 
       return sortDir === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
@@ -173,12 +191,15 @@ export const ScreenerTable = ({
             <TableHead className="cursor-pointer select-none text-right hidden sm:table-cell" onClick={() => handleSort('marketCap')}>
               <span className="flex items-center justify-end">Börsvärde <SortIcon column="marketCap" /></span>
             </TableHead>
+            <TableHead className="cursor-pointer select-none text-center hidden md:table-cell" onClick={() => handleSort('signal')}>
+              <span className="flex items-center justify-center">Signal <SortIcon column="signal" /></span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {filtered.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+              <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                 Inga tillgångar matchar filtren
               </TableCell>
             </TableRow>
@@ -223,6 +244,15 @@ export const ScreenerTable = ({
                   </TableCell>
                   <TableCell className="text-right hidden sm:table-cell">
                     {formatMarketCap(mc)}
+                  </TableCell>
+                  <TableCell className="text-center hidden md:table-cell">
+                    {(() => {
+                      const signal = getSignalFromPrice(symbol);
+                      if (!signal) return '—';
+                      if (signal === 'UP') return <Badge className="bg-green-500/20 text-green-500 border-green-500/30 text-xs"><TrendingUp className="w-3 h-3 mr-1" />Köp</Badge>;
+                      if (signal === 'DOWN') return <Badge className="bg-red-500/20 text-red-500 border-red-500/30 text-xs"><TrendingDown className="w-3 h-3 mr-1" />Sälj</Badge>;
+                      return <Badge variant="secondary" className="text-xs"><Minus className="w-3 h-3 mr-1" />Neutral</Badge>;
+                    })()}
                   </TableCell>
                 </TableRow>
               );
