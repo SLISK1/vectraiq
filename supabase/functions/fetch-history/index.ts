@@ -118,16 +118,24 @@ Deno.serve(async (req) => {
     const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
 
-    if (!authHeader?.startsWith('Bearer ')) {
+    // Allow calls with service role key or valid user token
+    const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
+
+    if (!authHeader?.startsWith('Bearer ') && !isInternalCall) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // For internal calls with service key, skip user validation
-    // For external calls, validate the user token
-    if (!isInternalCall) {
+    // For external calls (not internal, not service role), validate the user token
+    if (!isInternalCall && !isServiceRole) {
+      if (!authHeader?.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
       const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
       });
