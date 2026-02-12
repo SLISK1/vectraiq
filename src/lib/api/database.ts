@@ -220,6 +220,13 @@ export const updateWatchlistResult = async (
 
 // Trigger price fetch
 export const triggerPriceFetch = async (): Promise<{ updated: number }> => {
+  // Check if user is authenticated before calling the edge function
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    console.log('Skipping price fetch: no authenticated session');
+    return { updated: 0 };
+  }
+
   const { data, error } = await supabase.functions.invoke('fetch-prices');
   
   if (error) {
