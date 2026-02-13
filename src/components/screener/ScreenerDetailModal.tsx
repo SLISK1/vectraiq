@@ -1,10 +1,13 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { TrendingUp, TrendingDown, Minus, BarChart3, Building2, DollarSign, Activity, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, BarChart3, Building2, DollarSign, Activity, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
 import type { SymbolWithPrice } from '@/lib/api/database';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { runAnalysis, createAnalysisContext, type FullAnalysis } from '@/lib/analysis/engine';
+import type { PriceData } from '@/lib/analysis/types';
+import type { Horizon, ModuleSignal } from '@/types/market';
 
 interface ScreenerDetailModalProps {
   symbol: SymbolWithPrice | null;
@@ -53,25 +56,104 @@ const DirectionIcon = ({ direction }: { direction: string }) => {
 };
 
 export const ScreenerDetailModal = ({ symbol, isOpen, onClose }: ScreenerDetailModalProps) => {
-  const [signals, setSignals] = useState<SignalRow[]>([]);
-  const [loadingSignals, setLoadingSignals] = useState(false);
+  const [dbSignals, setDbSignals] = useState<SignalRow[]>([]);
+  const [clientAnalysis, setClientAnalysis] = useState<FullAnalysis | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!symbol || !isOpen) return;
-    setLoadingSignals(true);
+    setLoading(true);
+    setClientAnalysis(null);
+    setDbSignals([]);
+
+    // First check DB for existing signals
     supabase
       .from('signals')
       .select('module, direction, strength, confidence, horizon')
       .eq('symbol_id', symbol.id)
       .order('created_at', { ascending: false })
       .limit(20)
-      .then(({ data }) => {
-        setSignals((data as SignalRow[]) || []);
-        setLoadingSignals(false);
+      .then(async ({ data }) => {
+        const signals = (data as SignalRow[]) || [];
+        setDbSignals(signals);
+
+        // If no DB signals, run client-side analysis
+        if (signals.length === 0) {
+          await runClientAnalysis(symbol);
+        }
+        setLoading(false);
       });
   }, [symbol, isOpen]);
 
+  const runClientAnalysis = async (sym: SymbolWithPrice) => {
+    try {
+      // Fetch price history for this symbol
+      const { data: priceHistory } = await supabase
+        .from('price_history')
+        .select('close_price, open_price, high_price, low_price, volume, date')
+        .eq('symbol_id', sym.id)
+        .order('date', { ascending: true })
+        .limit(200);
+
+      if (!priceHistory || priceHistory.length < 10) return;
+
+      const priceData: PriceData[] = priceHistory.map(p => ({
+        price: Number(p.close_price),
+        open: Number(p.open_price),
+        high: Number(p.high_price),
+        low: Number(p.low_price),
+        close: Number(p.close_price),
+        volume: p.volume ? Number(p.volume) : undefined,
+        timestamp: p.date,
+      }));
+
+      const currentPrice = sym.latestPrice ? Number(sym.latestPrice.price) : Number(priceHistory[priceHistory.length - 1].close_price);
+      const meta = sym.metadata as any;
+      const fundamentals = meta?.fundamentals || undefined;
+
+      const assetType = sym.asset_type === 'fund' ? 'stock' : sym.asset_type as 'stock' | 'crypto' | 'metal';
+      const horizon: Horizon = '1d';
+
+      const context = createAnalysisContext(
+        sym.ticker, sym.name, assetType, sym.currency,
+        currentPrice, priceData, horizon, fundamentals
+      );
+
+      const analysis = runAnalysis(context);
+      setClientAnalysis(analysis);
+
+      // Also persist signals to DB for future use
+      const signalInserts = analysis.signals.map(s => ({
+        symbol_id: sym.id,
+        module: s.module,
+        direction: s.direction,
+        strength: Math.round(s.strength),
+        confidence: Math.round(s.confidence),
+        coverage: Math.round(s.coverage),
+        horizon: horizon,
+        evidence: s.evidence as any,
+      }));
+
+      if (signalInserts.length > 0) {
+        await supabase.from('signals').insert(signalInserts);
+      }
+    } catch (e) {
+      console.error('Client analysis error:', e);
+    }
+  };
+
   if (!symbol) return null;
+
+  // Use client analysis signals if no DB signals
+  const displaySignals: SignalRow[] = dbSignals.length > 0
+    ? dbSignals
+    : (clientAnalysis?.signals.map(s => ({
+        module: s.module,
+        direction: s.direction,
+        strength: Math.round(s.strength),
+        confidence: Math.round(s.confidence),
+        horizon: '1d',
+      })) || []);
 
   const price = symbol.latestPrice ? Number(symbol.latestPrice.price) : null;
   const changePercent = symbol.latestPrice ? Number(symbol.latestPrice.change_percent_24h || 0) : 0;
@@ -86,7 +168,11 @@ export const ScreenerDetailModal = ({ symbol, isOpen, onClose }: ScreenerDetailM
   const week52High = meta?.fundamentals?.week52High ?? null;
   const week52Low = meta?.fundamentals?.week52Low ?? null;
 
-  const overallSignal = changePercent > 1 ? 'UP' : changePercent < -1 ? 'DOWN' : 'NEUTRAL';
+  // Use analysis direction if available, otherwise fallback to price change
+  const overallDirection = clientAnalysis?.direction
+    || (changePercent > 1 ? 'UP' : changePercent < -1 ? 'DOWN' : 'NEUTRAL');
+  const overallConfidence = clientAnalysis?.confidence;
+  const aiSummary = clientAnalysis?.aiSummary;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -130,10 +216,21 @@ export const ScreenerDetailModal = ({ symbol, isOpen, onClose }: ScreenerDetailM
           <div className="flex items-center gap-2 p-3 rounded-lg border border-border">
             <Activity className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium">VectraIQ Signal:</span>
-            {overallSignal === 'UP' && <Badge className="bg-green-500/20 text-green-500 border-green-500/30"><TrendingUp className="w-3 h-3 mr-1" />Köp</Badge>}
-            {overallSignal === 'DOWN' && <Badge className="bg-red-500/20 text-red-500 border-red-500/30"><TrendingDown className="w-3 h-3 mr-1" />Sälj</Badge>}
-            {overallSignal === 'NEUTRAL' && <Badge variant="secondary"><Minus className="w-3 h-3 mr-1" />Neutral</Badge>}
+            {loading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+            {!loading && overallDirection === 'UP' && <Badge className="bg-green-500/20 text-green-500 border-green-500/30"><TrendingUp className="w-3 h-3 mr-1" />Köp</Badge>}
+            {!loading && overallDirection === 'DOWN' && <Badge className="bg-red-500/20 text-red-500 border-red-500/30"><TrendingDown className="w-3 h-3 mr-1" />Sälj</Badge>}
+            {!loading && overallDirection === 'NEUTRAL' && <Badge variant="secondary"><Minus className="w-3 h-3 mr-1" />Neutral</Badge>}
+            {overallConfidence != null && (
+              <span className="text-xs text-muted-foreground ml-auto">{overallConfidence}% konfidens</span>
+            )}
           </div>
+
+          {/* AI Summary */}
+          {aiSummary && (
+            <p className="text-sm text-muted-foreground p-3 rounded-lg bg-primary/5 border border-primary/10">
+              {aiSummary}
+            </p>
+          )}
 
           {/* Key stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -177,8 +274,8 @@ export const ScreenerDetailModal = ({ symbol, isOpen, onClose }: ScreenerDetailM
             </div>
           )}
 
-          {/* Signals from DB */}
-          {signals.length > 0 && (
+          {/* Signals table */}
+          {displaySignals.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold mb-2">Analyssignaler</h3>
               <div className="rounded-lg border border-border overflow-hidden">
@@ -192,7 +289,7 @@ export const ScreenerDetailModal = ({ symbol, isOpen, onClose }: ScreenerDetailM
                     </tr>
                   </thead>
                   <tbody>
-                    {signals.map((s, i) => (
+                    {displaySignals.map((s, i) => (
                       <tr key={i} className="border-t border-border/50">
                         <td className="px-3 py-2">{MODULE_LABELS[s.module] || s.module}</td>
                         <td className="px-3 py-2 text-center"><DirectionIcon direction={s.direction} /></td>
@@ -206,10 +303,29 @@ export const ScreenerDetailModal = ({ symbol, isOpen, onClose }: ScreenerDetailM
             </div>
           )}
 
-          {!loadingSignals && signals.length === 0 && (
+          {loading && displaySignals.length === 0 && (
+            <div className="flex items-center justify-center gap-2 p-4 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Analyserar...</span>
+            </div>
+          )}
+
+          {!loading && displaySignals.length === 0 && (
             <p className="text-xs text-muted-foreground text-center p-3 bg-muted/30 rounded-lg">
-              Inga analyssignaler tillgängliga för denna tillgång ännu.
+              Otillräcklig prishistorik för att generera analyssignaler.
             </p>
+          )}
+
+          {/* Trend prediction */}
+          {clientAnalysis?.trendPrediction && (
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Trendprognos</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <StatCard label="Trendstyrka" value={`${clientAnalysis.trendPrediction.trendStrength}%`} />
+                <StatCard label="Vändningsrisk" value={`${clientAnalysis.trendPrediction.reversalRisk}%`} />
+                <StatCard label="Risk/Reward" value={formatNumber(clientAnalysis.trendPrediction.riskRewardRatio, 1)} />
+              </div>
+            </div>
           )}
 
           {/* Disclaimer */}
