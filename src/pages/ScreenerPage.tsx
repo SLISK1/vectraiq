@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { SectorCategories } from '@/components/screener/SectorCategories';
 import { ScreenerFilters } from '@/components/screener/ScreenerFilters';
 import { ScreenerTable } from '@/components/screener/ScreenerTable';
+import { ScreenerDetailModal } from '@/components/screener/ScreenerDetailModal';
 import { useSymbols } from '@/hooks/useMarketData';
 import { Loader2, LayoutGrid } from 'lucide-react';
+import type { SymbolWithPrice } from '@/lib/api/database';
 
 export const ScreenerPage = () => {
   const { data: symbols, isLoading } = useSymbols();
@@ -11,6 +13,7 @@ export const ScreenerPage = () => {
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
   const [selectedMarketCap, setSelectedMarketCap] = useState('all');
   const [selectedAssetType, setSelectedAssetType] = useState('all');
+  const [selectedSymbol, setSelectedSymbol] = useState<SymbolWithPrice | null>(null);
 
   if (isLoading) {
     return (
@@ -55,6 +58,14 @@ export const ScreenerPage = () => {
         selectedSector={selectedSector}
         selectedMarketCap={selectedMarketCap}
         selectedAssetType={selectedAssetType}
+        onAssetClick={(s) => setSelectedSymbol(s)}
+      />
+
+      {/* Detail Modal */}
+      <ScreenerDetailModal
+        symbol={selectedSymbol}
+        isOpen={!!selectedSymbol}
+        onClose={() => setSelectedSymbol(null)}
       />
     </div>
   );
