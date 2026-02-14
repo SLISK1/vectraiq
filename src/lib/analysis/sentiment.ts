@@ -139,9 +139,9 @@ export const analyzeSentiment = async (
   let baseStrength = 50;
   
   if (assetType === 'crypto') {
-    // Crypto sentiment tends to be more volatile
-    baseStrength = 45 + Math.random() * 30;
-    baseDirection = baseStrength > 60 ? 'UP' : baseStrength < 40 ? 'DOWN' : 'NEUTRAL';
+    // Crypto - neutral base when no data available
+    baseStrength = 50;
+    baseDirection = 'NEUTRAL';
   } else if (assetType === 'metal') {
     // Metals (especially gold) often seen as safe haven
     baseStrength = 55;
