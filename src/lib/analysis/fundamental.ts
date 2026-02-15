@@ -350,21 +350,21 @@ export const analyzeFundamental = (
     
     evidence.push({
       type: 'fundamental_data',
-      description: 'Fundamentaldata från Finnhub',
+      description: 'Fundamentaldata från FMP / Finnhub',
       value: `${fundAnalysis.signals.length} nyckeltal analyserade`,
       timestamp: new Date().toISOString(),
-      source: 'Finnhub API',
+      source: 'FMP / Finnhub API',
     });
     
     // Add market cap evidence if available
     if (fundamentals.marketCap) {
-      const capInBillions = fundamentals.marketCap / 1000; // Finnhub reports in millions
+      const capInBillions = fundamentals.marketCap / 1e9;
       evidence.push({
         type: 'market_cap',
         description: 'Börsvärde',
         value: `${capInBillions.toFixed(1)} mdr`,
         timestamp: new Date().toISOString(),
-        source: 'Finnhub API',
+        source: 'FMP / Finnhub API',
       });
     }
     
@@ -453,7 +453,7 @@ export const analyzeFundamental = (
       totalScore, 
       horizonWeight,
       signalCount: allSignals.length,
-      dataSource: hasFundamentals ? 'finnhub_fundamentals' : 'price_proxy',
+      dataSource: hasFundamentals ? 'fmp_fundamentals' : 'price_proxy',
     },
   };
 };
