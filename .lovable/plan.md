@@ -1,76 +1,80 @@
 
+# Plan: Hämta data och signaler för alla tillgångar som saknar analysdata
 
-# Aktiescreener a la Avanza
+## Problem
+65 av 296 aktiva tillgångar saknar prishistorik och därmed analyssignaler. Orsaken varierar per kategori:
 
-## Sammanfattning
-Bygga en ny "Screener"-flik i appen med en Avanza-inspirerad aktiescreener som visar alla tillgangar i en sorterbar tabell med filter, plus sektorkategorier for enkel navigering. Dessutom lagga till fler svenska aktier i databasen.
+| Kategori | Antal | Orsak |
+|----------|-------|-------|
+| Nordiska aktier (.ST) | ~30 | Yahoo-symbolen matchar men hämtningen kan ha misslyckats (felaktigt symbolformat, avlistade bolag) |
+| Nordiska aktier (utan suffix) | ~7 | Saknar mapping i NORDIC_STOCKS och matchar inte .ST-filtret (t.ex. ATRLJ-B, KAHOT, KIND-SDB) |
+| Krypto | 5 | Finns i CRYPTO_IDS men troligen CoinGecko rate-limit |
+| Metaller | 4 | Alpha Vantage begränsat till 2 st per körning |
+| Fonder | 7 | Ingen hämtningslogik implementerad |
+| US-aktier | 1 | AMD saknas i US_STOCKS-listan |
 
-## Del 1: Lagga till fler svenska aktier
+## Losning
 
-Du har redan 191 aktier pa OMX Stockholm. Vi lagger till ytterligare ~150-200 aktier for att tacka bredare (sma- och medelstora bolag som saknas). Detta gors via SQL INSERT i databasen med `ON CONFLICT DO NOTHING` for att undvika dubbletter.
+### Steg 1: Utoka fetch-history med saknade ticker-mappningar
+- Lagg till AMD i US_STOCKS-listan
+- Lagg till saknade nordiska aktier utan .ST-suffix i NORDIC_STOCKS-mappningen (t.ex. ATRLJ-B -> ATRLJ-B.ST, KAHOT -> KAHOT.OL, KIND-SDB -> KIND-SDB.ST, KARO -> KARO.ST, FM -> FM.ST, COLL -> COLL.ST, RAYSH -> RAYS.ST)
+- Fixa felaktiga Yahoo-symboler for aktier som har .ST men anvander fel format (t.ex. EMBRACER-B.ST, BOLIDEN.ST, CALLIDITAS.ST)
+- Utoka metals-hämtningen fran 2 till 4 st
+- Lagg till fonddata via Yahoo Finance for fonder som har ISIN/Yahoo-ticker
 
-Fokus pa:
-- Small Cap-bolag som saknas (t.ex. Prostatype Genomics, Simris Group, PixelFox, etc.)
-- Mid Cap-bolag som saknas
-- NGM-listade bolag
-- First North-bolag (populara)
+### Steg 2: Forbattra felhantering och retry-logik
+- Lagg till tydlig loggning nar Yahoo returnerar fel for en specifik ticker
+- For krypto: oka delay mellan CoinGecko-anrop for att undvika rate limits (fran 2.5s till 4s)
+- Lagg till stod for att skicka specifika tickers till fetch-history sa man kan rikta om hämtning
 
-## Del 2: Ny "Screener"-flik
+### Steg 3: Schemalagg signalgenerering via pg_cron
+- Skapa pg_cron-jobb for generate-signals som kors dagligen efter att prishistorik hamtats
+- Batcha i grupper om 50 med offset (precis som fetch-fundamentals)
+- Schemalagger kl 08:00-08:10 UTC (efter prishistorik-hämtningen)
 
-### Ny navigeringsflik
-Lagga till "Screener" som en ny flik i Header-komponenten, bredvid Dashboard, Watchlist, Portfolio, etc.
-
-### Kategorisida (som Avanza "Kategorier")
-- Rutnit med sektorkategorier: Energi, Finans, Teknologi, Halsovaird, Industri, Fastigheter, Material, Konsumentvaror, Kommunikation, Utilities
-- Varje kategori ar en klickbar kort med ikon
-- Klick filtrerar tabellen pa den sektorn
-
-### Aktiescreener-tabell (som Avanza "Aktiescreener")
-En sorterbar tabell med kolumner:
-- **Namn** (ticker + bolagsnamn)
-- **Utv. idag** (change_percent_24h)
-- **Senast** (sista pris + valuta)
-- **Sektor**
-- **P/E-tal** (fran fundamentaldata i metadata)
-- **Direktavk.** (dividend yield fran metadata)
-- **Borsvarde** (market cap)
-- **Signal** (VectraIQ:s UP/DOWN/NEUTRAL-riktning)
-
-### Filter
-Dropdown-/knappfilter ovanfor tabellen:
-- **Bransch** (sektor-filter)
-- **Borsvarde** (Small/Mid/Large Cap)
-- **Tillgangstyp** (Aktier/Krypto/Fonder/Metaller)
-- **Sok pa namn** (textsokning)
-
-Alla filter ar kombinerbara och tabellen uppdateras i realtid.
-
-### Sortering
-Klickbara kolumnrubriker som sorterar stigande/fallande (med pil-ikon).
+### Steg 4: Inaktivera tillgangar utan datakallor
+- For fonder och andra tillgangar dar ingen extern datakalla finns, markera som is_active = false eller lagg till en flagga som visar att data saknas
+- Detta förhindrar att tomma kort visas i Screener
 
 ## Tekniska detaljer
 
-### Nya filer
-- `src/pages/ScreenerPage.tsx` - Huvudsidan med tabs for Kategorier/Screener
-- `src/components/screener/ScreenerTable.tsx` - Sorterbar tabell
-- `src/components/screener/ScreenerFilters.tsx` - Filterrad
-- `src/components/screener/SectorCategories.tsx` - Sektorkategori-rutnit
+### Filer som andras:
+1. **supabase/functions/fetch-history/index.ts** - Utokade mappningar, fixade Yahoo-symboler, battre felhantering, okat CoinGecko-delay
+2. **Ny migration** - pg_cron-jobb for generate-signals (6 jobb med offset 0-250, kl 08:00-08:10 UTC)
+3. **supabase/functions/generate-signals/index.ts** - Eventuellt stod for paginering via limit/offset (redan implementerat)
 
-### Andrade filer
-- `src/components/Header.tsx` - Lagg till "Screener"-flik
-- `src/pages/Index.tsx` - Rendera ScreenerPage nar screener-flik ar aktiv
+### Ticker-mappningar som laggs till/fixas:
 
-### Dataflode
-Screener-tabellen anvander befintlig `useSymbols()` hook som redan hamtar alla symbols med priser. Ingen ny edge function behovs - all data finns redan i databasen.
+```text
+Nordiska utan suffix:
+  ATRLJ-B  -> ATRLJ-B.ST
+  KAHOT    -> KAHOT.OL
+  KIND-SDB -> KIND-SDB.ST
+  KARO     -> KARO.ST
+  FM       -> FM.ST
+  COLL     -> COLL.ST
+  RAYSH    -> RAYS.ST (redan mappad men ticker i DB ar RAYSH)
 
-### Databas
-SQL INSERT for ~150-200 nya svenska aktier (Small Cap, First North, NGM) med korrekta tickers, namn, sektor och exchange.
+Nordiska med .ST som kan ha fel Yahoo-symbol:
+  EMBRACER-B.ST -> EMBRAC-B.ST (ratt Yahoo-symbol)
+  BOLIDEN.ST    -> BOL.ST (ratt Yahoo-symbol)
+  CALLIDITAS.ST -> kontrollera ratt symbol
+  FAST.ST       -> BALD-B.ST? (Balder)
+  FORTN.ST      -> FORTUM.HE (finsk aktie, fel bors)
+  LUND-A.ST     -> kontrollera
+  SWMA.ST       -> avlistad (Swedish Match koptes av PMI)
 
-## Implementeringsordning
-1. Lagg till nya aktier i databasen
-2. Skapa ScreenerTable-komponenten med sortering
-3. Skapa ScreenerFilters-komponenten
-4. Skapa SectorCategories-komponenten
-5. Skapa ScreenerPage som kombinerar allt
-6. Uppdatera Header och Index for ny flik
+US-aktier:
+  AMD laggs till i US_STOCKS
 
+Krypto:
+  Oka delay, ingen mappningsandring behovs
+
+Metaller:
+  Slopa grans pa 2 st, hamta alla 4
+```
+
+### Korningsordning efter deploy:
+1. Kor fetch-history for saknade tickers
+2. Kor generate-signals for alla
+3. Verifiera att luckan minskat
