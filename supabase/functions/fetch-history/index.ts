@@ -26,9 +26,9 @@ const CRYPTO_IDS: Record<string, string> = {
   'OP': 'optimism',
 };
 
-// Nordic stocks - ticker to Yahoo symbol mapping (comprehensive Nordic coverage)
+// Nordic stocks - ticker to Yahoo symbol mapping
 const NORDIC_STOCKS: Record<string, string> = {
-  // Sweden - Large Cap (>€10B market cap)
+  // Sweden - Large Cap
   'VOLV_B': 'VOLV-B.ST', 'ERIC-B': 'ERIC-B.ST', 'SEB-A': 'SEB-A.ST',
   'ATCO-A': 'ATCO-A.ST', 'ASSA-B': 'ASSA-B.ST', 'HM-B': 'HM-B.ST',
   'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST',
@@ -39,10 +39,10 @@ const NORDIC_STOCKS: Record<string, string> = {
   'GETI-B': 'GETI-B.ST', 'SAAB-B': 'SAAB-B.ST', 'SHB-A': 'SHB-A.ST',
   'NDA-SE': 'NDA-SE.ST', 'AZN': 'AZN.ST', 'EMBRAC-B': 'EMBRAC-B.ST',
   
-  // Sweden - Mid Cap (€2-10B market cap)
+  // Sweden - Mid Cap
   'SINCH': 'SINCH.ST', 'SSAB-A': 'SSAB-A.ST', 'TEL2-B': 'TEL2-B.ST',
   'AXFO': 'AXFO.ST', 'LUND-B': 'LUND-B.ST', 'LIFCO-B': 'LIFCO-B.ST',
-  'SWMA': 'SWMA.ST', 'LATO-B': 'LATO-B.ST', 'INDU-C': 'INDU-C.ST',
+  'LATO-B': 'LATO-B.ST', 'INDU-C': 'INDU-C.ST',
   'WALL-B': 'WALL-B.ST', 'FABG': 'FABG.ST', 'HUFV-A': 'HUFV-A.ST',
   'BILL': 'BILL.ST', 'LOOMIS': 'LOOMIS.ST', 'SAGA-B': 'SAGA-B.ST',
   'AAK': 'AAK.ST', 'TREL-B': 'TREL-B.ST', 'AF-B': 'AF-B.ST',
@@ -50,12 +50,11 @@ const NORDIC_STOCKS: Record<string, string> = {
   'THULE': 'THULE.ST', 'BRAV': 'BRAV.ST',
   'FLAT': 'FLAT-B.ST', 'CATE': 'CATE.ST', 'WIHL': 'WIHL.ST',
   
-  // Sweden - Small Cap (<€2B market cap)
+  // Sweden - Small Cap
   'BALD-B': 'BALD-B.ST', 'MTRS': 'MTRS.ST', 'DUNI': 'DUNI.ST',
   'BETS-B': 'BETS-B.ST', 'KIND-SDB': 'KIND-SDB.ST', 'CLAS-B': 'CLAS-B.ST',
   'BUFAB': 'BUFAB.ST', 'NOLA-B': 'NOLA-B.ST', 'SYSR': 'SYSR.ST',
   'SAVE': 'SAVE.ST', 'AVAZ-B': 'AZA.ST', 'RESURS': 'RESURS.ST', 'NEOBO': 'NEOBO.ST',
-  // Additional Small Cap Swedish stocks
   'TROAX': 'TROAX.ST', 'AMBEA': 'AMBEA.ST', 'BULTEN': 'BULTEN.ST',
   'CIBUS': 'CIBUS.ST', 'CLA-B': 'CLA-B.ST', 'BONAV-B': 'BONAV-B.ST',
   'BURE': 'BURE.ST', 'COOR': 'COOR.ST', 'DIOS': 'DIOS.ST',
@@ -67,7 +66,35 @@ const NORDIC_STOCKS: Record<string, string> = {
   'OEM-B': 'OEM-B.ST', 'ORTI-B': 'ORTI-B.ST', 'PEAB-B': 'PEAB-B.ST',
   'PRIC-B': 'PRIC-B.ST', 'RATO-B': 'RATO-B.ST', 'RAYSH': 'RAYS.ST',
   'VITR': 'VITR.ST', 'VNV': 'VNV.ST', 'XVIVO': 'XVIVO.ST',
-  
+
+  // --- Fixade/tillagda mappningar för saknade tickers ---
+  'ATRLJ-B': 'ATRLJ-B.ST',
+  'COLL': 'COLL.ST',
+  // Felaktiga .ST-tickers -> rätt Yahoo-symbol
+  'EMBRACER-B.ST': 'EMBRAC-B.ST',
+  'BOLIDEN.ST': 'BOL.ST',
+  'CALLIDITAS.ST': 'CALT.ST',
+  'CALTX.ST': 'CALT.ST',
+  'FAST.ST': 'BALD-B.ST',
+  'FORTN.ST': 'FORTUM.HE',
+  'LUND-A.ST': 'LUND-B.ST',
+  'LATOUR-B.ST': 'LATO-B.ST',
+  'LOOM-B.ST': 'LOOMIS.ST',
+  'SAGAX-B.ST': 'SAGA-B.ST',
+  'SAGAX-D.ST': 'SAGA-D.ST',
+  'STILLF.ST': 'SF.ST',
+  'MTRS-B.ST': 'MTRS.ST',
+  'MVIR-B.ST': 'MCOV-B.ST',
+  'AF-B.ST': 'AFB.ST',
+  'RESURS.ST': 'RESURS.ST',
+  'PROB.ST': 'PROB.ST',
+  'KNOWIT.ST': 'KNOW.ST',
+  'OX2.ST': 'OX2.ST',
+  'BIOT.ST': 'BIOT.ST',
+  'FENIX.ST': 'FOI-B.ST',
+  'EWORK.ST': 'EWRK.ST',
+  'NPAPER.ST': 'NPAPER.ST',
+
   // Norway (Oslo Børs)
   'EQNR': 'EQNR.OL', 'DNB': 'DNB.OL', 'TEL': 'TEL.OL',
   'MOWI': 'MOWI.OL', 'SALM': 'SALM.OL', 'YAR': 'YAR.OL',
@@ -88,19 +115,72 @@ const NORDIC_STOCKS: Record<string, string> = {
   'TYRES': 'TYRES.HE', 'METSB': 'METSB.HE',
 };
 
-// Swedish funds - ticker to Morningstar/Avanza ID (for future API integration)
-const SWEDISH_FUNDS: Record<string, string> = {
-  'SWE-ASIA': 'F00000WLQU', 'SWE-USA': 'F00000WLQS', 'SWE-GLOB': 'F00000WLQR',
-  'SWE-TECH': 'F00000WLQT', 'SWE-SMAL': 'F00000WLQP', 'HB-ENRG': 'F00000Z8ZX',
-  'SPLT-INV': 'F00000NCKP',
-};
-
-// US stocks (fetch via Yahoo Finance - no API key needed)
-const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ', 'SPOT'];
+// US stocks
+const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ', 'SPOT', 'AMD'];
 
 interface HistoryRequest {
   tickers?: string[];
   days?: number;
+}
+
+// Helper: fetch Yahoo Finance data for a symbol
+async function fetchYahooHistory(yahooSymbol: string, days: number): Promise<{ timestamp: number[]; quotes: any } | null> {
+  const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+  const period2 = Math.floor(Date.now() / 1000);
+  
+  const res = await fetch(
+    `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?period1=${period1}&period2=${period2}&interval=1d`,
+    { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
+  );
+  
+  if (!res.ok) return null;
+  
+  const data = await res.json();
+  const result = data.chart?.result?.[0];
+  if (!result?.timestamp || !result?.indicators?.quote?.[0]) return null;
+  
+  return { timestamp: result.timestamp, quotes: result.indicators.quote[0] };
+}
+
+// Helper: convert Yahoo data to price_history records
+function yahooToRecords(symbolId: string, data: { timestamp: number[]; quotes: any }): any[] {
+  const records: any[] = [];
+  for (let i = 0; i < data.timestamp.length; i++) {
+    if (data.quotes.close?.[i] != null) {
+      const dateStr = new Date(data.timestamp[i] * 1000).toISOString().split('T')[0];
+      records.push({
+        symbol_id: symbolId,
+        date: dateStr,
+        open_price: data.quotes.open?.[i] || data.quotes.close[i],
+        high_price: data.quotes.high?.[i] || data.quotes.close[i],
+        low_price: data.quotes.low?.[i] || data.quotes.close[i],
+        close_price: data.quotes.close[i],
+        volume: data.quotes.volume?.[i] || null,
+        source: 'yahoo',
+      });
+    }
+  }
+  return records;
+}
+
+// Helper: upsert records and track results
+async function upsertAndTrack(
+  supabase: any,
+  ticker: string,
+  records: any[],
+  source: string,
+  results: { ticker: string; records: number; source: string }[],
+  errors: string[]
+) {
+  if (records.length === 0) return;
+  const { error } = await supabase
+    .from('price_history')
+    .upsert(records, { onConflict: 'symbol_id,date,source', ignoreDuplicates: true });
+  if (error) {
+    errors.push(`${ticker}: ${error.message}`);
+  } else {
+    results.push({ ticker, records: records.length, source });
+  }
 }
 
 Deno.serve(async (req) => {
@@ -114,11 +194,8 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     // === AUTHENTICATION CHECK ===
-    // Allow internal calls from other edge functions (marked with X-Internal-Call header and service key)
     const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
-
-    // Allow calls with service role key or valid user token
     const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
 
     if (!authHeader?.startsWith('Bearer ') && !isInternalCall) {
@@ -128,7 +205,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // For external calls (not internal, not service role), validate the user token
     if (!isInternalCall && !isServiceRole) {
       if (!authHeader?.startsWith('Bearer ')) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -139,10 +215,8 @@ Deno.serve(async (req) => {
       const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
       });
-
       const token = authHeader.replace('Bearer ', '');
       const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getUser(token);
-      
       if (claimsError || !claimsData?.user) {
         return new Response(JSON.stringify({ error: 'Invalid token' }), {
           status: 401,
@@ -151,30 +225,23 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Service role client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
-    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
 
-    // Parse request body - default to 365 days for better ML/trend analysis
+    // Parse request body
     let requestedTickers: string[] | undefined;
     let days = 365;
-    
     try {
       const body: HistoryRequest = await req.json();
       requestedTickers = body.tickers;
       days = body.days || 365;
-    } catch {
-      // Use defaults
-    }
+    } catch {}
 
     // Get symbols
     let query = supabase.from('symbols').select('id, ticker, asset_type').eq('is_active', true);
     if (requestedTickers?.length) {
       query = query.in('ticker', requestedTickers);
     }
-    
     const { data: symbols, error: symError } = await query;
 
     if (symError || !symbols?.length) {
@@ -184,262 +251,123 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Fetching history for ${symbols.length} symbols, ${days} days (targeting 12 months for optimal ML analysis)`);
+    console.log(`Fetching history for ${symbols.length} symbols, ${days} days`);
     
     const results: { ticker: string; records: number; source: string }[] = [];
     const errors: string[] = [];
 
-    // 1. Fetch crypto historical data from CoinGecko
+    // 1. Fetch crypto from CoinGecko (increased delay to 4s)
     const cryptoSymbols = symbols.filter(s => CRYPTO_IDS[s.ticker]);
-    
     for (const symbol of cryptoSymbols) {
       const coinId = CRYPTO_IDS[symbol.ticker];
-      console.log(`Fetching history for ${symbol.ticker} from CoinGecko`);
-      
+      console.log(`Fetching crypto: ${symbol.ticker} (${coinId})`);
       try {
         const res = await fetch(
           `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`
         );
-        
         if (res.ok) {
           const data = await res.json();
-          
           if (Array.isArray(data) && data.length > 0) {
             const byDate = new Map<string, any>();
             for (const candle of data) {
               const dateStr = new Date(candle[0]).toISOString().split('T')[0];
               byDate.set(dateStr, {
-                symbol_id: symbol.id,
-                date: dateStr,
-                open_price: candle[1],
-                high_price: candle[2],
-                low_price: candle[3],
-                close_price: candle[4],
-                volume: null,
-                source: 'coingecko',
+                symbol_id: symbol.id, date: dateStr,
+                open_price: candle[1], high_price: candle[2],
+                low_price: candle[3], close_price: candle[4],
+                volume: null, source: 'coingecko',
               });
             }
-            
-            const historyRecords = Array.from(byDate.values());
-
-            const { error: insertError } = await supabase
-              .from('price_history')
-              .upsert(historyRecords, { 
-                onConflict: 'symbol_id,date,source',
-                ignoreDuplicates: true 
-              });
-
-            if (insertError) {
-              errors.push(`${symbol.ticker}: ${insertError.message}`);
-            } else {
-              results.push({ ticker: symbol.ticker, records: historyRecords.length, source: 'coingecko' });
-            }
+            await upsertAndTrack(supabase, symbol.ticker, Array.from(byDate.values()), 'coingecko', results, errors);
           }
         } else {
           errors.push(`${symbol.ticker}: CoinGecko HTTP ${res.status}`);
         }
-        
-        await new Promise(resolve => setTimeout(resolve, 2500));
-        
+        await new Promise(resolve => setTimeout(resolve, 4000)); // 4s delay
       } catch (e) {
         errors.push(`${symbol.ticker}: ${e}`);
       }
     }
 
-    // 2. Fetch Nordic stocks from Yahoo Finance (free, no API key needed)
-    // Include symbols that have a mapping OR whose ticker already ends with .ST/.OL/.CO/.HE
+    // 2. Fetch Nordic stocks from Yahoo Finance
+    // Include symbols with mapping OR ending with Nordic suffixes
+    const nordicSuffixes = ['.ST', '.OL', '.CO', '.HE'];
     const stockSymbols = symbols.filter(s => 
-      NORDIC_STOCKS[s.ticker] || 
-      s.ticker.endsWith('.ST') || 
-      s.ticker.endsWith('.OL') || 
-      s.ticker.endsWith('.CO') || 
-      s.ticker.endsWith('.HE')
+      NORDIC_STOCKS[s.ticker] || nordicSuffixes.some(suffix => s.ticker.endsWith(suffix))
     );
-    console.log(`Fetching history for ${stockSymbols.length} Nordic stocks from Yahoo Finance`);
+    console.log(`Fetching ${stockSymbols.length} Nordic stocks from Yahoo`);
     
     for (const symbol of stockSymbols) {
       try {
-        // Use mapping if available, otherwise use ticker directly (if it ends with .ST etc.)
         const yahooSymbol = NORDIC_STOCKS[symbol.ticker] || symbol.ticker;
-        const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
-        const period2 = Math.floor(Date.now() / 1000);
+        console.log(`Yahoo: ${symbol.ticker} -> ${yahooSymbol}`);
         
-        console.log(`Trying Yahoo Finance for ${symbol.ticker} as ${yahooSymbol}`);
-        
-        const res = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?period1=${period1}&period2=${period2}&interval=1d`,
-          { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
-        );
-        
-        if (res.ok) {
-          const data = await res.json();
-          const result = data.chart?.result?.[0];
-          
-          if (result?.timestamp && result?.indicators?.quote?.[0]) {
-            const quotes = result.indicators.quote[0];
-            const historyRecords: any[] = [];
-            
-            for (let i = 0; i < result.timestamp.length; i++) {
-              if (quotes.close?.[i] != null) {
-                const dateStr = new Date(result.timestamp[i] * 1000).toISOString().split('T')[0];
-                historyRecords.push({
-                  symbol_id: symbol.id,
-                  date: dateStr,
-                  open_price: quotes.open?.[i] || quotes.close[i],
-                  high_price: quotes.high?.[i] || quotes.close[i],
-                  low_price: quotes.low?.[i] || quotes.close[i],
-                  close_price: quotes.close[i],
-                  volume: quotes.volume?.[i] || null,
-                  source: 'yahoo',
-                });
-              }
-            }
-
-            if (historyRecords.length > 0) {
-              const { error: insertError } = await supabase
-                .from('price_history')
-                .upsert(historyRecords, { 
-                  onConflict: 'symbol_id,date,source',
-                  ignoreDuplicates: true 
-                });
-
-              if (insertError) {
-                errors.push(`${symbol.ticker}: ${insertError.message}`);
-              } else {
-                results.push({ ticker: symbol.ticker, records: historyRecords.length, source: 'yahoo' });
-              }
-            }
-          }
+        const data = await fetchYahooHistory(yahooSymbol, days);
+        if (data) {
+          const records = yahooToRecords(symbol.id, data);
+          await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo', results, errors);
         } else {
-          console.log(`Yahoo HTTP error for ${symbol.ticker}: ${res.status}`);
+          console.log(`Yahoo: no data for ${symbol.ticker} (${yahooSymbol})`);
+          errors.push(`${symbol.ticker}: Yahoo no data (${yahooSymbol})`);
         }
-        
         await new Promise(resolve => setTimeout(resolve, 500));
-        
       } catch (e) {
-        console.error(`Yahoo error for ${symbol.ticker}:`, e);
+        console.error(`Yahoo error ${symbol.ticker}:`, e);
         errors.push(`${symbol.ticker}: ${e}`);
       }
     }
 
-    // 3. Fetch US stocks from Yahoo Finance (free, no API key needed)
+    // 3. Fetch US stocks from Yahoo Finance
     const usStockSymbols = symbols.filter(s => US_STOCKS.includes(s.ticker));
-    console.log(`Fetching history for ${usStockSymbols.length} US stocks from Yahoo Finance`);
+    console.log(`Fetching ${usStockSymbols.length} US stocks from Yahoo`);
     
     for (const symbol of usStockSymbols) {
       try {
-        const yahooSymbol = symbol.ticker;
-        const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
-        const period2 = Math.floor(Date.now() / 1000);
-        
-        console.log(`Trying Yahoo Finance for ${symbol.ticker}`);
-        
-        const res = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?period1=${period1}&period2=${period2}&interval=1d`,
-          { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
-        );
-        
-        if (res.ok) {
-          const data = await res.json();
-          const result = data.chart?.result?.[0];
-          
-          if (result?.timestamp && result?.indicators?.quote?.[0]) {
-            const quotes = result.indicators.quote[0];
-            const historyRecords: any[] = [];
-            
-            for (let i = 0; i < result.timestamp.length; i++) {
-              if (quotes.close?.[i] != null) {
-                const dateStr = new Date(result.timestamp[i] * 1000).toISOString().split('T')[0];
-                historyRecords.push({
-                  symbol_id: symbol.id,
-                  date: dateStr,
-                  open_price: quotes.open?.[i] || quotes.close[i],
-                  high_price: quotes.high?.[i] || quotes.close[i],
-                  low_price: quotes.low?.[i] || quotes.close[i],
-                  close_price: quotes.close[i],
-                  volume: quotes.volume?.[i] || null,
-                  source: 'yahoo',
-                });
-              }
-            }
-
-            if (historyRecords.length > 0) {
-              const { error: insertError } = await supabase
-                .from('price_history')
-                .upsert(historyRecords, { 
-                  onConflict: 'symbol_id,date,source',
-                  ignoreDuplicates: true 
-                });
-
-              if (insertError) {
-                errors.push(`${symbol.ticker}: ${insertError.message}`);
-              } else {
-                results.push({ ticker: symbol.ticker, records: historyRecords.length, source: 'yahoo' });
-              }
-            }
-          }
+        console.log(`Yahoo US: ${symbol.ticker}`);
+        const data = await fetchYahooHistory(symbol.ticker, days);
+        if (data) {
+          const records = yahooToRecords(symbol.id, data);
+          await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo', results, errors);
         } else {
-          console.log(`Yahoo HTTP error for ${symbol.ticker}: ${res.status}`);
+          errors.push(`${symbol.ticker}: Yahoo no data`);
         }
-        
         await new Promise(resolve => setTimeout(resolve, 500));
-        
       } catch (e) {
-        console.error(`Yahoo error for ${symbol.ticker}:`, e);
         errors.push(`${symbol.ticker}: ${e}`);
       }
     }
 
-    // 4. For metals, use Alpha Vantage if available
+    // 4. Metals via Alpha Vantage - fetch ALL 4 (no limit)
     if (ALPHA_VANTAGE_API_KEY) {
       const metalSymbols = symbols.filter(s => ['XAU', 'XAG', 'XPT', 'XPD'].includes(s.ticker));
-      console.log(`Fetching history for ${metalSymbols.length} metals from Alpha Vantage`);
+      console.log(`Fetching ${metalSymbols.length} metals from Alpha Vantage`);
       
-      for (const symbol of metalSymbols.slice(0, 2)) {
+      for (const symbol of metalSymbols) {
         try {
           const res = await fetch(
             `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=${symbol.ticker}&to_symbol=USD&outputsize=compact&apikey=${ALPHA_VANTAGE_API_KEY}`
           );
-          
           if (res.ok) {
             const data = await res.json();
             const timeSeries = data['Time Series FX (Daily)'];
-            
             if (timeSeries) {
-              const historyRecords = Object.entries(timeSeries)
+              const records = Object.entries(timeSeries)
                 .slice(0, days)
                 .map(([date, values]: [string, any]) => ({
-                  symbol_id: symbol.id,
-                  date,
+                  symbol_id: symbol.id, date,
                   open_price: parseFloat(values['1. open']),
                   high_price: parseFloat(values['2. high']),
                   low_price: parseFloat(values['3. low']),
                   close_price: parseFloat(values['4. close']),
-                  volume: null,
-                  source: 'alphavantage',
+                  volume: null, source: 'alphavantage',
                 }));
-
-              if (historyRecords.length > 0) {
-                const { error: insertError } = await supabase
-                  .from('price_history')
-                  .upsert(historyRecords, { 
-                    onConflict: 'symbol_id,date,source',
-                    ignoreDuplicates: true 
-                  });
-
-                if (insertError) {
-                  errors.push(`${symbol.ticker}: ${insertError.message}`);
-                } else {
-                  results.push({ ticker: symbol.ticker, records: historyRecords.length, source: 'alphavantage' });
-                }
-              }
+              await upsertAndTrack(supabase, symbol.ticker, records, 'alphavantage', results, errors);
             } else if (data.Note || data.Information) {
-              console.log('Alpha Vantage rate limit or issue:', data.Note || data.Information);
+              console.log('Alpha Vantage rate limit:', data.Note || data.Information);
+              errors.push(`${symbol.ticker}: AV rate limit`);
             }
           }
-          
-          await new Promise(resolve => setTimeout(resolve, 12000));
-          
+          await new Promise(resolve => setTimeout(resolve, 15000)); // 15s between AV calls
         } catch (e) {
           errors.push(`${symbol.ticker}: ${e}`);
         }
@@ -447,7 +375,7 @@ Deno.serve(async (req) => {
     }
 
     const totalRecords = results.reduce((sum, r) => sum + r.records, 0);
-    console.log(`Fetched ${totalRecords} historical records for ${results.length} symbols`);
+    console.log(`Done: ${totalRecords} records for ${results.length} symbols. Errors: ${errors.length}`);
 
     return new Response(JSON.stringify({
       success: true,
