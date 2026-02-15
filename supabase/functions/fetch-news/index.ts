@@ -33,18 +33,15 @@ const TICKER_NAME_MAP: Record<string, string> = {
   'BOL.ST': 'Boliden',
   'SSAB-A.ST': 'SSAB',
   'EMBRAC-B.ST': 'Embracer Group',
-  'bitcoin': 'Bitcoin BTC',
-  'ethereum': 'Ethereum ETH',
+  'bitcoin': 'Bitcoin BTC crypto',
+  'ethereum': 'Ethereum ETH crypto',
   'XAU': 'gold price',
   'XAG': 'silver price',
 };
 
 function getSearchQuery(ticker: string, symbolName?: string): string {
-  // Use mapped name if available
   if (TICKER_NAME_MAP[ticker]) return TICKER_NAME_MAP[ticker];
-  // Use symbol name from DB
   if (symbolName) return symbolName;
-  // Strip exchange suffix for search
   return ticker.replace(/\.(ST|OL|HE|CO)$/, '');
 }
 
@@ -57,10 +54,10 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const newsApiKey = Deno.env.get('NEWSAPI_KEY');
+    const gnewsApiKey = Deno.env.get('GNEWS_API_KEY');
 
-    if (!newsApiKey) {
-      return new Response(JSON.stringify({ error: 'NEWSAPI_KEY not configured' }), {
+    if (!gnewsApiKey) {
+      return new Response(JSON.stringify({ error: 'GNEWS_API_KEY not configured' }), {
         status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -129,7 +126,7 @@ Deno.serve(async (req) => {
 
     const nameMap = new Map((symbolData || []).map(s => [s.ticker, s.name]));
 
-    console.log(`Fetching news for ${tickers.length} tickers`);
+    console.log(`Fetching news for ${tickers.length} tickers via GNews`);
 
     let totalInserted = 0;
     const results: { ticker: string; articles: number; error?: string }[] = [];
@@ -156,14 +153,14 @@ Deno.serve(async (req) => {
         }
 
         const query = getSearchQuery(ticker, nameMap.get(ticker));
-        const fromDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-        const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&from=${fromDate}&sortBy=relevancy&pageSize=5&language=en&apiKey=${newsApiKey}`;
+        // GNews API: https://gnews.io/api/v4/search
+        const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=5&sortby=relevance&apikey=${gnewsApiKey}`;
         const res = await fetch(url);
 
         if (!res.ok) {
           const errText = await res.text();
-          console.error(`NewsAPI error for ${ticker}:`, res.status, errText);
+          console.error(`GNews error for ${ticker}:`, res.status, errText);
           results.push({ ticker, articles: 0, error: `HTTP ${res.status}` });
           await new Promise(r => setTimeout(r, 1000));
           continue;
@@ -181,9 +178,9 @@ Deno.serve(async (req) => {
         // Delete old news for this ticker before inserting new
         await supabase.from('news_cache').delete().eq('ticker', ticker);
 
-        // Insert new articles
+        // Insert new articles (GNews format differs from NewsAPI)
         const rows = articles
-          .filter((a: any) => a.title && a.title !== '[Removed]')
+          .filter((a: any) => a.title)
           .map((a: any) => ({
             ticker,
             title: (a.title || '').substring(0, 500),
@@ -206,7 +203,7 @@ Deno.serve(async (req) => {
           results.push({ ticker, articles: 0 });
         }
 
-        // Rate limit: NewsAPI free tier = 100 req/day, be careful
+        // GNews free: 100 req/day → ~1 req/sec is safe
         await new Promise(r => setTimeout(r, 1200));
       } catch (e) {
         results.push({ ticker, articles: 0, error: String(e) });
