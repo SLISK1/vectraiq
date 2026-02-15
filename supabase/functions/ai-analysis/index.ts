@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +13,27 @@ interface AnalysisRequest {
   horizon: string;
   priceHistory?: { price: number; timestamp: string }[];
   currentPrice?: number;
+}
+
+// Fetch recent news from news_cache for a ticker
+async function getRecentNews(ticker: string, supabase: any): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from('news_cache')
+      .select('title, description, source_name, published_at')
+      .eq('ticker', ticker)
+      .order('published_at', { ascending: false })
+      .limit(5);
+
+    if (!data || data.length === 0) return '';
+
+    return data.map((n: any) => {
+      const date = n.published_at ? new Date(n.published_at).toLocaleDateString('sv-SE') : '';
+      return `- [${n.source_name}${date ? ` ${date}` : ''}] ${n.title}${n.description ? ': ' + n.description.substring(0, 150) : ''}`;
+    }).join('\n');
+  } catch {
+    return '';
+  }
 }
 
 Deno.serve(async (req) => {
@@ -32,6 +53,7 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     // Validate the JWT token
     const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
@@ -58,7 +80,6 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { type, ticker, name, assetType, horizon, priceHistory, currentPrice }: AnalysisRequest = body;
 
-    // Validate required fields
     if (!type || !ticker || !name || !assetType || !horizon) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
@@ -66,7 +87,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Validate type
     if (!['sentiment', 'ml_prediction', 'pattern_recognition'].includes(type)) {
       return new Response(JSON.stringify({ error: "Invalid analysis type" }), {
         status: 400,
@@ -74,21 +94,27 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Validate ticker format
-    if (!/^[A-Z0-9_-]{1,12}$/i.test(ticker)) {
+    if (!/^[A-Z0-9_.-]{1,20}$/i.test(ticker)) {
       return new Response(JSON.stringify({ error: "Invalid ticker format" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    // Create service-role client for DB reads
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
     let systemPrompt = "";
     let userPrompt = "";
 
     switch (type) {
-      case 'sentiment':
+      case 'sentiment': {
+        // Fetch real news from news_cache
+        const newsText = await getRecentNews(ticker, supabase);
+        const hasRealNews = newsText.length > 0;
+
         systemPrompt = `Du är en finansanalytiker specialiserad på sentimentanalys för den svenska och globala marknaden. 
-Analysera tillgången och ge en strukturerad sentimentbedömning.
+${hasRealNews ? 'Du har tillgång till riktiga nyhetsrubriker nedan. Basera din analys på dessa nyheter.' : 'Inga nyheter hittades. Basera din analys på allmänt marknadssentiment.'}
 Svara ENDAST med ett JSON-objekt i exakt detta format:
 {
   "direction": "UP" | "DOWN" | "NEUTRAL",
@@ -105,15 +131,13 @@ Svara ENDAST med ett JSON-objekt i exakt detta format:
 Horisont: ${horizon}
 ${currentPrice ? `Aktuellt pris: ${currentPrice}` : ''}
 
-Ge en realistisk sentimentbedömning baserat på:
-- Allmänt marknadssentiment för denna typ av tillgång
-- Typiska nyhetsflöden och analytikerbetyg
-- Sociala medier-trender
+${hasRealNews ? `SENASTE NYHETER:\n${newsText}\n\nAnalysera sentimentet i ovanstående nyheter. Identifiera positiva och negativa signaler.` : 'Inga aktuella nyheter tillgängliga. Ge en neutral basestimering.'}
 
-OBS: Var realistisk och balanserad. Ge inte för extrema värden.`;
+OBS: Var realistisk och balanserad. Ge inte för extrema värden.${hasRealNews ? ' Referera specifikt till nyheterna i din evidence.' : ''}`;
         break;
+      }
 
-      case 'ml_prediction':
+      case 'ml_prediction': {
         systemPrompt = `Du är en kvantitativ analytiker som använder machine learning för finansiella prognoser.
 Baserat på prishistoriken och tillgångsinformationen, ge en ML-baserad prediktion.
 Svara ENDAST med ett JSON-objekt i exakt detta format:
@@ -147,8 +171,9 @@ ${priceDataSummary}
 
 Ge en ML-baserad prognos med features som momentum, volatilitet, trendstyrka och säsongsmönster.`;
         break;
+      }
 
-      case 'pattern_recognition':
+      case 'pattern_recognition': {
         systemPrompt = `Du är en expert på teknisk analys och mönsterigenkänning i finansiella marknader.
 Identifiera chartmönster och ge en bedömning.
 Svara ENDAST med ett JSON-objekt i exakt detta format:
@@ -182,6 +207,7 @@ Identifiera eventuella mönster som:
 - Flaggor och vimplar
 - Cup and Handle`;
         break;
+      }
 
       default:
         throw new Error(`Unknown analysis type: ${type}`);
