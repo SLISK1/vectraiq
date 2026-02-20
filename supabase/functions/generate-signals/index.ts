@@ -73,6 +73,7 @@ function calculateStochastic(highs: number[], lows: number[], closes: number[], 
 }
 
 type Direction = 'UP' | 'DOWN' | 'NEUTRAL';
+type AssetType = 'stock' | 'crypto' | 'metal';
 
 interface SignalResult {
   module: string;
@@ -81,6 +82,28 @@ interface SignalResult {
   confidence: number;
   coverage: number;
   evidence: any[];
+}
+
+function getBenchmarkTicker(assetType: AssetType, currency: string): string {
+  if (assetType === 'crypto') return 'BTC-USD';
+  if (assetType === 'metal') return 'GLD';
+  if (currency === 'USD') return '^GSPC';
+  return '^OMXSPI';
+}
+
+async function fetchBenchmarkPrice(ticker: string): Promise<number | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const closes = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+    if (!closes?.length) return null;
+    const valid = closes.filter((c: number | null) => c != null);
+    return valid.length > 0 ? valid[valid.length - 1] : null;
+  } catch {
+    return null;
+  }
 }
 
 function analyzeTechnical(closes: number[], highs: number[], lows: number[], currentPrice: number): SignalResult {
@@ -244,7 +267,7 @@ Deno.serve(async (req) => {
     // Get active symbols
     const { data: symbols, error: symErr } = await supabase
       .from('symbols')
-      .select('id, ticker, name, asset_type, metadata')
+      .select('id, ticker, name, asset_type, currency, metadata')
       .eq('is_active', true)
       .order('ticker', { ascending: true })
       .range(batchOffset, batchOffset + batchLimit - 1);
@@ -311,6 +334,31 @@ Deno.serve(async (req) => {
         } else {
           totalInserted += inserts.length;
           results.push({ ticker: symbol.ticker, success: true, modules: inserts.length });
+          
+          // Save prediction snapshot to asset_predictions (append-only)
+          // Aggregate signal into overall direction + confidence
+          const bullish = signals.filter(s => s.direction === 'UP');
+          const bearish = signals.filter(s => s.direction === 'DOWN');
+          const overallDir: Direction = bullish.length > bearish.length ? 'UP' : bearish.length > bullish.length ? 'DOWN' : 'NEUTRAL';
+          const avgConfidence = Math.round(signals.reduce((sum, s) => sum + s.confidence, 0) / signals.length);
+          const totalScore = Math.round(signals.reduce((sum, s) => sum + s.strength, 0) / signals.length);
+          
+          // Get benchmark ticker
+          const assetType = (symbol.asset_type || 'stock') as AssetType;
+          const benchmarkTicker = getBenchmarkTicker(assetType, symbol.currency || 'SEK');
+          const benchmarkPrice = await fetchBenchmarkPrice(benchmarkTicker);
+          
+          await supabase.from('asset_predictions').insert({
+            symbol_id: symbol.id,
+            horizon: horizon as any,
+            predicted_direction: overallDir,
+            predicted_prob: overallDir === 'UP' ? (bullish.length / signals.length) : (bearish.length / signals.length),
+            confidence: avgConfidence,
+            total_score: totalScore,
+            entry_price: currentPrice,
+            baseline_ticker: benchmarkTicker,
+            baseline_price: benchmarkPrice,
+          });
         }
       } catch (e) {
         results.push({ ticker: symbol.ticker, success: false, error: String(e) });

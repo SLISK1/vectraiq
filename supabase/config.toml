@@ -8,3 +8,9 @@ verify_jwt = false
 
 [functions.fetch-pool-tips]
 verify_jwt = false
+
+[functions.score-predictions]
+verify_jwt = false
+
+[functions.fetch-macro]
+verify_jwt = false

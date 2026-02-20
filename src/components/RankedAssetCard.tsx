@@ -70,9 +70,9 @@ export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, classN
             </span>
           </div>
 
-          {/* Predicted Returns */}
+          {/* Predicted Returns + Z-score */}
           {asset.predictedReturns && (
-            <div className="flex items-center gap-2 mt-2 text-xs">
+            <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
               <span className="text-muted-foreground">Prognos:</span>
               <span className={cn("font-mono", asset.predictedReturns.day1 >= 0 ? "text-up" : "text-down")}>
                 1d {asset.predictedReturns.day1 >= 0 ? '+' : ''}{asset.predictedReturns.day1}%
@@ -80,6 +80,16 @@ export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, classN
               <span className={cn("font-mono", asset.predictedReturns.week1 >= 0 ? "text-up" : "text-down")}>
                 1v {asset.predictedReturns.week1 >= 0 ? '+' : ''}{asset.predictedReturns.week1}%
               </span>
+              {(asset as any).peerZScore !== undefined && (asset as any).peerZScore !== 0 && (
+                <span className={cn(
+                  "font-mono text-xs px-1.5 py-0.5 rounded border",
+                  (asset as any).peerZScore > 0
+                    ? "text-up border-up/30 bg-up/10"
+                    : "text-down border-down/30 bg-down/10"
+                )}>
+                  {(asset as any).peerZScore > 0 ? '+' : ''}{(asset as any).peerZScore}σ vs peers
+                </span>
+              )}
             </div>
           )}
         </div>

@@ -13,6 +13,13 @@ import { Horizon, RankedAsset, Direction } from '@/types/market';
 import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
 import { runAnalysis, createAnalysisContext, PriceData } from '@/lib/analysis';
 import { supabase } from '@/integrations/supabase/client';
+import { initMacroCache } from '@/lib/analysis/macro';
+
+// Initialize macro cache once at module load
+initMacroCache().catch(() => {});
+
+// Minimum daily volume for crypto (USD) — filter out illiquid assets
+const CRYPTO_MIN_VOLUME_USD = 10_000_000;
 
 // Portfolio holding type
 export interface PortfolioHolding {
@@ -42,6 +49,32 @@ const convertToAnalysisPriceData = (history: PriceHistoryPoint[]): PriceData[] =
 
 // No mock data - only use real price history from database
 
+// Z-score normalization: compute z-score of totalScore within same sector + asset_type bucket
+const computeZScores = (assets: RankedAsset[]): Map<string, number> => {
+  const groups = new Map<string, RankedAsset[]>();
+  for (const a of assets) {
+    const key = `${a.type}:${a.sector || 'unknown'}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(a);
+  }
+  
+  const zScores = new Map<string, number>();
+  for (const [, group] of groups) {
+    if (group.length < 2) {
+      for (const a of group) zScores.set(a.ticker, 0);
+      continue;
+    }
+    const scores = group.map(a => a.totalScore);
+    const mean = scores.reduce((s, v) => s + v, 0) / scores.length;
+    const variance = scores.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / scores.length;
+    const std = Math.sqrt(variance) || 1;
+    for (const a of group) {
+      zScores.set(a.ticker, Math.round(((a.totalScore - mean) / std) * 10) / 10);
+    }
+  }
+  return zScores;
+};
+
 // Transform database symbols to RankedAsset format with real analysis
 const transformToRankedAsset = async (
   symbol: SymbolWithPrice, 
@@ -51,6 +84,16 @@ const transformToRankedAsset = async (
 ): Promise<RankedAsset | null> => {
   const price = symbol.latestPrice;
   const currentPrice = price ? Number(price.price) : 0;
+  
+  // Liquidity filter for crypto: skip if volume < 10M USD
+  if (symbol.asset_type === 'crypto') {
+    const vol = price?.volume ? Number(price.volume) : 0;
+    const marketCap = price?.market_cap ? Number(price.market_cap) : 0;
+    if (vol < CRYPTO_MIN_VOLUME_USD && marketCap < CRYPTO_MIN_VOLUME_USD * 10) {
+      console.log(`Skipping crypto ${symbol.ticker}: insufficient liquidity (vol: ${vol})`);
+      return null;
+    }
+  }
   
   // Only use real price history - skip if not enough data
   const priceHistory = priceHistoryCache.get(symbol.id);
@@ -64,7 +107,6 @@ const transformToRankedAsset = async (
     return null;
   }
   
-  // Create analysis context - include fundamentals if available
   const context = createAnalysisContext(
     symbol.ticker,
     symbol.name,
@@ -73,18 +115,15 @@ const transformToRankedAsset = async (
     currentPrice,
     priceHistory,
     horizon,
-    symbol.fundamentals // Pass fundamentals from symbol data
+    symbol.fundamentals
   );
   
-  // Run full analysis
   const analysis = runAnalysis(context);
   
-  // Only include assets that match the filter direction
   if (analysis.direction !== filterDirection && analysis.direction !== 'NEUTRAL') {
     return null;
   }
   
-  // Helper to get market cap category
   const getMarketCapCategory = (marketCap?: number): 'small' | 'medium' | 'large' => {
     if (!marketCap) return 'small';
     if (marketCap >= 10_000_000_000) return 'large';
@@ -200,8 +239,13 @@ export const useRankedAssets = (horizon: Horizon, direction: 'UP' | 'DOWN') => {
       );
       const results = await Promise.all(promises);
       
-      return results
-        .filter((a): a is RankedAsset => a !== null)
+      const validAssets = results.filter((a): a is RankedAsset => a !== null);
+      
+      // Compute z-scores within peer groups
+      const zScores = computeZScores(validAssets);
+      
+      return validAssets
+        .map(a => ({ ...a, peerZScore: zScores.get(a.ticker) ?? 0 }))
         .sort((a, b) => b.totalScore - a.totalScore)
         .slice(0, 10);
     },
@@ -265,6 +309,10 @@ export const useAddToWatchlist = () => {
         return_pct: null,
         hit: null,
         result_locked_at: null,
+        excess_return: null,
+        baseline_ticker: null,
+        baseline_entry_price: null,
+        baseline_exit_price: null,
       });
     },
     onSuccess: () => {

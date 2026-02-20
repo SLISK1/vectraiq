@@ -6,9 +6,12 @@ import { AssetTypeBadge } from './AssetTypeBadge';
 import { ConfidenceBreakdownCard } from './ConfidenceBreakdownCard';
 import { ModuleSignalTable } from './ModuleSignalTable';
 import { TrendPredictionCard } from './TrendPredictionCard';
+import { SignalFlipCard } from './SignalFlipCard';
 import { cn } from '@/lib/utils';
-import { Star, ExternalLink } from 'lucide-react';
+import { Star, ExternalLink, TrendingUp, BarChart2 } from 'lucide-react';
 import { Button } from './ui/button';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AssetDetailModalProps {
   asset: RankedAsset | null;
@@ -19,6 +22,34 @@ interface AssetDetailModalProps {
 
 export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist }: AssetDetailModalProps) => {
   if (!asset) return null;
+
+  // Fetch historical predictions for this asset (excess return data)
+  const { data: predictions } = useQuery({
+    queryKey: ['asset-predictions', asset.ticker],
+    queryFn: async () => {
+      const { data: symbols } = await supabase
+        .from('symbols')
+        .select('id')
+        .eq('ticker', asset.ticker)
+        .limit(1);
+      
+      if (!symbols?.length) return null;
+      const symbolId = symbols[0].id;
+      
+      const { data } = await supabase
+        .from('asset_predictions')
+        .select('hit, return_pct, excess_return, horizon, predicted_direction, created_at')
+        .eq('symbol_id', symbolId)
+        .not('hit', 'is', null)
+        .eq('horizon', asset.horizon)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      
+      return data;
+    },
+    enabled: isOpen && !!asset,
+    staleTime: 1000 * 60 * 5,
+  });
 
   const formatPrice = (price: number, currency: string) => {
     return new Intl.NumberFormat('sv-SE', {
@@ -48,6 +79,43 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist }: A
         </DialogHeader>
 
         <div className="space-y-6">
+          {/* Historical Performance vs Benchmark */}
+          {predictions && predictions.length > 0 && (() => {
+            const hits = predictions.filter(p => p.hit).length;
+            const hitRate = (hits / predictions.length) * 100;
+            const avgReturn = predictions.reduce((s, p) => s + (p.return_pct || 0), 0) / predictions.length;
+            const avgExcess = predictions.filter(p => p.excess_return != null).reduce((s, p) => s + (p.excess_return || 0), 0) / (predictions.filter(p => p.excess_return != null).length || 1);
+            const hasExcess = predictions.some(p => p.excess_return != null);
+            return (
+              <div className="p-4 rounded-xl bg-muted/20 border border-border/50">
+                <div className="flex items-center gap-2 mb-3">
+                  <BarChart2 className="w-4 h-4 text-primary" />
+                  <h3 className="font-semibold text-sm">Historisk träffsäkerhet ({predictions.length} predictions, {HORIZON_LABELS[asset.horizon]})</h3>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="text-center">
+                    <div className={cn('font-mono font-bold text-xl', hitRate >= 60 ? 'text-up' : hitRate >= 50 ? 'text-yellow-500' : 'text-down')}>{hitRate.toFixed(0)}%</div>
+                    <div className="text-xs text-muted-foreground">Hit Rate ({hits}/{predictions.length})</div>
+                  </div>
+                  <div className="text-center">
+                    <div className={cn('font-mono font-bold text-xl', avgReturn >= 0 ? 'text-up' : 'text-down')}>{avgReturn >= 0 ? '+' : ''}{avgReturn.toFixed(1)}%</div>
+                    <div className="text-xs text-muted-foreground">Snitt avkastning</div>
+                  </div>
+                  {hasExcess && (
+                    <div className="text-center">
+                      <div className={cn('font-mono font-bold text-xl', avgExcess >= 0 ? 'text-up' : 'text-down')}>{avgExcess >= 0 ? '+' : ''}{avgExcess.toFixed(1)}%</div>
+                      <div className="text-xs text-muted-foreground">vs Index (excess)</div>
+                    </div>
+                  )}
+                  <div className="text-center">
+                    <div className={cn('font-mono font-bold text-xl', asset.confidence >= 65 ? 'text-up' : 'text-yellow-500')}>{asset.confidence}%</div>
+                    <div className="text-xs text-muted-foreground">Nuv. konfidens</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* AI Summary */}
           {asset.aiSummary && (
             <div className="p-4 rounded-xl bg-primary/10 border border-primary/20">
@@ -160,6 +228,13 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist }: A
             <h3 className="font-semibold mb-3">Analys per modul</h3>
             <ModuleSignalTable signals={asset.signals} />
           </div>
+
+          {/* Signal Flip Card */}
+          <SignalFlipCard
+            signals={asset.signals}
+            direction={asset.direction}
+            assetType={asset.type as 'stock' | 'crypto' | 'metal'}
+          />
 
           {/* Actions */}
           <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-border/50">
