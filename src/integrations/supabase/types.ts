@@ -14,6 +14,173 @@ export type Database = {
   }
   public: {
     Tables: {
+      betting_matches: {
+        Row: {
+          away_score: number | null
+          away_team: string
+          created_at: string
+          external_id: string | null
+          home_score: number | null
+          home_team: string
+          id: string
+          league: string
+          match_date: string
+          source_data: Json | null
+          sport: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          away_score?: number | null
+          away_team: string
+          created_at?: string
+          external_id?: string | null
+          home_score?: number | null
+          home_team: string
+          id?: string
+          league: string
+          match_date: string
+          source_data?: Json | null
+          sport: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          away_score?: number | null
+          away_team?: string
+          created_at?: string
+          external_id?: string | null
+          home_score?: number | null
+          home_team?: string
+          id?: string
+          league?: string
+          match_date?: string
+          source_data?: Json | null
+          sport?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      betting_predictions: {
+        Row: {
+          ai_reasoning: string | null
+          cap_reason: string | null
+          confidence_capped: number
+          confidence_raw: number
+          created_at: string
+          id: string
+          key_factors: Json | null
+          market_implied_prob: number | null
+          market_odds_away: number | null
+          market_odds_draw: number | null
+          market_odds_home: number | null
+          match_id: string
+          model_edge: number | null
+          model_version: string
+          outcome: string | null
+          predicted_prob: number
+          predicted_winner: string
+          scored_at: string | null
+          sources_hash: string | null
+          sources_used: Json | null
+        }
+        Insert: {
+          ai_reasoning?: string | null
+          cap_reason?: string | null
+          confidence_capped: number
+          confidence_raw: number
+          created_at?: string
+          id?: string
+          key_factors?: Json | null
+          market_implied_prob?: number | null
+          market_odds_away?: number | null
+          market_odds_draw?: number | null
+          market_odds_home?: number | null
+          match_id: string
+          model_edge?: number | null
+          model_version?: string
+          outcome?: string | null
+          predicted_prob: number
+          predicted_winner: string
+          scored_at?: string | null
+          sources_hash?: string | null
+          sources_used?: Json | null
+        }
+        Update: {
+          ai_reasoning?: string | null
+          cap_reason?: string | null
+          confidence_capped?: number
+          confidence_raw?: number
+          created_at?: string
+          id?: string
+          key_factors?: Json | null
+          market_implied_prob?: number | null
+          market_odds_away?: number | null
+          market_odds_draw?: number | null
+          market_odds_home?: number | null
+          match_id?: string
+          model_edge?: number | null
+          model_version?: string
+          outcome?: string | null
+          predicted_prob?: number
+          predicted_winner?: string
+          scored_at?: string | null
+          sources_hash?: string | null
+          sources_used?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "betting_predictions_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "betting_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      betting_watchlist: {
+        Row: {
+          id: string
+          match_id: string
+          notes: string | null
+          prediction_id: string | null
+          saved_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          notes?: string | null
+          prediction_id?: string | null
+          saved_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          notes?: string | null
+          prediction_id?: string | null
+          saved_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "betting_watchlist_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "betting_matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "betting_watchlist_prediction_id_fkey"
+            columns: ["prediction_id"]
+            isOneToOne: false
+            referencedRelation: "betting_predictions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       news_cache: {
         Row: {
           created_at: string
@@ -50,6 +217,42 @@ export type Database = {
           ticker?: string
           title?: string
           url?: string | null
+        }
+        Relationships: []
+      }
+      pool_tickets: {
+        Row: {
+          budget_sek: number | null
+          created_at: string
+          id: string
+          pool_type: string
+          round_id: string
+          round_name: string | null
+          rows_json: Json
+          system_size: number
+          user_id: string
+        }
+        Insert: {
+          budget_sek?: number | null
+          created_at?: string
+          id?: string
+          pool_type: string
+          round_id: string
+          round_name?: string | null
+          rows_json?: Json
+          system_size?: number
+          user_id: string
+        }
+        Update: {
+          budget_sek?: number | null
+          created_at?: string
+          id?: string
+          pool_type?: string
+          round_id?: string
+          round_name?: string | null
+          rows_json?: Json
+          system_size?: number
+          user_id?: string
         }
         Relationships: []
       }
