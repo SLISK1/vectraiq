@@ -1,235 +1,279 @@
 
-# Betting-flik: Produktionskvalitet — Komplett arkitektur
+# Implementationsplan: Betting-flik (komplett)
 
-## Vad din feedback identifierade (och hur vi åtgärdar det)
-
-Du lyfte 6 fundamentala problem med den naiva planen. Den reviderade arkitekturen adresserar samtliga:
-
-| Problem | Lösning i denna plan |
-|---|---|
-| Hallucinerade "fakta" | Evidence gating: AI citerar källa + URL per påstående |
-| Confidence overconfidence | Hårdkodade tak: tunt data → max 55%, bara opinion → max 52% |
-| Inga odds/line data | Ny kolumn + The Odds API (gratis tier) → market edge-beräkning |
-| Ingen backtest/utvärdering | Append-only `betting_predictions`-tabell + `outcome`-kolumn |
-| Inga user-specifika tabeller | `betting_watchlist` + `pool_tickets` med RLS per user |
-| Firecrawl-budget exploderar | URL-dedup + "high-impact only" + budget controller |
+## Nuläge
+- Databastabellerna `betting_matches`, `betting_predictions`, `betting_watchlist` och `pool_tickets` finns redan (bekräftat i types.ts)
+- `Header.tsx` och `Index.tsx` saknar ännu Betting-tab och routing
+- Inga Betting-specifika Edge Functions eller React-komponenter existerar
+- Secrets `FOOTBALL_DATA_API_KEY`, `FIRECRAWL_API_KEY` och `ODDS_API_KEY` saknas — läggs till som **första steg**
 
 ---
 
-## Databas-design (4 tabeller)
+## Steg 1: Lägg till secrets (3 st)
 
-### 1. `betting_matches` — publik cache för matcher
-Fält: `id`, `sport` (football/ufc), `home_team`, `away_team`, `match_date`, `league`, `status` (upcoming/live/finished), `home_score`, `away_score`, `source_data` (JSONB rådata), `created_at`, `updated_at`.
+Direkt när implementationen börjar används `add_secret`-verktyget för att begära:
+- `FOOTBALL_DATA_API_KEY`
+- `FIRECRAWL_API_KEY`
+- `ODDS_API_KEY`
 
-**Notera:** Prediction sparas INTE här. Den sparas i `betting_predictions` (append-only) för att möjliggöra backtest.
-
-RLS: SELECT för alla. INSERT/UPDATE/DELETE blockerat publikt.
-
-### 2. `betting_predictions` — append-only snapshot-tabell (KRITISK för backtest)
-Fält: `id`, `match_id`, `predicted_winner` (home/away/draw), `predicted_prob` (0–1), `confidence_raw` (0–100 before cap), `confidence_capped` (0–100 after cap), `cap_reason` (text, varför cap applicerades), `model_version`, `sources_hash` (SHA-256 av input-data, säkerställer reproducerbarhet), `sources_used` (JSONB: lista av `{url, title, date, type}`), `ai_reasoning` (text), `key_factors` (JSONB), `market_odds_home`, `market_odds_draw`, `market_odds_away`, `market_implied_prob` (beräknad), `model_edge` (model_prob – market_implied), `created_at`, `outcome` (nullable: home_win/draw/away_win), `scored_at` (nullable).
-
-RLS: SELECT för alla. INSERT/UPDATE/DELETE blockerat publikt.
-
-### 3. `betting_watchlist` — personlig bevakning (per user, med RLS)
-Fält: `id`, `user_id`, `match_id`, `prediction_id` (referens till vilken snapshot man sparade), `saved_at`, `notes`.
-
-RLS: Fullständig user-isolation (CRUD kräver `auth.uid() = user_id`).
-
-### 4. `pool_tickets` — sparade Topptipset/Stryktipset-rader (per user)
-Fält: `id`, `user_id`, `pool_type` (topptipset/stryktipset), `round_id`, `round_name`, `rows_json` (JSONB med `[{match, tip, confidence, reasoning}]`), `system_size` (antal rader i system), `budget_sek`, `created_at`.
-
-RLS: Fullständig user-isolation.
+Utan dessa kan Edge Functions inte deployed fungera.
 
 ---
 
-## Edge Functions (3 st)
+## Steg 2: Edge Functions (3 filer)
 
-### A) `fetch-matches/index.ts`
+### `supabase/functions/fetch-matches/index.ts`
 
-**Ansvar:** Hämtar och cachar matchdata. Triggas manuellt eller via cron (1 gång/dag).
+Hämtar och cachar matchdata från tre lager:
 
-**Datainsamling med budget controller:**
-```text
-1. Football-data.org API (FOOTBALL_DATA_API_KEY) → matcher nästa 7 dagar
-2. GNews sökning → nyheter per match (max 3 artiklar/match)
-3. Firecrawl webscraping (FIRECRAWL_API_KEY) — med budget controller:
-   - Max 3 sidor/match
-   - Bara för "high-impact" matcher (top-5 ligor + Champions League)
-   - URL-dedup: hoppa över om URL scrapades < 6h sedan
-   - Stoppa automatiskt om daglig budget nådd (räknas i JSONB-tabell)
-4. UFC: GNews + Firecrawl mmafighting.com (bara huvudmatcher)
-5. Upsert i betting_matches
+**Fotboll (football-data.org):**
+- `GET https://api.football-data.org/v4/matches?dateFrom=TODAY&dateTo=TODAY+7`
+- Header: `X-Auth-Token: FOOTBALL_DATA_API_KEY`
+- Täcker PL, La Liga, Bundesliga, Serie A, Ligue 1, UCL, Allsvenskan
+- Upsert i `betting_matches` med `external_id` som dedup-nyckel
+
+**UFC (GNews-sökning):**
+- Query: `"UFC fight card" OR "UFC event" next week`
+- Parsar artiklar för att extrahera fighters och datum
+- Skapar `betting_matches`-poster med `sport='ufc'`
+
+**Firecrawl budget controller:**
+- Hämtar `source_data.scrape_budget` från DB för dagens datum
+- Räknar använda sidor; hoppar över om `>= 15 sidor/dag` (konservativt för 500/mån)
+- Scraper bara "high-impact" matcher (PL, UCL, La Liga, UFC main events)
+- URL-dedup: hoppar om `source_data.scraped_urls` innehåller URL med timestamp < 6h
+- Scraper `goal.com` för fotboll, `mmafighting.com` för UFC (markdown-format)
+- Lagrar scrapad data i `source_data` JSONB
+
+**GNews per match:**
+- Query: `"[home_team] vs [away_team]"` + `"injury OR lineup OR prediction"`
+- Max 3 artiklar per match, lagras i `source_data.news`
+
+**Auth:** Kontrollerar `x-internal-call` header eller service role JWT.
+
+---
+
+### `supabase/functions/analyze-match/index.ts`
+
+Tar `match_id`, läser matchens `source_data`, kör Gemini med evidence gating.
+
+**Evidence gating-logik:**
+```
+Klassificera varje källa i source_data:
+  - "confirmed_fact": om källa är football-data.org API
+  - "stats": H2H, tabellposition från API
+  - "opinion": GNews artikel med ord som "tips", "prediction", "expert"
+  - "news": övriga GNews-artiklar
+
+Confidence cap-regler:
+  base_confidence = AI:ns förslag (0-100)
+  if no confirmed_fact AND no stats → cap 55
+  if only opinion sources → cap 52
+  if no injury_data in source_data → subtract 5 (min cap 40)
+  if h2h_count < 3 → subtract 5 (min cap 40)
+  final = min(base_confidence, applicable_cap)
 ```
 
-**Confidence cap-logik (körs i analyze-match):**
-```text
-Datakällor klassificeras per typ:
-  - "confirmed_fact": officiell lineup, skadekonfirmation från klubb
-  - "stats": historisk H2H, tabellposition (från football-data.org)
-  - "opinion": expert-tips, artikel-prediktion
-  - "news": presskonferens-citat, nyhet
+**Gemini-prompt (evidence gated):**
+Instruerar modellen att:
+- Bara referera fakta som finns i `source_data`
+- Citera `{url, date, type}` per påstående i `key_factors`
+- Skriva "Inga [skador/lineups] bekräftade" om data saknas
+- ALDRIG uppfinna statistik
 
-Cap-regler:
-  Om inga "confirmed_fact" eller "stats" → max confidence 55%
-  Om bara "opinion"-källor → max confidence 52%
-  Om inga skaderapporter tillgängliga → cap med 5% extra
-  Om H2H < 3 matcher → cap med 5% extra
-```
+**Odds-hämtning (The Odds API):**
+- `GET https://api.the-odds-api.com/v4/sports/soccer_epl/odds?apiKey=...`
+- Matchar mot `home_team`/`away_team` för att hitta rätt match
+- Beräknar `implied_prob = (1/odds) / (1/home + 1/draw + 1/away)` (vig-normaliserat)
+- `model_edge = predicted_prob - market_implied_prob`
 
-### B) `analyze-match/index.ts`
-
-**Ansvar:** Genererar AI-prediktion för en given match_id. Returnerar strukturerad JSON med citatpliktig källa per faktapåstående.
-
-**Evidence gating — centralt för datakvalitet:**
-Gemini-prompten instrueras **explicit** att:
-- Bara använda påståenden som finns i `source_data`
-- Citera källa (URL + publiceringsdatum + typ) för varje "fact" i reasoning
-- Formulera osäkerhet explicit ("Inga skaderapporter tillgängliga", "Baserat på 2 möten i H2H")
-- ALDRIG uppfinna statistik eller påstå fakta som saknas i input
-
-**Output-format:**
+**Output sparas i `betting_predictions`:**
 ```json
 {
   "predicted_winner": "home|away|draw",
   "predicted_prob": 0.62,
   "confidence_raw": 71,
   "confidence_capped": 55,
-  "cap_reason": "Inga bekräftade lineups tillgängliga",
-  "key_factors": [
-    {
-      "factor": "Hemmalagsstyrka",
-      "direction": "positive",
-      "source": { "url": "https://goal.com/...", "date": "2026-02-19", "type": "stats" }
-    }
-  ],
-  "ai_reasoning": "Baserat på [källa 1] och [källa 2]...",
-  "sources_used": [ { "url": "...", "title": "...", "date": "...", "type": "opinion" } ],
-  "market_edge": null
+  "cap_reason": "Inga bekräftade lineups",
+  "key_factors": [{"factor": "...", "direction": "positive", "source": {...}}],
+  "ai_reasoning": "...",
+  "sources_used": [...],
+  "market_odds_home": 1.85,
+  "market_odds_draw": 3.40,
+  "market_odds_away": 4.50,
+  "market_implied_prob": 0.54,
+  "model_edge": 0.08
 }
 ```
 
-Sparas i `betting_predictions` (append-only). Räknar `sources_hash` från SHA-256 av input.
+**Auth:** Kräver giltig Bearer JWT (autentiserad användare).
 
-### C) `fetch-pool-tips/index.ts`
+---
 
-**Ansvar:** Scraper aktuellt Topptipset/Stryktipset från Svenska Spel + genererar systemrad.
+### `supabase/functions/fetch-pool-tips/index.ts`
 
-**System generator-läge:**
-```text
-Input: pooltyp, max_rader (t.ex. 64), budget_sek
-Output:
-  - Per match: tip (1/X/2) + prob (0–1) + confidence
-  - Systemstrategi:
-    * Spikar (confidence > 70%): singel
-    * Halvgarderingar (confidence 50–70%): dubbel  
-    * Helgarderingar (confidence < 50%): trippel (1X2)
-  - Räknar ut antal rader totalt, ger varning om budget överskrids
-  - Föreslår reducerat system om för många rader
+Hämtar aktuellt Topptipset/Stryktipset och genererar systemrad.
+
+**Svenska Spel-scraping via Firecrawl:**
+- URL: `https://www.svenskaspel.se/stryktipset` eller `/topptipset`
+- Format: `json` med schema för att extrahera matcher, lag, datum, omgångsnummer
+- Fallback: `markdown` format om JSON-schema misslyckas
+
+**Per rad: Gemini-analys med GNews-kontext:**
+- Söker nyheter för varje matchpar
+- Kör confidence-cappat AI-förslag (1/X/2)
+
+**System generator:**
+```
+Input: pool_type, max_rows (default 64), budget_sek
+Per match:
+  confidence > 70% → spik (🔒) — 1 tecken
+  confidence 50-70% → halvgardering (⚖️) — 2 tecken  
+  confidence < 50% → helgardering (🔄) — 3 tecken
+
+Räknar totalt rader = produkt av alla tecken-val
+Om total > max_rows:
+  → Föreslår att ta bort helgarderingar med lägst confidence-skillnad
+  → Beräknar ny total
+
+Kostnad = system_size * 1 SEK (Topptipset), 0.50 SEK (Stryktipset)
 ```
 
 ---
 
-## Frontend-komponenter
+## Steg 3: Frontend-komponenter (5 filer)
 
 ### `src/pages/BettingPage.tsx`
-- **SportSelector**: Fotboll | UFC | Topptipset | Stryktipset
-- Varning-banner: "Spela ansvarsfullt. AI-prediktioner är inte investeringsrådgivning."
-- Hämta-knapp + loading state
-- MatchList med MatchCard per match
+
+Huvudsida med:
+- **Disclaimer-banner** (alltid synlig): "Spela ansvarsfullt. AI-prediktioner är inte garantier."
+- **SportSelector** (Fotboll / UFC / Topptipset / Stryktipset) — egna knappar med ikoner
+- **"Hämta matcher"-knapp** → anropar `fetch-matches`, visar loading spinner
+- **MatchList** (för fotboll/UFC) — loopar `MatchCard`
+- **PoolTipsCard** (för Topptipset/Stryktipset) — kupongvy
+- **BacktestPanel** — fällbar sektion längst ned
+- Hanterar tom state ("Inga matcher hämtade ännu")
+
+State-hantering:
+- `selectedSport: 'football' | 'ufc' | 'topptipset' | 'stryktipset'`
+- `matches: BettingMatch[]` från Supabase-query på `betting_matches`
+- `predictions: Map<string, BettingPrediction>` från `betting_predictions`
+- `isLoading`, `isAnalyzing`
+
+---
 
 ### `src/components/betting/MatchCard.tsx`
-- Hem/borta med emoji-flaggor
-- Datum, liga, status-badge
-- Prediction-badge (grön/röd/gul för hem/bort/oavgjort)
-- **Market Edge badge** (t.ex. "+8% edge" i blå om model > market)
-- `ScoreRing` (befintlig komponent) för confidence_capped
-- Caps visas explicit: "Confidence begränsad (tunt data)"
-- "Analysera"-knapp → triggar analyze-match
+
+Glassmorphism-kort med:
+- Hemmalag vs Bortalag (centrerat, stor text)
+- Datum + liga-badge
+- **Prediktion-sektion** (om prediction finns):
+  - `ScoreRing` (befintlig komponent) med `confidence_capped`
+  - Vinnarbadge: grön (hemmavinst) / röd (bortavinst) / gul (oavgjort)
+  - `cap_reason` visas om confidence är cappat: "⚠️ Begränsad data"
+  - **Market Edge-badge**: "+8% edge" i blå (positiv) / röd (negativ)
+  - "Modell: 62% | Marknad: 54%"
+- **"Analysera"-knapp** (om ingen prediction): triggar `analyze-match`
+- **"Spara"-knapp** (inloggad): sparar till `betting_watchlist`
+- Loading-state under analys
+
+---
 
 ### `src/components/betting/MatchDetailModal.tsx`
-- AI-reasoning med källcitat (klickbara URLs)
-- Key factors-lista med källa per faktor
-- Källförteckning: typ-badge per källa (Fakta/Statistik/Opinion/Nyhet)
-- **Odds-jämförelse**: "Modell: 62% | Marknad: 54% | Edge: +8%"
-- Confidence-förklaring: varför cap applicerades
-- Systemrad-knapp för pool-matcher
+
+Full-screen dialog med:
+- **Header**: Lag, datum, liga
+- **Prediktion-summary**: Vinnare + sannolikhet + konfidensring
+- **Odds-jämförelse**: "Modell 62% | Marknad 54% | Edge +8%"
+  - Odds från bookmakers visas (Home: 1.85 | Draw: 3.40 | Away: 4.50)
+- **Confidence-förklaring**: "Confidence begränsad till 55% — [cap_reason]"
+- **Key Factors** (expanderbar lista):
+  - Per faktor: text + riktning (pil upp/ned) + källa (klickbar URL + datum + typ-badge)
+  - Typ-badge: Fakta (blå) | Statistik (lila) | Opinion (orange) | Nyhet (grå)
+- **AI Reasoning** (expanderbar textblock med källcitat)
+- **Källor-förteckning** (lista med alla `sources_used`)
+- **Systemrad-knapp** (bara för pool-matcher)
+- Disclaimer i footer
+
+---
 
 ### `src/components/betting/PoolTipsCard.tsx`
-- Kupongvy med alla rader
-- Per rad: lag + datum + AI-tip (1/X/2) + confidence-bar
-- **Systemrad-generator**: välj max rader + budget
-- Spikindikator (🔒), halvgardering (⚖️), helgardering (🔄)
-- Antal rader + uppskattad kostnad visas i realtid
-- Spara-knapp → `pool_tickets` (kräver inloggning)
 
-### `src/components/betting/BacktestPanel.tsx` (ny)
-- Visar accuracy per liga
-- Kalibrering: "När vi säger 70%, hur ofta blev det rätt?"
-- Jämförelse mot market implied probability
-
----
-
-## Odds-integration
-
-**The Odds API** (gratis tier: 500 req/månad, mer än tillräckligt):
-- Endpoint: `https://api.the-odds-api.com/v4/sports/{sport}/odds`
-- Ger: `home_odds`, `draw_odds`, `away_odds` från bookmakers
-- Vi beräknar `implied_prob = 1 / decimal_odds` (normaliserat för vig)
-- `model_edge = model_prob – market_implied_prob`
-- Visas i UI: "Modell 62% vs Marknad 54% → +8% edge"
-
-**Kräver ny secret:** `ODDS_API_KEY` (gratis på the-odds-api.com)
+Kupong-vy för Topptipset/Stryktipset:
+- **Omgångsinformation**: Omgångsnummer, datum, pool-typ
+- **Radlista** — per rad:
+  - Hemma vs Borta + datum
+  - AI-förslag: 1 / X / 2 med sannolikheter (t.ex. "1 (58%) | X (24%) | 2 (18%)")
+  - Confidence-progress-bar (färgkodad: grön/gul/röd)
+  - Spik-indikator: 🔒 (singel) / ⚖️ (dubbel) / 🔄 (trippel)
+- **System Generator** (höger panel):
+  - Slider: Max antal rader (1–128)
+  - Input: Budget SEK
+  - Live-beräkning: "32 rader = 32 kr" (uppdateras per ändring)
+  - Varning om budget överskrids
+  - "Reducera system"-knapp om för många rader
+- **Spara-knapp** → `pool_tickets` (kräver inloggning)
+- **Kopiera rad-knapp** → clipboard-format "1X2X12..."
 
 ---
 
-## Backtest-loop
+### `src/components/betting/BacktestPanel.tsx`
 
-När en match är färdigspelad (status = 'finished' och scores finns):
-- Skrivs `outcome` + `scored_at` i `betting_predictions`
-- `BacktestPanel` kan sedan räkna:
-  - **Accuracy**: korrekt predicerade / totala
-  - **Kalibrering**: binned accuracy per confidence-nivå (40–50%, 50–60%, etc.)
-  - **Model vs Market**: var modellen bättre än bookmaker implied probability?
-  - **ROI simulering**: om man satsat lika mycket varje gång
-
----
-
-## Secrets som behövs (totalt 3 nya)
-
-| Secret | Tjänst | Tier |
-|---|---|---|
-| `FOOTBALL_DATA_API_KEY` | football-data.org | Gratis (10 req/min) |
-| `FIRECRAWL_API_KEY` | firecrawl.dev | Gratis (500 sidor/mån) |
-| `ODDS_API_KEY` | the-odds-api.com | Gratis (500 req/mån) |
-
-`GNEWS_API_KEY`, `LOVABLE_API_KEY` redan konfigurerade.
+Fällbar panel (Accordion) längst ned på BettingPage:
+- **Accuracy-tabell per liga**:
+  - Liga | Prediktioner | Korrekta | Accuracy% | vs Market%
+- **Kalibrering**:
+  - Binned: "40-50%: 47% rätt | 50-60%: 54% rätt | 60-70%: 63% rätt"
+  - (Empty state om < 10 avslutade prediktioner)
+- **ROI-simulering**: "+12.3% om man följt alla tips"
+- Hämtar data från `betting_predictions` där `outcome IS NOT NULL`
 
 ---
 
-## Header & Routing
+## Steg 4: Modifiera befintliga filer
 
-`Header.tsx`: Lägg till `'betting'` i `TabId` + ny tab med `Trophy`-ikon från lucide-react.
-`Index.tsx`: `{activeTab === 'betting' && <BettingPage />}`
+### `src/components/Header.tsx`
+- Lägg till `'betting'` i `TabId` union type
+- Importera `Trophy` från lucide-react
+- Lägg till `{ id: 'betting' as const, label: 'Betting', icon: Trophy }` i `tabs`-arrayen (efter Screener)
+
+### `src/pages/Index.tsx`
+- Importera `BettingPage` från `@/pages/BettingPage`
+- Lägg till rendering block: `{activeTab === 'betting' && <BettingPage />}`
 
 ---
 
-## Filförteckning
+## supabase/config.toml — lägg till verify_jwt-inställningar
 
-**Databas (1 migration):**
-- Tabeller: `betting_matches`, `betting_predictions`, `betting_watchlist`, `pool_tickets`
+```toml
+[functions.fetch-matches]
+verify_jwt = false
 
-**Nya Edge Functions (3 st):**
-1. `supabase/functions/fetch-matches/index.ts`
-2. `supabase/functions/analyze-match/index.ts`
-3. `supabase/functions/fetch-pool-tips/index.ts`
+[functions.analyze-match]
+verify_jwt = false
 
-**Nya Frontend-filer (5 st):**
-1. `src/pages/BettingPage.tsx`
-2. `src/components/betting/MatchCard.tsx`
-3. `src/components/betting/MatchDetailModal.tsx`
-4. `src/components/betting/PoolTipsCard.tsx`
-5. `src/components/betting/BacktestPanel.tsx`
+[functions.fetch-pool-tips]
+verify_jwt = false
+```
 
-**Modifierade filer (2 st):**
-1. `src/components/Header.tsx`
-2. `src/pages/Index.tsx`
+(JWT-validering sker i koden istället, samma mönster som `ai-analysis`.)
+
+---
+
+## Filsammanfattning
+
+| Fil | Åtgärd |
+|-----|--------|
+| `supabase/functions/fetch-matches/index.ts` | Ny |
+| `supabase/functions/analyze-match/index.ts` | Ny |
+| `supabase/functions/fetch-pool-tips/index.ts` | Ny |
+| `src/pages/BettingPage.tsx` | Ny |
+| `src/components/betting/MatchCard.tsx` | Ny |
+| `src/components/betting/MatchDetailModal.tsx` | Ny |
+| `src/components/betting/PoolTipsCard.tsx` | Ny |
+| `src/components/betting/BacktestPanel.tsx` | Ny |
+| `src/components/Header.tsx` | Uppdatera: TabId + Trophy-tab |
+| `src/pages/Index.tsx` | Uppdatera: BettingPage-routing |
+| `supabase/config.toml` | Uppdatera: verify_jwt för 3 funktioner |
+
+Secrets som begärs: `FOOTBALL_DATA_API_KEY`, `FIRECRAWL_API_KEY`, `ODDS_API_KEY`
