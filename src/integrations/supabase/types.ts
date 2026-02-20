@@ -14,6 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
+      asset_predictions: {
+        Row: {
+          baseline_price: number | null
+          baseline_ticker: string | null
+          confidence: number
+          created_at: string
+          entry_price: number
+          excess_return: number | null
+          exit_price: number | null
+          hit: boolean | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          id: string
+          outcome: Database["public"]["Enums"]["signal_direction"] | null
+          predicted_direction: Database["public"]["Enums"]["signal_direction"]
+          predicted_prob: number | null
+          rank_run_id: string | null
+          return_pct: number | null
+          scored_at: string | null
+          symbol_id: string
+          total_score: number
+        }
+        Insert: {
+          baseline_price?: number | null
+          baseline_ticker?: string | null
+          confidence: number
+          created_at?: string
+          entry_price: number
+          excess_return?: number | null
+          exit_price?: number | null
+          hit?: boolean | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          id?: string
+          outcome?: Database["public"]["Enums"]["signal_direction"] | null
+          predicted_direction: Database["public"]["Enums"]["signal_direction"]
+          predicted_prob?: number | null
+          rank_run_id?: string | null
+          return_pct?: number | null
+          scored_at?: string | null
+          symbol_id: string
+          total_score: number
+        }
+        Update: {
+          baseline_price?: number | null
+          baseline_ticker?: string | null
+          confidence?: number
+          created_at?: string
+          entry_price?: number
+          excess_return?: number | null
+          exit_price?: number | null
+          hit?: boolean | null
+          horizon?: Database["public"]["Enums"]["horizon_type"]
+          id?: string
+          outcome?: Database["public"]["Enums"]["signal_direction"] | null
+          predicted_direction?: Database["public"]["Enums"]["signal_direction"]
+          predicted_prob?: number | null
+          rank_run_id?: string | null
+          return_pct?: number | null
+          scored_at?: string | null
+          symbol_id?: string
+          total_score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asset_predictions_rank_run_id_fkey"
+            columns: ["rank_run_id"]
+            isOneToOne: false
+            referencedRelation: "rank_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "asset_predictions_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       betting_matches: {
         Row: {
           away_score: number | null
@@ -180,6 +258,75 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      macro_cache: {
+        Row: {
+          fetched_at: string
+          id: string
+          series_key: string
+          source_url: string | null
+          unit: string | null
+          valid_until: string | null
+          value: number
+        }
+        Insert: {
+          fetched_at?: string
+          id?: string
+          series_key: string
+          source_url?: string | null
+          unit?: string | null
+          valid_until?: string | null
+          value: number
+        }
+        Update: {
+          fetched_at?: string
+          id?: string
+          series_key?: string
+          source_url?: string | null
+          unit?: string | null
+          valid_until?: string | null
+          value?: number
+        }
+        Relationships: []
+      }
+      module_reliability: {
+        Row: {
+          asset_type: string
+          correct_predictions: number
+          hit_rate: number | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          id: string
+          last_updated: string
+          module: string
+          reliability_weight: number | null
+          total_predictions: number
+          window_days: number
+        }
+        Insert: {
+          asset_type: string
+          correct_predictions?: number
+          hit_rate?: number | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          id?: string
+          last_updated?: string
+          module: string
+          reliability_weight?: number | null
+          total_predictions?: number
+          window_days?: number
+        }
+        Update: {
+          asset_type?: string
+          correct_predictions?: number
+          hit_rate?: number | null
+          horizon?: Database["public"]["Enums"]["horizon_type"]
+          id?: string
+          last_updated?: string
+          module?: string
+          reliability_weight?: number | null
+          total_predictions?: number
+          window_days?: number
+        }
+        Relationships: []
       }
       news_cache: {
         Row: {
@@ -557,10 +704,14 @@ export type Database = {
       }
       watchlist_cases: {
         Row: {
+          baseline_entry_price: number | null
+          baseline_exit_price: number | null
+          baseline_ticker: string | null
           confidence_at_save: number
           created_at: string
           entry_price: number
           entry_price_source: string
+          excess_return: number | null
           exit_price: number | null
           expected_move: number | null
           hit: boolean | null
@@ -576,10 +727,14 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          baseline_entry_price?: number | null
+          baseline_exit_price?: number | null
+          baseline_ticker?: string | null
           confidence_at_save: number
           created_at?: string
           entry_price: number
           entry_price_source: string
+          excess_return?: number | null
           exit_price?: number | null
           expected_move?: number | null
           hit?: boolean | null
@@ -595,10 +750,14 @@ export type Database = {
           user_id: string
         }
         Update: {
+          baseline_entry_price?: number | null
+          baseline_exit_price?: number | null
+          baseline_ticker?: string | null
           confidence_at_save?: number
           created_at?: string
           entry_price?: number
           entry_price_source?: string
+          excess_return?: number | null
           exit_price?: number | null
           expected_move?: number | null
           hit?: boolean | null
