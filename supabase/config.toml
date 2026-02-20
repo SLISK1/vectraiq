@@ -1,1 +1,10 @@
 project_id = "togoiyrzglwbuskghcve"
+
+[functions.fetch-matches]
+verify_jwt = false
+
+[functions.analyze-match]
+verify_jwt = false
+
+[functions.fetch-pool-tips]
+verify_jwt = false

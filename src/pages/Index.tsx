@@ -14,6 +14,7 @@ import { AssetTypeFilter } from '@/components/AssetTypeFilter';
 import { SearchAssets } from '@/components/SearchAssets';
 import { PortfolioView } from '@/components/PortfolioView';
 import { ScreenerPage } from '@/pages/ScreenerPage';
+import { BettingPage } from '@/pages/BettingPage';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
 import type { TabId } from '@/components/Header';
 import { useAuth } from '@/contexts/AuthContext';
@@ -417,6 +418,9 @@ const Index = () => {
 
         {/* Screener */}
         {activeTab === 'screener' && <ScreenerPage />}
+
+        {/* Betting */}
+        {activeTab === 'betting' && <BettingPage />}
 
         {/* Stats */}
         {activeTab === 'stats' && (
