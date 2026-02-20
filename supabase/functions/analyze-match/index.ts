@@ -391,11 +391,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
     let aiResult: any = {};
     try {
-      const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      aiResult = JSON.parse(cleaned);
-    } catch {
-      console.error("Failed to parse AI response:", rawContent);
-      return new Response(JSON.stringify({ error: "AI returned invalid JSON" }), {
+      aiResult = extractJsonFromResponse(rawContent);
+    } catch (parseErr) {
+      console.error("Failed to parse AI response:", rawContent.substring(0, 500));
+      return new Response(JSON.stringify({ error: "AI returned invalid JSON", detail: String(parseErr) }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -582,4 +581,46 @@ function findMatchInOdds(oddsArray: any[], homeTeam: string, awayTeam: string) {
     }
   }
   return null;
+}
+
+function extractJsonFromResponse(response: string): any {
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  let cleaned = response
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // Find outermost JSON object boundaries
+  const jsonStart = cleaned.search(/[{[]/);
+  if (jsonStart === -1) throw new Error("No JSON found in response");
+
+  const openChar = cleaned[jsonStart];
+  const closeChar = openChar === "{" ? "}" : "]";
+  const jsonEnd = cleaned.lastIndexOf(closeChar);
+  if (jsonEnd === -1) throw new Error("No closing bracket found");
+
+  cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+
+  // First attempt: direct parse
+  try {
+    return JSON.parse(cleaned);
+  } catch (_e) {
+    // Fix common LLM JSON issues
+    cleaned = cleaned
+      .replace(/,\s*}/g, "}")     // trailing commas before }
+      .replace(/,\s*]/g, "]");    // trailing commas before ]
+
+    // Balance braces/brackets if truncated
+    let braces = 0, brackets = 0;
+    for (const char of cleaned) {
+      if (char === "{") braces++;
+      else if (char === "}") braces--;
+      else if (char === "[") brackets++;
+      else if (char === "]") brackets--;
+    }
+    while (brackets > 0) { cleaned += "]"; brackets--; }
+    while (braces > 0) { cleaned += "}"; braces--; }
+
+    return JSON.parse(cleaned);
+  }
 }
