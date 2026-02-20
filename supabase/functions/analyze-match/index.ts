@@ -214,7 +214,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   "ai_reasoning": "<2-3 paragraph analysis citing sources by title/URL>"
 }`;
 
-    const aiRes = await fetch("https://api.lovable.dev/ai/v1/chat/completions", {
+    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
