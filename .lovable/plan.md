@@ -1,128 +1,69 @@
 
-# Liga-filter och utokade match-prediktioner
+# Fler datakällor i matchanalysen
 
-## 1. Liga-filter pa BettingPage
+## Nuläge
+`analyze-match` använder idag 4 källor:
+- **Football-Data.org** - H2H, tabellposition, form
+- **GNews** - 5 nyhetsartiklar
+- **Firecrawl Search** - 3 webbartiklar med markdown-innehall (budgetbegransad)
+- **The Odds API** - marknadsodds
 
-Lagg till ett filter-rad under sport-valjaren som visar alla unika ligor fran matcherna i databasen. Anvandaren kan valja en eller flera ligor, eller "Alla" for att visa samtliga.
+Outnyttjade resurser:
+- `NEWSAPI_KEY` - konfigurerad men oanvand i analysen
+- Perplexity - tillganglig som connector, ger AI-sokning med kallhanvisningar
 
-**Implementering i `src/pages/BettingPage.tsx`:**
-- Ny state: `selectedLeague` (string | 'all')
-- Extrahera unika ligor fran `matches` array efter laddning
-- Visa knappar/badges for varje liga (Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League, etc.)
-- Filtrera matchlistan pa vald liga innan rendering
-- DB-queryn filtrar ocksa pa liga om inte "Alla" ar valt, for battre prestanda
+## Plan
 
-**UI-design:**
-- Horisontell scroll-rad med liga-badges under sport-valjaren
-- "Alla" knapp forst, sedan varje liga med match-antal i parentes
-- Samma stil som sport-valjarna men i `variant="outline"` storlek `sm`
+### 1. Lagg till Perplexity som primarkalla for djupanalys
+Perplexity gor en AI-driven webbsokning (i princip "Google + sammanfattning") och returnerar ett grundat svar med kallor. Detta ersatter behovet av att manuellt soka och tolka flera webbsidor.
 
----
+- Anslut Perplexity-connectorn till projektet
+- I `analyze-match/index.ts`, lagg till ett Perplexity-anrop som soker efter match-preview, skadeinfo och taktikanalys
+- Anvand `sonar`-modellen med `search_recency_filter: 'week'` for att fa ferska resultat
+- Inkludera citations i prompt-kontexten for AI:n
 
-## 2. Utokade prediktioner (hornor, kort, mål, frisparkar)
+### 2. Lagg till NewsAPI som kompletterande nyhetskalla
+`NEWSAPI_KEY` finns redan men anvands inte i analyze-match.
 
-Utoka AI-analysen sa att `analyze-match` aven returnerar sidoprediktioner for:
-- **Totalt antal mal** (Over/Under 2.5)
-- **Hornor** (Over/Under 9.5)
-- **Kort** (Over/Under 3.5)
-- **Bada lagen gor mal** (BTTS Ja/Nej)
+- Lagg till ett NewsAPI-anrop i `analyze-match/index.ts` (endpoint: `everything`)
+- Sok efter `"{home_team}" AND "{away_team}"` senaste 7 dagarna
+- Hamta upp till 5 artiklar, klassificera dem med befintlig `classifyArticle`-funktion
+- Merga med GNews-artiklarna (deduplicera pa URL)
 
-### Andringar i `supabase/functions/analyze-match/index.ts`:
+### 3. Uppdatera prompt-byggare
+- Ny funktion `buildPerplexitySection()` som formaterar Perplexitys sammanfattning och kallor
+- Utoka `buildNewsSection()` for att hantera artiklar fran bade GNews och NewsAPI
+- Uppdatera evidence gating: Perplexity-svar med citations hojer confidence cap ytterligare
 
-Utoka prompten med extra JSON-falt:
-
-```
-"side_predictions": {
-  "total_goals": { "line": 2.5, "prediction": "over"|"under", "prob": 0.0-1.0, "reasoning": "..." },
-  "btts": { "prediction": "yes"|"no", "prob": 0.0-1.0, "reasoning": "..." },
-  "corners": { "line": 9.5, "prediction": "over"|"under", "prob": 0.0-1.0, "reasoning": "..." },
-  "cards": { "line": 3.5, "prediction": "over"|"under", "prob": 0.0-1.0, "reasoning": "..." }
-}
-```
-
-Spara `side_predictions` i `betting_predictions.key_factors` JSONB-kolumnen (inget schemabyte behovs — `key_factors` ar redan JSONB).
-
-### Andringar i `src/components/betting/MatchDetailModal.tsx`:
-
-Lagg till en ny sektion "Sidoprediktioner" som visar:
-- Over/Under 2.5 mal med sannolikhet
-- BTTS (Bada lagen gor mal)
-- Hornor Over/Under 9.5
-- Kort Over/Under 3.5
-
-Varje rad visar prediktion + sannolikhet i % + kort motivering.
-
-### Andringar i `src/components/betting/MatchCard.tsx`:
-
-Visa ett kompakt sammandrag av sidoprediktionerna under huvudprediktionen — t.ex. ikoner med "O2.5" "BTTS" etc. som smaknappar/badges.
-
----
-
-## Filer som andras
-
-| Fil | Andring |
-|---|---|
-| `src/pages/BettingPage.tsx` | Lagg till `selectedLeague` state, liga-filter UI, filtrera matcher |
-| `src/components/betting/MatchCard.tsx` | Visa sidoprediktions-badges i kompakt format |
-| `src/components/betting/MatchDetailModal.tsx` | Ny sektion for sidoprediktioner med detaljer |
-| `supabase/functions/analyze-match/index.ts` | Utoka prompt med side_predictions, spara i key_factors |
-
----
+### 4. Uppdatera evidence gating och sources
+- Perplexity-kallor laggs till i `sources[]` med typ "stats" eller "confirmed_fact" beroende pa innehall
+- NewsAPI-kallor laggs till pa samma satt som GNews
+- Om Perplexity returnerar skadeinfo setts `hasInjuryData = true`
 
 ## Tekniska detaljer
 
-### Liga-filter (BettingPage)
-
-```tsx
-// Ny state
-const [selectedLeague, setSelectedLeague] = useState<string>('all');
-
-// Extrahera ligor fran matches
-const leagues = [...new Set(matches.map(m => m.league))];
-
-// Filtrera
-const filteredMatches = selectedLeague === 'all' 
-  ? matches 
-  : matches.filter(m => m.league === selectedLeague);
-```
-
-### Prompt-utvidgning (analyze-match)
-
-Prompten utvidgas med:
-```
-Also predict these side markets based on the statistical data:
-- Total goals: Over/Under 2.5 (use Poisson with the calculated goal expectations)
-- BTTS (Both Teams To Score): based on goals scored/conceded per game
-- Corners: Over/Under 9.5 (estimate from league averages and team attacking style)
-- Cards: Over/Under 3.5 (estimate from league discipline stats and match importance)
-
-Include in your JSON response:
-"side_predictions": {
-  "total_goals": { "line": 2.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
-  "btts": { "prediction": "yes"|"no", "prob": <float>, "reasoning": "<short Swedish>" },
-  "corners": { "line": 9.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
-  "cards": { "line": 3.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" }
+### Perplexity-integration (i edge function)
+```text
+POST https://api.perplexity.ai/chat/completions
+{
+  model: "sonar",
+  messages: [{ role: "user", content: "{home} vs {away} {league} match preview injuries team news form" }],
+  search_recency_filter: "week"
 }
 ```
+Returnerar: svar med `citations[]` (URL-lista) som kan anvandas som kallor.
 
-Sidoprediktionerna sparas i `key_factors` JSONB-kolumnen som ett extra objekt, sa att inget databasschema behover andras:
-
-```ts
-key_factors: {
-  factors: aiResult.key_factors || [],
-  side_predictions: aiResult.side_predictions || null,
-}
+### NewsAPI-integration
+```text
+GET https://newsapi.org/v2/everything?q="{home}" AND "{away}"&from={7dagar}&sortBy=relevancy&pageSize=5&apiKey={key}
 ```
 
-### MatchDetailModal — ny sektion
+### Ordning av datahemtning (parallelliserad)
+Alla externa anrop (Football-Data H2H, standings, GNews, NewsAPI, Perplexity, Firecrawl, Odds) kors med `Promise.allSettled()` dar det ar mojligt for att minimera svarstid. Football-Data har rate-limit (6s) sa de forblir sekventiella.
 
-En "Sidomarknader"-sektion med 4 rader i en grid som visar:
-- Ikon + label (t.ex. fotboll-ikon + "Mal O/U 2.5")
-- Prediktion (Over/Under)
-- Sannolikhet i procent
-- Kort motivering
+### Paverkan pa Firecrawl-budget
+Firecrawl behalles for hog-impact-matcher men Perplexity minskar beroendet av Firecrawl for vanliga matcher, vilket sparar Firecrawl-credits.
 
-### MatchCard — kompakta badges
-
-Under huvudprediktionen visas smaknappar som:
-`[O2.5 67%] [BTTS 58%] [Hornor U9.5 55%]`
+## Filer som andras
+- `supabase/functions/analyze-match/index.ts` - lagg till Perplexity + NewsAPI, ny prompt-sektion, uppdaterad evidence gating
+- Ingen databasandring kravs (sources_used ar redan JSONB)
