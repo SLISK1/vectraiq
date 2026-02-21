@@ -49,6 +49,17 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   news: 'Nyhet',
 };
 
+const SideMarketItem = ({ emoji, label, prob, reasoning }: { emoji: string; label: string; prob: number; reasoning?: string }) => (
+  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
+    <span className="text-lg">{emoji}</span>
+    <div className="min-w-0">
+      <p className="text-sm font-medium">{label}</p>
+      <p className="text-xs text-primary font-bold">{Math.round(prob * 100)}%</p>
+      {reasoning && <p className="text-xs text-muted-foreground mt-0.5">{reasoning}</p>}
+    </div>
+  </div>
+);
+
 export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModalProps) => {
   const [keyFactorsOpen, setKeyFactorsOpen] = useState(true);
   const [reasoningOpen, setReasoningOpen] = useState(false);
@@ -160,60 +171,60 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
               <h3 className="text-sm font-semibold">Sidomarknader</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {sidePredictions.total_goals && (
-                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
-                    <span className="text-lg">⚽</span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">
-                        Mål {sidePredictions.total_goals.prediction === 'over' ? 'Över' : 'Under'} {sidePredictions.total_goals.line}
-                      </p>
-                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.total_goals.prob * 100)}%</p>
-                      {sidePredictions.total_goals.reasoning && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.total_goals.reasoning}</p>
-                      )}
-                    </div>
-                  </div>
+                  <SideMarketItem
+                    emoji="⚽"
+                    label={`Mål ${sidePredictions.total_goals.prediction === 'over' ? 'Över' : 'Under'} ${sidePredictions.total_goals.line}`}
+                    prob={sidePredictions.total_goals.prob}
+                    reasoning={sidePredictions.total_goals.reasoning}
+                  />
                 )}
                 {sidePredictions.btts && (
-                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
-                    <span className="text-lg">🎯</span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">
-                        BTTS {sidePredictions.btts.prediction === 'yes' ? 'Ja' : 'Nej'}
-                      </p>
-                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.btts.prob * 100)}%</p>
-                      {sidePredictions.btts.reasoning && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.btts.reasoning}</p>
-                      )}
-                    </div>
-                  </div>
+                  <SideMarketItem
+                    emoji="🎯"
+                    label={`BTTS ${sidePredictions.btts.prediction === 'yes' ? 'Ja' : 'Nej'}`}
+                    prob={sidePredictions.btts.prob}
+                    reasoning={sidePredictions.btts.reasoning}
+                  />
                 )}
                 {sidePredictions.corners && (
-                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
-                    <span className="text-lg">🚩</span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">
-                        Hörnor {sidePredictions.corners.prediction === 'over' ? 'Över' : 'Under'} {sidePredictions.corners.line}
-                      </p>
-                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.corners.prob * 100)}%</p>
-                      {sidePredictions.corners.reasoning && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.corners.reasoning}</p>
-                      )}
-                    </div>
-                  </div>
+                  <SideMarketItem
+                    emoji="🚩"
+                    label={`Hörnor ${sidePredictions.corners.prediction === 'over' ? 'Över' : 'Under'} ${sidePredictions.corners.line}`}
+                    prob={sidePredictions.corners.prob}
+                    reasoning={sidePredictions.corners.reasoning}
+                  />
                 )}
                 {sidePredictions.cards && (
-                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
-                    <span className="text-lg">🟨</span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">
-                        Kort {sidePredictions.cards.prediction === 'over' ? 'Över' : 'Under'} {sidePredictions.cards.line}
-                      </p>
-                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.cards.prob * 100)}%</p>
-                      {sidePredictions.cards.reasoning && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.cards.reasoning}</p>
-                      )}
-                    </div>
-                  </div>
+                  <SideMarketItem
+                    emoji="🟨"
+                    label={`Kort ${sidePredictions.cards.prediction === 'over' ? 'Över' : 'Under'} ${sidePredictions.cards.line}`}
+                    prob={sidePredictions.cards.prob}
+                    reasoning={sidePredictions.cards.reasoning}
+                  />
+                )}
+                {sidePredictions.first_half_goals && (
+                  <SideMarketItem
+                    emoji="⏱️"
+                    label={`1:a halvlek ${sidePredictions.first_half_goals.prediction === 'over' ? 'Ö' : 'U'}${sidePredictions.first_half_goals.line} mål`}
+                    prob={sidePredictions.first_half_goals.prob}
+                    reasoning={sidePredictions.first_half_goals.reasoning}
+                  />
+                )}
+                {sidePredictions.first_to_score && (
+                  <SideMarketItem
+                    emoji="🥇"
+                    label={`Första mål: ${sidePredictions.first_to_score.prediction === 'home' ? match.home_team : sidePredictions.first_to_score.prediction === 'away' ? match.away_team : 'Ingen'}`}
+                    prob={sidePredictions.first_to_score.prob}
+                    reasoning={sidePredictions.first_to_score.reasoning}
+                  />
+                )}
+                {sidePredictions.exact_score && (
+                  <SideMarketItem
+                    emoji="📊"
+                    label={`Exakt resultat: ${sidePredictions.exact_score.home}–${sidePredictions.exact_score.away}`}
+                    prob={sidePredictions.exact_score.prob}
+                    reasoning={sidePredictions.exact_score.reasoning}
+                  />
                 )}
               </div>
             </div>
