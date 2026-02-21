@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.fetch-macro]
 verify_jwt = false
+
+[functions.fetch-alpha-indicators]
+verify_jwt = false

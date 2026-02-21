@@ -111,12 +111,23 @@ export const ScreenerDetailModal = ({ symbol, isOpen, onClose }: ScreenerDetailM
       const meta = sym.metadata as any;
       const fundamentals = meta?.fundamentals || undefined;
 
+      // Fetch AV cache for this symbol
+      let avCache: { indicator_type: string; data: any }[] | undefined;
+      try {
+        const { data: avData } = await supabase
+          .from('alpha_indicators_cache')
+          .select('indicator_type, data')
+          .eq('symbol_id', sym.id)
+          .gt('valid_until', new Date().toISOString());
+        if (avData && avData.length > 0) avCache = avData;
+      } catch {}
+
       const assetType = sym.asset_type === 'fund' ? 'stock' : sym.asset_type as 'stock' | 'crypto' | 'metal';
       const horizon: Horizon = '1d';
 
       const context = createAnalysisContext(
         sym.ticker, sym.name, assetType, sym.currency,
-        currentPrice, priceData, horizon, fundamentals
+        currentPrice, priceData, horizon, fundamentals, avCache
       );
 
       const analysis = runAnalysis(context);
