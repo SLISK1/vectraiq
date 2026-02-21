@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { MatchCard } from '@/components/betting/MatchCard';
 import { PoolTipsCard } from '@/components/betting/PoolTipsCard';
 import { BacktestPanel } from '@/components/betting/BacktestPanel';
-import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered } from 'lucide-react';
+import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered, Database } from 'lucide-react';
 
 type Sport = 'football' | 'ufc' | 'topptipset' | 'stryktipset';
 
@@ -59,11 +59,29 @@ export const BettingPage = () => {
   const [poolData, setPoolData] = useState<any>(null);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
   const [selectedLeague, setSelectedLeague] = useState<string>('all');
+  const [apiBudget, setApiBudget] = useState<{ searches_used: number; last_updated: string } | null>(null);
 
   const { user } = useAuth();
   const { toast } = useToast();
 
   const isPoolSport = selectedSport === 'topptipset' || selectedSport === 'stryktipset';
+
+  // Load API budget
+  const loadApiBudget = async () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const { data } = await supabase
+      .from('betting_matches')
+      .select('source_data')
+      .eq('external_id', `budget-fc-${todayStr}`)
+      .single();
+    if (data?.source_data) {
+      setApiBudget(data.source_data as any);
+    } else {
+      setApiBudget({ searches_used: 0, last_updated: '' });
+    }
+  };
+
+  useEffect(() => { loadApiBudget(); }, []);
 
   // Load matches from DB
   const loadMatches = async () => {
@@ -244,7 +262,29 @@ export const BettingPage = () => {
         </div>
       </div>
 
-      {/* Sport Selector */}
+      {/* API Budget */}
+      {apiBudget && (
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
+          <Database className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">Firecrawl-budget idag</p>
+              <span className="text-xs font-semibold">
+                {apiBudget.searches_used} / 30 sökningar
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  apiBudget.searches_used > 24 ? 'bg-destructive' : apiBudget.searches_used > 15 ? 'bg-yellow-500' : 'bg-primary'
+                }`}
+                style={{ width: `${Math.min(100, (apiBudget.searches_used / 30) * 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="glass-card rounded-xl p-4">
         <h2 className="text-sm font-medium text-muted-foreground mb-3">Välj sport</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
