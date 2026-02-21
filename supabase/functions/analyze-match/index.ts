@@ -2,8 +2,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-call",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+const HIGH_IMPACT_LEAGUES = ["Premier League", "La Liga", "Champions League", "Europa League", "Bundesliga", "Serie A"];
 
 const SPORT_ODDS_KEY: Record<string, string> = {
   football: "soccer_epl",
