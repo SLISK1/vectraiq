@@ -1,69 +1,99 @@
 
 
-# Fixa saknad data i Dashboard-filtren
+# Integrera Perplexity for djupare tillgangsanalys
 
-## Problemanalys
+## Nulagsbild
 
-Tre separata dataproblem orsakar de tomma fälten:
+Idag anvander `ai-analysis` edge function enbart:
+- **news_cache** (GNews-rubriker) for sentimentanalys
+- **Prishistorik** (fran klienten) for ML och monsterigenkanning
+- **Gemini LLM** for att tolka data och generera JSON-signaler
 
-| Problem | Orsak | Omfattning |
-|---------|-------|------------|
-| **Large Cap / Mid Cap** tomt | `market_cap = 0` for alla 352 aktier i `raw_prices` | 100% av aktier |
-| **Fonder / Metaller** tomt | 0 rader i `price_history` for dessa tillgangstyper | 11 symboler |
-| **Top 10 UP/DOWN** tomt | Signaler genereras bara for `1d`-horisonten | 3 av 4 horisonter |
+Det saknas realtidsinformation om nyheter, analytikerrapporter, sektorutveckling och makrotrender som paverkar enskilda tillgangar. Perplexity kan fylla detta gap genom att gora en AI-driven webbsokning for varje tillgang och returnera ett grundat svar med kallor.
 
 ## Plan
 
-### 1. Fixa market_cap-data for aktier
+### 1. Anslut Perplexity-connectorn
+Perplexity ar tillganglig som connector men inte ansluten till projektet annu. Forsta steget ar att koppla den, vilket gor `PERPLEXITY_API_KEY` tillganglig som miljovariabel i edge functions.
 
-Problemet: `fetch-prices` edge function hamtar priser men sparar inte `market_cap` korrekt for aktier (FMP returnerar det i ett annat format an krypto).
+### 2. Lagg till Perplexity-sokning i `ai-analysis` edge function
+For varje analystyp (sentiment, ml_prediction, pattern_recognition), gor ett Perplexity-anrop fore Gemini-steget. Sokfrasen anpassas efter tillgangstyp:
 
-- Granska `fetch-prices/index.ts` for att se hur market_cap populeras
-- Fixa mappningen sa att FMP:s market cap-data sparas i `raw_prices.market_cap`
-- Kor funktionen for att uppdatera alla aktier
+| Tillgangstyp | Sokfraga |
+|-------------|----------|
+| Aktie | `"{ticker}" "{name}" stock analysis outlook earnings news {year}` |
+| Krypto | `"{ticker}" crypto price prediction analysis market sentiment {year}` |
+| Metall | `"{ticker}" {name} commodity price forecast supply demand {year}` |
+| Fond | `"{name}" fund performance holdings analysis {year}` |
 
-### 2. Lagg till prishistorik for fonder och metaller
+Parametrar:
+- Modell: `sonar`
+- `search_recency_filter: "week"` for ferska resultat
+- `max_tokens: 500` for att halla svarstiden nere
 
-Problemet: `fetch-history` edge function hanterar troligen inte dessa tillgangstyper.
+### 3. Injicera Perplexity-kontext i Gemini-prompten
+Perplexitys svar + citations laggs till i user-prompten som en ny sektion:
 
-- Granska `fetch-history/index.ts` for att se vilka symboler som inkluderas
-- Sakerfall att fonder (7 st) och metaller (4 st) inkluderas i batch-korningen
-- Trigga en manuell historik-hamtning for dessa 11 symboler
+```
+WEBBANALYS (Perplexity Search):
+{perplexity_response}
 
-### 3. Generera signaler for fler horisonter
+Källor: {citation_urls}
+```
 
-Problemet: `generate-signals` edge function kor bara for `1d`.
+Detta ger Gemini konkret, grundad information att basera sin analys pa istallet for att gissa.
 
-- Granska `generate-signals/index.ts` for att se vilka horisonter som stods
-- Utoka till att generera signaler for `1w`, `1mo` och `1y`
-- Alternativt: anvand lokalt beraknade signaler (som screener:n redan gor) som fallback i dashboarden nar databassignaler saknas
+### 4. Utoka assetType for att stodja fonder
+Lagg till `'fund'` som giltig assetType i valideringen och i prompt-bygget. Fonder saknar traditionella nyckeltal men Perplexity kan hamta NAV-utveckling, innehavsforandringar och fondbetyg.
 
-### 4. Uppdatera filtrering i dashboarden
+### 5. Fallback vid Perplexity-fel
+Om Perplexity-anropet misslyckas (timeout, rate limit, nyckel saknas) fortsatter analysen utan den extra kontexten -- samma beteende som idag. Logga felet for diagnostik.
 
-- Hantera fallet dar `market_cap = 0` battre i UI:t (visa "Saknar data" istallet for att doja tillgangen)
-- Lagg till en fallback i Top 10-listan som beraknar signaler lokalt om databassignaler saknas for vald horisont
+### 6. Uppdatera evidence med kallor
+Perplexity returnerar `citations[]` (URL-lista). Dessa laggs till i evidence-listan fran Gemini som en extra post:
+
+```json
+{
+  "type": "web_research",
+  "description": "Realtidsdata fran webbsokning",
+  "value": "3 kallor analyserade",
+  "source": "Perplexity Search"
+}
+```
 
 ## Tekniska detaljer
 
-### Filer som andras
-- `supabase/functions/fetch-prices/index.ts` -- fixa market_cap-mappning
-- `supabase/functions/fetch-history/index.ts` -- inkludera fonder/metaller
-- `supabase/functions/generate-signals/index.ts` -- stod for fler horisonter
-- `src/hooks/useMarketData.ts` -- fallback-logik for signaler
-- `src/pages/Index.tsx` (eller relevant dashboard-komponent) -- UI-hantering av saknad data
+### Fil som andras
+- `supabase/functions/ai-analysis/index.ts`
 
-### Dataflode efter fix
+### Nytt flode i edge function
 
 ```text
-fetch-prices -> raw_prices (med market_cap for aktier)
-fetch-history -> price_history (for alla tillgangstyper)
-generate-signals -> signals (for 1d, 1w, 1mo, 1y)
-Dashboard -> Laser signals + fallback till lokal analys
+1. Validera input + auth (oforandrat)
+2. [NY] Gor Perplexity-sokning parallellt med news_cache-hamtning
+3. Bygg system/user-prompt MED Perplexity-kontext
+4. Anropa Gemini (oforandrat)
+5. Returnera resultat med utokad evidence
 ```
 
-### Prioriteringsordning
-1. Market cap-fix (storst paverkan -- laser Large/Mid Cap for 352 aktier)
-2. Prishistorik for fonder/metaller (laser 11 symboler)
-3. Signaler for fler horisonter (laser Top 10 for alla horisonter)
-4. UI-fallbacks (forbattrar upplevelsen aven nar data saknas)
+### Perplexity API-anrop (i edge function)
+```text
+POST https://api.perplexity.ai/chat/completions
+Headers: Authorization: Bearer ${PERPLEXITY_API_KEY}
+Body: {
+  model: "sonar",
+  messages: [{ role: "user", content: searchQuery }],
+  search_recency_filter: "week",
+  max_tokens: 500
+}
+Response: { choices: [{ message: { content: "..." } }], citations: ["url1", "url2"] }
+```
+
+### Paverkan pa prestanda
+- Perplexity-anropet tar ~1-3 sekunder
+- Kors parallellt med news_cache-hamtning sa total extra latens ar minimal
+- Haller max_tokens lagt (500) for snabb respons
+
+### Ingen databasandring kravs
+All data floder genom edge function -> klient. Inga nya tabeller eller kolumner behovs.
 
