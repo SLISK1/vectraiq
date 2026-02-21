@@ -198,7 +198,46 @@ Deno.serve(async (req) => {
     }
     
     // ==============================
-    // 3. Update module_reliability
+    // 3. Score betting_predictions
+    // ==============================
+    const { data: finishedMatches } = await supabase
+      .from('betting_matches')
+      .select('id, home_score, away_score')
+      .eq('status', 'finished')
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null);
+    
+    let bettingScored = 0;
+    
+    if (finishedMatches && finishedMatches.length > 0) {
+      const matchIds = finishedMatches.map((m: any) => m.id);
+      const { data: unscoredBets } = await supabase
+        .from('betting_predictions')
+        .select('id, match_id, predicted_winner')
+        .is('outcome', null)
+        .in('match_id', matchIds);
+      
+      for (const pred of (unscoredBets || [])) {
+        const match = finishedMatches.find((m: any) => m.id === pred.match_id);
+        if (!match) continue;
+        
+        const outcome = match.home_score > match.away_score ? 'home'
+          : match.home_score < match.away_score ? 'away' : 'draw';
+        const hit = outcome === pred.predicted_winner;
+        
+        const { error: betUpdateErr } = await supabase
+          .from('betting_predictions')
+          .update({ outcome, scored_at: now.toISOString() })
+          .eq('id', pred.id);
+        
+        if (!betUpdateErr) bettingScored++;
+      }
+    }
+    
+    console.log(`score-predictions: scored ${bettingScored} betting predictions`);
+    
+    // ==============================
+    // 4. Update module_reliability
     // ==============================
     const windowDays = 90;
     const windowStart = new Date(now);
@@ -231,6 +270,7 @@ Deno.serve(async (req) => {
       success: true,
       scored_predictions: scoredCount,
       scored_watchlist: watchlistScored,
+      scored_betting: bettingScored,
       timestamp: now.toISOString(),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
