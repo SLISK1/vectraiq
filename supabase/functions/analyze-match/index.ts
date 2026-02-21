@@ -348,6 +348,14 @@ INSTRUCTIONS:
 5. Base confidence on data quality: more data = higher confidence allowed.
 6. Set predicted_prob to your calculated probability for the predicted_winner outcome (0.0-1.0).
 7. Respond with the analysis in Swedish (ai_reasoning) but keep JSON keys in English.
+8. Also predict these side markets based on the statistical data:
+   - Total goals: Over/Under 2.5 (use Poisson with the calculated goal expectations)
+   - BTTS (Both Teams To Score): based on goals scored/conceded per game
+   - Corners: Over/Under 9.5 (estimate from league averages and team attacking style)
+   - Cards: Over/Under 3.5 (estimate from league discipline stats and match importance)
+   - First half goals: Over/Under 1.5 (estimate ~45% of total goals in first half)
+   - First team to score: "home", "away", or "none" with probability
+   - Exact score prediction: the single most likely scoreline
 
 Respond with ONLY valid JSON (no markdown, no code blocks):
 {
@@ -361,6 +369,15 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       "source": { "url": "<url>", "date": "<YYYY-MM-DD>", "type": "confirmed_fact"|"stats"|"opinion"|"news" }
     }
   ],
+  "side_predictions": {
+    "total_goals": { "line": 2.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
+    "btts": { "prediction": "yes"|"no", "prob": <float>, "reasoning": "<short Swedish>" },
+    "corners": { "line": 9.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
+    "cards": { "line": 3.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
+    "first_half_goals": { "line": 1.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
+    "first_to_score": { "prediction": "home"|"away"|"none", "prob": <float>, "reasoning": "<short Swedish>" },
+    "exact_score": { "home": <int>, "away": <int>, "prob": <float>, "reasoning": "<short Swedish>" }
+  },
   "ai_reasoning": "<3-4 paragraphs in Swedish citing specific statistics from the data above>"
 }`;
 
@@ -374,7 +391,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         model: "google/gemini-2.5-flash",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
-        max_tokens: 2500,
+        max_tokens: 4000,
       }),
     });
 
