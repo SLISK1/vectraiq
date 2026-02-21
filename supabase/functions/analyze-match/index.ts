@@ -186,9 +186,14 @@ Deno.serve(async (req) => {
     };
     const compCode = LEAGUE_TO_COMP[match.league] || null;
 
-    // Fetch live H2H (always fresh)
+    // === SMART CACHING: Check if source_data already has fresh enrichment ===
+    const enrichedAt = sourceData._enriched_at ? new Date(sourceData._enriched_at).getTime() : 0;
+    const ENRICHMENT_TTL = 12 * 60 * 60 * 1000; // 12 hours
+    const isFreshEnrichment = (Date.now() - enrichedAt) < ENRICHMENT_TTL;
+
+    // Fetch live H2H (use cached if fresh)
     let liveH2H: any = sourceData.h2h || null;
-    if (footballApiKey && fdMatchId) {
+    if (!isFreshEnrichment && footballApiKey && fdMatchId) {
       try {
         const h2hRes = await fetch(
           `https://api.football-data.org/v4/matches/${fdMatchId}/head2head?limit=10`,
@@ -220,9 +225,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch live standings
+    // Fetch live standings (use cached if fresh)
     let liveStandings: any = sourceData.standings || null;
-    if (footballApiKey && compCode) {
+    if (!isFreshEnrichment && footballApiKey && compCode) {
       try {
         const standRes = await fetch(
           `https://api.football-data.org/v4/competitions/${compCode}/standings`,
@@ -268,33 +273,56 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Live GNews search
+    // === NEWS: Prefer news_cache, only fallback to live GNews if empty ===
     let liveNewsArticles: any[] = sourceData.news || [];
-    if (gnewsApiKey) {
-      try {
-        const query = encodeURIComponent(`"${match.home_team}" "${match.away_team}" preview prediction ${new Date().getFullYear()}`);
-        const gnewsRes = await fetch(
-          `https://gnews.io/api/v4/search?q=${query}&max=5&lang=en&apikey=${gnewsApiKey}`
-        );
-        if (gnewsRes.ok) {
-          const gnewsData = await gnewsRes.json();
-          liveNewsArticles = (gnewsData.articles || []).map((a: any) => ({
-            url: a.url,
-            title: a.title,
-            date: a.publishedAt,
-            source: a.source?.name,
-            description: a.description || "",
-            type: classifyArticle(a.title + " " + (a.description || "")),
-          }));
+    if (!isFreshEnrichment) {
+      // Try news_cache first (populated by fetch-news cron)
+      const teamQuery = `${match.home_team} ${match.away_team}`.toLowerCase();
+      const { data: cachedNews } = await supabaseService
+        .from("news_cache")
+        .select("title, description, source_name, url, published_at")
+        .or(`title.ilike.%${match.home_team.split(' ')[0]}%,title.ilike.%${match.away_team.split(' ')[0]}%`)
+        .gte("fetched_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+        .order("published_at", { ascending: false })
+        .limit(5);
+
+      if (cachedNews && cachedNews.length >= 2) {
+        liveNewsArticles = cachedNews.map((a: any) => ({
+          url: a.url || "",
+          title: a.title,
+          date: a.published_at,
+          source: a.source_name,
+          description: a.description || "",
+          type: classifyArticle(a.title + " " + (a.description || "")),
+        }));
+        console.log(`Using ${cachedNews.length} articles from news_cache (saved GNews API call)`);
+      } else if (gnewsApiKey) {
+        // Fallback to live GNews only if cache is insufficient
+        try {
+          const query = encodeURIComponent(`"${match.home_team}" "${match.away_team}" preview prediction ${new Date().getFullYear()}`);
+          const gnewsRes = await fetch(
+            `https://gnews.io/api/v4/search?q=${query}&max=5&lang=en&apikey=${gnewsApiKey}`
+          );
+          if (gnewsRes.ok) {
+            const gnewsData = await gnewsRes.json();
+            liveNewsArticles = (gnewsData.articles || []).map((a: any) => ({
+              url: a.url,
+              title: a.title,
+              date: a.publishedAt,
+              source: a.source?.name,
+              description: a.description || "",
+              type: classifyArticle(a.title + " " + (a.description || "")),
+            }));
+          }
+        } catch (e) {
+          console.warn("Live GNews search failed:", e);
         }
-      } catch (e) {
-        console.warn("Live GNews search failed:", e);
       }
     }
 
-    // Live NewsAPI search
+    // NewsAPI: Only if we have fewer than 3 news articles already
     let newsApiArticles: any[] = [];
-    if (newsApiKey) {
+    if (!isFreshEnrichment && liveNewsArticles.length < 3 && newsApiKey) {
       try {
         const q = encodeURIComponent(`${match.home_team} ${match.away_team}`);
         const newsApiRes = await fetch(
@@ -319,9 +347,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Live Firecrawl Search
+    // Firecrawl Search: ONLY for high-impact leagues to conserve budget
+    const isHighImpact = HIGH_IMPACT_LEAGUES.includes(match.league);
     let liveScrapedArticles: any[] = sourceData.scraped_articles || [];
-    if (firecrawlApiKey) {
+    if (!isFreshEnrichment && isHighImpact && firecrawlApiKey) {
       try {
         const matchYear = new Date(match.match_date).getFullYear();
         const searchQuery = `${match.home_team} vs ${match.away_team} ${match.league} ${matchYear} preview prediction analysis`;
@@ -333,7 +362,7 @@ Deno.serve(async (req) => {
           },
           body: JSON.stringify({
             query: searchQuery,
-            limit: 3,
+            limit: 2, // Reduced from 3 to save budget
             scrapeOptions: { formats: ["markdown"] },
           }),
         });
@@ -352,6 +381,24 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.warn("Live Firecrawl search failed:", e);
       }
+    } else if (!isHighImpact && !isFreshEnrichment) {
+      console.log(`Skipping Firecrawl for non-high-impact league: ${match.league}`);
+    }
+
+    // Cache enrichment data back to source_data for reuse
+    if (!isFreshEnrichment) {
+      const enrichedData = {
+        ...sourceData,
+        h2h: liveH2H,
+        standings: liveStandings,
+        news: liveNewsArticles,
+        scraped_articles: liveScrapedArticles,
+        _enriched_at: new Date().toISOString(),
+      };
+      await supabaseService
+        .from("betting_matches")
+        .update({ source_data: enrichedData })
+        .eq("id", match_id);
     }
 
     // === BUILD STRUCTURED PROMPT SECTIONS ===
@@ -410,7 +457,7 @@ Deno.serve(async (req) => {
       hasOnlyOpinion = false;
     }
 
-    // === FETCH ODDS ===
+    // === FETCH ODDS (with caching in source_data) ===
     const oddsApiKey = Deno.env.get("ODDS_API_KEY");
     let marketOddsHome: number | null = null;
     let marketOddsDraw: number | null = null;
@@ -421,7 +468,30 @@ Deno.serve(async (req) => {
     let totalsOdds: { line: number; over: number; under: number } | null = null;
     let bttsOdds: { yes: number; no: number } | null = null;
 
-    if (oddsApiKey) {
+    // Use cached odds if available and fresh (< 12h)
+    const cachedOdds = sourceData._odds;
+    const oddsFetchedAt = sourceData._odds_fetched_at ? new Date(sourceData._odds_fetched_at).getTime() : 0;
+    const ODDS_TTL = 12 * 60 * 60 * 1000;
+    const hasFreshOdds = cachedOdds && (Date.now() - oddsFetchedAt) < ODDS_TTL;
+
+    if (hasFreshOdds) {
+      marketOddsHome = cachedOdds.home;
+      marketOddsDraw = cachedOdds.draw;
+      marketOddsAway = cachedOdds.away;
+      totalsOdds = cachedOdds.totals || null;
+      bttsOdds = cachedOdds.btts || null;
+      if (marketOddsHome) {
+        const rawHome = 1 / marketOddsHome;
+        const rawDraw = marketOddsDraw ? 1 / marketOddsDraw : 0;
+        const rawAway = marketOddsAway ? 1 / marketOddsAway : 1;
+        const total = rawHome + rawDraw + rawAway;
+        marketImpliedProbHome = rawHome / total;
+        marketImpliedProbDraw = rawDraw > 0 ? rawDraw / total : null;
+        marketImpliedProbAway = rawAway / total;
+      }
+      console.log(`Using cached odds for ${match.home_team} vs ${match.away_team} (saved Odds API call)`);
+    } else if (oddsApiKey && isHighImpact) {
+      // Only fetch odds for high-impact leagues to conserve 500 req/month budget
       const sportKey = SPORT_ODDS_KEY[match.league] || SPORT_ODDS_KEY[match.sport] || "soccer_epl";
       try {
         const oddsRes = await fetch(
@@ -443,11 +513,25 @@ Deno.serve(async (req) => {
             marketImpliedProbHome = rawHome / total;
             marketImpliedProbDraw = rawDraw > 0 ? rawDraw / total : null;
             marketImpliedProbAway = rawAway / total;
+
+            // Cache odds in source_data
+            await supabaseService
+              .from("betting_matches")
+              .update({
+                source_data: {
+                  ...sourceData,
+                  _odds: matchedOdds,
+                  _odds_fetched_at: new Date().toISOString(),
+                },
+              })
+              .eq("id", match_id);
           }
         }
       } catch (e) {
         console.warn("Odds API fetch failed:", e);
       }
+    } else if (!isHighImpact) {
+      console.log(`Skipping Odds API for non-high-impact league: ${match.league} (budget conservation)`);
     }
 
     // === BUILD GEMINI PROMPT ===

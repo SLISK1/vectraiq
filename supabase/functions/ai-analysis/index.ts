@@ -174,13 +174,11 @@ Deno.serve(async (req) => {
         const newsText = await getRecentNews(ticker, supabase);
         const hasRealNews = newsText.length > 0;
 
-        // Fetch financial analyses via Firecrawl
-        const firecrawlSentiment = await fetchFirecrawlAnalyses(ticker, name, assetType);
-        const hasFirecrawl = firecrawlSentiment.length > 0;
+        // NOTE: Firecrawl removed from sentiment to conserve API budget.
+        // Firecrawl is only used in deep_analysis where it adds most value.
 
         systemPrompt = `Du är en finansanalytiker specialiserad på sentimentanalys för den svenska och globala marknaden. 
 ${hasRealNews ? 'Du har tillgång till riktiga nyhetsrubriker nedan. Basera din analys på dessa nyheter.' : 'Inga nyheter hittades. Basera din analys på allmänt marknadssentiment.'}
-${hasFirecrawl ? 'Du har även tillgång till utdrag från aktuella finansanalyser nedan.' : ''}
 Svara ENDAST med ett JSON-objekt i exakt detta format:
 {
   "direction": "UP" | "DOWN" | "NEUTRAL",
@@ -197,13 +195,9 @@ Svara ENDAST med ett JSON-objekt i exakt detta format:
 Horisont: ${horizon}
 ${currentPrice ? `Aktuellt pris: ${currentPrice}` : ''}
 
-${hasRealNews ? `SENASTE NYHETER:\n${newsText}\n` : 'Inga aktuella nyheter tillgängliga.'}
+${hasRealNews ? `SENASTE NYHETER:\n${newsText}\n\nAnalysera sentimentet i ovanstående nyheter. Identifiera positiva och negativa signaler.` : 'Inga aktuella nyheter tillgängliga. Ge en neutral basestimering.'}
 
-${hasFirecrawl ? `FINANSANALYSER (från webben):\n${firecrawlSentiment}\n` : ''}
-
-${hasRealNews || hasFirecrawl ? 'Analysera sentimentet i ovanstående material. Identifiera positiva och negativa signaler.' : 'Ge en neutral basestimering.'}
-
-OBS: Var realistisk och balanserad. Ge inte för extrema värden.${hasRealNews ? ' Referera specifikt till nyheterna i din evidence.' : ''}${hasFirecrawl ? ' Referera till finansanalyserna i din evidence.' : ''}`;
+OBS: Var realistisk och balanserad. Ge inte för extrema värden.${hasRealNews ? ' Referera specifikt till nyheterna i din evidence.' : ''}`;
         break;
       }
 
