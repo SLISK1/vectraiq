@@ -391,7 +391,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         model: "google/gemini-2.5-flash",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
-        max_tokens: 4000,
+        max_tokens: 8000,
       }),
     });
 
@@ -411,6 +411,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       aiResult = extractJsonFromResponse(rawContent);
     } catch (parseErr) {
       console.error("Failed to parse AI response:", rawContent.substring(0, 500));
+      console.error("Parse error detail:", String(parseErr));
+      console.error("Response length:", rawContent.length, "Last 200 chars:", rawContent.substring(rawContent.length - 200));
       return new Response(JSON.stringify({ error: "AI returned invalid JSON", detail: String(parseErr) }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -625,6 +627,40 @@ function extractJsonFromResponse(response: string): any {
   try {
     return JSON.parse(cleaned);
   } catch (_e) {
+    // Sanitize control characters inside JSON string values only
+    // Walk character by character, track if we're inside a string
+    let sanitized = '';
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (escaped) {
+        sanitized += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\' && inString) {
+        sanitized += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        sanitized += ch;
+        continue;
+      }
+      if (inString && ch.charCodeAt(0) < 32) {
+        // Replace control chars inside strings
+        if (ch === '\n') sanitized += '\\n';
+        else if (ch === '\r') sanitized += '\\r';
+        else if (ch === '\t') sanitized += '\\t';
+        // else skip other control chars
+        continue;
+      }
+      sanitized += ch;
+    }
+    cleaned = sanitized;
+
     // Fix common LLM JSON issues
     cleaned = cleaned
       .replace(/,\s*}/g, "}")     // trailing commas before }
