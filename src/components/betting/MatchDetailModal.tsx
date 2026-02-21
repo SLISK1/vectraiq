@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge';
 import { ScoreRing } from '@/components/ScoreRing';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronDown, TrendingUp, TrendingDown, ExternalLink, AlertTriangle } from 'lucide-react';
+import { ChevronDown, TrendingUp, TrendingDown, ExternalLink, AlertTriangle, Brain } from 'lucide-react';
 import { useState } from 'react';
 
 interface Match {
@@ -70,6 +70,7 @@ const SideMarketItem = ({ emoji, label, prob, reasoning, edge }: { emoji: string
 export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModalProps) => {
   const [keyFactorsOpen, setKeyFactorsOpen] = useState(true);
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [deepAnalysisOpen, setDeepAnalysisOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const matchDate = new Date(match.match_date);
@@ -306,7 +307,26 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
             </Collapsible>
           )}
 
-          {/* Sources */}
+          {/* GPT-5 Deep Analysis */}
+          {prediction.key_factors?.deep_analysis && (
+            <Collapsible open={deepAnalysisOpen} onOpenChange={setDeepAnalysisOpen}>
+              <CollapsibleTrigger className="flex items-center justify-between w-full rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 p-4">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-purple-400" />
+                  <h3 className="text-sm font-semibold text-purple-300">GPT-5 Djupanalys</h3>
+                </div>
+                <ChevronDown className={`w-4 h-4 transition-transform ${deepAnalysisOpen ? 'rotate-180' : ''}`} />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="border border-t-0 border-purple-500/30 rounded-b-xl p-4">
+                  <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                    {prediction.key_factors.deep_analysis}
+                  </p>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
           {sourcesUsed.length > 0 && (
             <Collapsible open={sourcesOpen} onOpenChange={setSourcesOpen}>
               <CollapsibleTrigger className="flex items-center justify-between w-full rounded-xl bg-muted/30 border border-border/50 p-4">
