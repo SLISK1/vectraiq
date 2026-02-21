@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, RefreshCw, Copy, Save, AlertTriangle, Lock, Scale, RotateCcw } from 'lucide-react';
@@ -19,6 +19,7 @@ interface PoolTipsCardProps {
 export const PoolTipsCard = ({ poolType, poolData, isLoading, onFetch, isLoggedIn, userId }: PoolTipsCardProps) => {
   const [maxRows, setMaxRows] = useState(64);
   const [budgetSek, setBudgetSek] = useState(64);
+  const [budgetInput, setBudgetInput] = useState('64');
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
@@ -104,13 +105,17 @@ export const PoolTipsCard = ({ poolType, poolData, isLoading, onFetch, isLoggedI
 
           <div>
             <label className="text-sm text-muted-foreground block mb-2">Budget (SEK)</label>
-            <input
-              type="number"
-              value={budgetSek}
-              onChange={(e) => setBudgetSek(Number(e.target.value))}
-              min={1}
-              max={1000}
-              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <Input
+              inputMode="numeric"
+              value={budgetInput}
+              onChange={(e) => setBudgetInput(e.target.value)}
+              onBlur={() => {
+                const num = parseInt(budgetInput) || 1;
+                const clamped = Math.min(1000, Math.max(1, num));
+                setBudgetSek(clamped);
+                setBudgetInput(String(clamped));
+              }}
+              className="h-9"
             />
           </div>
         </div>
