@@ -5,30 +5,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
 };
 
-// Crypto ticker to CoinGecko ID mapping - use exact IDs from CoinGecko
+// Crypto ticker to CoinGecko ID mapping
 const CRYPTO_IDS: Record<string, string> = {
-  'BTC': 'bitcoin',
-  'ETH': 'ethereum', 
-  'SOL': 'solana',
-  'XRP': 'ripple',
-  'ADA': 'cardano',
-  'AVAX': 'avalanche-2',
-  'DOT': 'polkadot',
-  'LINK': 'chainlink',
-  'DOGE': 'dogecoin',
-  'MATIC': 'matic-network',
-  'LTC': 'litecoin',
-  'UNI': 'uniswap',
-  'ATOM': 'cosmos',
-  'NEAR': 'near',
-  'APT': 'aptos',
-  'ARB': 'arbitrum',
-  'OP': 'optimism',
+  'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'ripple',
+  'ADA': 'cardano', 'AVAX': 'avalanche-2', 'DOT': 'polkadot', 'LINK': 'chainlink',
+  'DOGE': 'dogecoin', 'MATIC': 'matic-network', 'LTC': 'litecoin', 'UNI': 'uniswap',
+  'ATOM': 'cosmos', 'NEAR': 'near', 'APT': 'aptos', 'ARB': 'arbitrum', 'OP': 'optimism',
 };
 
-// Nordic stocks - ticker to Yahoo symbol mapping (comprehensive Nordic coverage)
+// Nordic stocks - ticker to exchange symbol mapping (used by both FMP and Yahoo)
 const NORDIC_STOCKS: Record<string, string> = {
-  // Sweden - Large Cap (>€10B market cap)
+  // Sweden - Large Cap
   'VOLV_B': 'VOLV-B.ST', 'ERIC-B': 'ERIC-B.ST', 'SEB-A': 'SEB-A.ST',
   'ATCO-A': 'ATCO-A.ST', 'ASSA-B': 'ASSA-B.ST', 'HM-B': 'HM-B.ST',
   'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST',
@@ -38,8 +25,7 @@ const NORDIC_STOCKS: Record<string, string> = {
   'NIBE-B': 'NIBE-B.ST', 'EVO': 'EVO.ST', 'BOL': 'BOL.ST',
   'GETI-B': 'GETI-B.ST', 'SAAB-B': 'SAAB-B.ST', 'SHB-A': 'SHB-A.ST',
   'NDA-SE': 'NDA-SE.ST', 'AZN': 'AZN.ST', 'EMBRAC-B': 'EMBRAC-B.ST',
-  
-  // Sweden - Mid Cap (€2-10B market cap)
+  // Sweden - Mid Cap
   'SINCH': 'SINCH.ST', 'SSAB-A': 'SSAB-A.ST', 'TEL2-B': 'TEL2-B.ST',
   'AXFO': 'AXFO.ST', 'LUND-B': 'LUND-B.ST', 'LIFCO-B': 'LIFCO-B.ST',
   'SWMA': 'SWMA.ST', 'LATO-B': 'LATO-B.ST', 'INDU-C': 'INDU-C.ST',
@@ -49,13 +35,11 @@ const NORDIC_STOCKS: Record<string, string> = {
   'HPOL-B': 'HUSQ-B.ST', 'SCA-B': 'SCA-B.ST', 'SECU-B': 'SECU-B.ST',
   'THULE': 'THULE.ST', 'BRAV': 'BRAV.ST',
   'FLAT': 'FLAT-B.ST', 'CATE': 'CATE.ST', 'WIHL': 'WIHL.ST',
-  
-  // Sweden - Small Cap (<€2B market cap)
+  // Sweden - Small Cap
   'BALD-B': 'BALD-B.ST', 'MTRS': 'MTRS.ST', 'DUNI': 'DUNI.ST',
   'BETS-B': 'BETS-B.ST', 'KIND-SDB': 'KIND-SDB.ST', 'CLAS-B': 'CLAS-B.ST',
   'BUFAB': 'BUFAB.ST', 'NOLA-B': 'NOLA-B.ST', 'SYSR': 'SYSR.ST',
   'SAVE': 'SAVE.ST', 'AVAZ-B': 'AZA.ST', 'RESURS': 'RESURS.ST', 'NEOBO': 'NEOBO.ST',
-  // Additional Small Cap Swedish stocks
   'TROAX': 'TROAX.ST', 'AMBEA': 'AMBEA.ST', 'BULTEN': 'BULTEN.ST',
   'CIBUS': 'CIBUS.ST', 'CLA-B': 'CLA-B.ST', 'BONAV-B': 'BONAV-B.ST',
   'BURE': 'BURE.ST', 'COOR': 'COOR.ST', 'DIOS': 'DIOS.ST',
@@ -67,20 +51,17 @@ const NORDIC_STOCKS: Record<string, string> = {
   'OEM-B': 'OEM-B.ST', 'ORTI-B': 'ORTI-B.ST', 'PEAB-B': 'PEAB-B.ST',
   'PRIC-B': 'PRIC-B.ST', 'RATO-B': 'RATO-B.ST', 'RAYSH': 'RAYS.ST',
   'VITR': 'VITR.ST', 'VNV': 'VNV.ST', 'XVIVO': 'XVIVO.ST',
-  
-  // Norway (Oslo Børs)
+  // Norway
   'EQNR': 'EQNR.OL', 'DNB': 'DNB.OL', 'TEL': 'TEL.OL',
   'MOWI': 'MOWI.OL', 'SALM': 'SALM.OL', 'YAR': 'YAR.OL',
   'ORK': 'ORK.OL', 'AKRBP': 'AKRBP.OL', 'KAHOT': 'KAHOT.OL', 'AUSS': 'AUSS.OL',
   'TOM': 'TOM.OL', 'BAKKA': 'BAKKA.OL', 'AFG': 'AFG.OL',
-  
-  // Denmark (OMX Copenhagen)
+  // Denmark
   'NOVO-B': 'NOVO-B.CO', 'MAERSK-B': 'MAERSK-B.CO', 'CARL-B': 'CARL-B.CO',
   'VWS': 'VWS.CO', 'DSV': 'DSV.CO', 'ORSTED': 'ORSTED.CO',
   'COLO-B': 'COLO-B.CO', 'DEMANT': 'DEMANT.CO', 'PNDORA': 'PNDORA.CO', 'GN': 'GN.CO',
   'JYSK': 'JYSK.CO', 'FLS': 'FLS.CO', 'TRYG': 'TRYG.CO',
-  
-  // Finland (OMX Helsinki)
+  // Finland
   'SITOW': 'SITOWS.HE', 'NOKIA': 'NOKIA.HE', 'FORTUM': 'FORTUM.HE',
   'NESTE': 'NESTE.HE', 'UPM': 'UPM.HE', 'SAMPO': 'SAMPO.HE',
   'KNEBV': 'KNEBV.HE', 'WRT1V': 'WRT1V.HE', 'STERV': 'STERV.HE',
@@ -88,21 +69,17 @@ const NORDIC_STOCKS: Record<string, string> = {
   'TYRES': 'TYRES.HE', 'METSB': 'METSB.HE',
 };
 
-// US stocks 
 const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ', 'AMD', 'SPOT'];
-
-// Metal symbols
 const METALS = ['XAU', 'XAG', 'XPT', 'XPD'];
 
-// Swedish funds (NAV-based, updated daily)
 const SWEDISH_FUNDS: Record<string, number> = {
   'SWE-ASIA': 145.20, 'SWE-USA': 234.50, 'SWE-GLOB': 189.30,
-  'SWE-TECH': 78.40, 'SWE-SMAL': 112.60, 'HB-ENRG': 95.80,
-  'SPLT-INV': 298.40,
+  'SWE-TECH': 78.40, 'SWE-SMAL': 112.60, 'HB-ENRG': 95.80, 'SPLT-INV': 298.40,
 };
 
-// Helper: Fetch quote from Yahoo Finance using quote endpoint (has marketCap)
-async function fetchYahooQuote(yahooSymbol: string): Promise<{
+// ===== FMP HELPERS (PRIMARY SOURCE) =====
+
+interface QuoteResult {
   price: number;
   change: number;
   changePercent: number;
@@ -111,27 +88,65 @@ async function fetchYahooQuote(yahooSymbol: string): Promise<{
   open: number;
   volume: number;
   marketCap?: number;
-} | null> {
+}
+
+async function fetchFmpBatchQuotes(tickers: string[], apiKey: string): Promise<Record<string, QuoteResult>> {
+  const results: Record<string, QuoteResult> = {};
   try {
-    // Use quoteSummary endpoint which includes marketCap
+    const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${tickers.join(',')}?apikey=${apiKey}`);
+    if (!res.ok) { console.log(`FMP batch HTTP ${res.status}`); return results; }
+    const quotes = await res.json();
+    if (!Array.isArray(quotes)) return results;
+    for (const q of quotes) {
+      if (q.price && q.price > 0) {
+        results[q.symbol] = {
+          price: q.price,
+          change: q.change || 0,
+          changePercent: q.changesPercentage || 0,
+          high: q.dayHigh || q.price,
+          low: q.dayLow || q.price,
+          open: q.open || q.previousClose || q.price,
+          volume: q.volume || 0,
+          marketCap: q.marketCap || undefined,
+        };
+      }
+    }
+  } catch (e) { console.error('FMP batch error:', e); }
+  return results;
+}
+
+async function fetchFmpSingleQuote(fmpTicker: string, apiKey: string): Promise<QuoteResult | null> {
+  try {
+    const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${fmpTicker}?apikey=${apiKey}`);
+    if (!res.ok) return null;
+    const quotes = await res.json();
+    const q = Array.isArray(quotes) ? quotes[0] : null;
+    if (!q?.price || q.price <= 0) return null;
+    return {
+      price: q.price,
+      change: q.change || 0,
+      changePercent: q.changesPercentage || 0,
+      high: q.dayHigh || q.price,
+      low: q.dayLow || q.price,
+      open: q.open || q.previousClose || q.price,
+      volume: q.volume || 0,
+      marketCap: q.marketCap || undefined,
+    };
+  } catch (e) { console.error(`FMP single error ${fmpTicker}:`, e); return null; }
+}
+
+// ===== YAHOO HELPERS (FALLBACK) =====
+
+async function fetchYahooQuote(yahooSymbol: string): Promise<QuoteResult | null> {
+  try {
     const res = await fetch(
       `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooSymbol}`,
       { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
     );
-
-    if (!res.ok) {
-      console.log(`Yahoo HTTP error for ${yahooSymbol}: ${res.status}`);
-      // Fall back to chart endpoint
-      return fetchYahooChartQuote(yahooSymbol);
-    }
-
+    if (!res.ok) return fetchYahooChartQuote(yahooSymbol);
     const data = await res.json();
     const quote = data.quoteResponse?.result?.[0];
-    
-    if (!quote) {
-      console.log(`Yahoo no quote for ${yahooSymbol}, trying chart`);
-      return fetchYahooChartQuote(yahooSymbol);
-    }
+    if (!quote) return fetchYahooChartQuote(yahooSymbol);
 
     const price = quote.regularMarketPrice || 0;
     const previousClose = quote.regularMarketPreviousClose || price;
@@ -139,79 +154,48 @@ async function fetchYahooQuote(yahooSymbol: string): Promise<{
     const changePercent = quote.regularMarketChangePercent || (previousClose > 0 ? (change / previousClose) * 100 : 0);
 
     return {
-      price,
-      change,
-      changePercent,
+      price, change, changePercent,
       high: quote.regularMarketDayHigh || price,
       low: quote.regularMarketDayLow || price,
       open: quote.regularMarketOpen || previousClose,
       volume: quote.regularMarketVolume || 0,
-      marketCap: quote.marketCap, // This is properly returned from /quote endpoint
+      marketCap: quote.marketCap,
     };
   } catch (e) {
-    console.error(`Yahoo quote error for ${yahooSymbol}:`, e);
+    console.error(`Yahoo quote error ${yahooSymbol}:`, e);
     return fetchYahooChartQuote(yahooSymbol);
   }
 }
 
-// Fallback: Fetch quote from Yahoo Finance chart endpoint
-async function fetchYahooChartQuote(yahooSymbol: string): Promise<{
-  price: number;
-  change: number;
-  changePercent: number;
-  high: number;
-  low: number;
-  open: number;
-  volume: number;
-  marketCap?: number;
-} | null> {
+async function fetchYahooChartQuote(yahooSymbol: string): Promise<QuoteResult | null> {
   try {
     const res = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`,
       { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
     );
-
-    if (!res.ok) {
-      console.log(`Yahoo chart HTTP error for ${yahooSymbol}: ${res.status}`);
-      return null;
-    }
-
+    if (!res.ok) return null;
     const data = await res.json();
     const result = data.chart?.result?.[0];
-    
-    if (!result) {
-      console.log(`Yahoo chart no result for ${yahooSymbol}`);
-      return null;
-    }
+    if (!result) return null;
 
     const meta = result.meta;
-    const quote = result.indicators?.quote?.[0];
-    
-    const price = meta.regularMarketPrice || (quote?.close?.filter((c: number | null) => c != null).pop()) || 0;
+    const q = result.indicators?.quote?.[0];
+    const price = meta.regularMarketPrice || (q?.close?.filter((c: number | null) => c != null).pop()) || 0;
     const previousClose = meta.chartPreviousClose || meta.previousClose || price;
     const change = price - previousClose;
     const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-    
-    const high = quote?.high?.filter((h: number | null) => h != null).pop() || price;
-    const low = quote?.low?.filter((l: number | null) => l != null).pop() || price;
-    const open = quote?.open?.filter((o: number | null) => o != null).pop() || previousClose;
-    const volume = quote?.volume?.filter((v: number | null) => v != null).pop() || 0;
 
     return {
-      price,
-      change,
-      changePercent,
-      high,
-      low,
-      open,
-      volume,
-      marketCap: undefined, // Chart endpoint doesn't have marketCap
+      price, change, changePercent,
+      high: q?.high?.filter((h: number | null) => h != null).pop() || price,
+      low: q?.low?.filter((l: number | null) => l != null).pop() || price,
+      open: q?.open?.filter((o: number | null) => o != null).pop() || previousClose,
+      volume: q?.volume?.filter((v: number | null) => v != null).pop() || 0,
     };
-  } catch (e) {
-    console.error(`Yahoo chart error for ${yahooSymbol}:`, e);
-    return null;
-  }
+  } catch (e) { console.error(`Yahoo chart error ${yahooSymbol}:`, e); return null; }
 }
+
+// ===== MAIN =====
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -223,14 +207,13 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    // === AUTHENTICATION CHECK ===
+    // === AUTH ===
     const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
 
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -238,36 +221,28 @@ Deno.serve(async (req) => {
       const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
       });
-
       const token = authHeader.replace('Bearer ', '');
       const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getUser(token);
-      
       if (claimsError || !claimsData?.user) {
         return new Response(JSON.stringify({ error: 'Invalid token' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
     }
 
-    // Service role client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
+    const FMP_API_KEY = Deno.env.get('FMP_API_KEY');
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
+    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
 
     const { data: symbols, error: symError } = await supabase
-      .from('symbols')
-      .select('id, ticker, asset_type')
-      .eq('is_active', true);
+      .from('symbols').select('id, ticker, asset_type').eq('is_active', true);
 
     if (symError) {
-      console.error('Symbol fetch error:', symError);
       return new Response(JSON.stringify({ error: symError.message }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-
     if (!symbols?.length) {
       return new Response(JSON.stringify({ updated: 0, reason: 'no symbols' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -277,8 +252,9 @@ Deno.serve(async (req) => {
     console.log(`Found ${symbols.length} symbols`);
     const priceRecords: any[] = [];
     const errors: string[] = [];
+    const idToTicker = new Map(symbols.map(s => [s.id, s.ticker]));
 
-    // 1. Fetch crypto from CoinGecko (free, no API key)
+    // ========== 1. CRYPTO via CoinGecko (unchanged) ==========
     const cryptoTickers = symbols.filter(s => CRYPTO_IDS[s.ticker]);
     if (cryptoTickers.length) {
       const ids = cryptoTickers.map(s => CRYPTO_IDS[s.ticker]).join(',');
@@ -293,290 +269,249 @@ Deno.serve(async (req) => {
             const d = data[CRYPTO_IDS[s.ticker]];
             if (d) {
               priceRecords.push({
-                symbol_id: s.id,
-                price: d.usd,
+                symbol_id: s.id, price: d.usd,
                 change_percent_24h: d.usd_24h_change || 0,
                 change_24h: d.usd * ((d.usd_24h_change || 0) / 100),
-                volume: d.usd_24h_vol || 0,
-                market_cap: d.usd_market_cap,
+                volume: d.usd_24h_vol || 0, market_cap: d.usd_market_cap,
                 source: 'coingecko',
               });
             }
           }
-        } else {
-          errors.push(`CoinGecko: ${res.status}`);
-        }
-      } catch (e) { 
-        console.error('CoinGecko error:', e);
-        errors.push(`CoinGecko: ${e}`);
-      }
+        } else { errors.push(`CoinGecko: ${res.status}`); }
+      } catch (e) { errors.push(`CoinGecko: ${e}`); }
     }
 
-    // 2. Fetch Nordic stocks from Yahoo Finance (better coverage than Finnhub)
-    const nordicStockSymbols = symbols.filter(s => NORDIC_STOCKS[s.ticker]);
-    console.log(`Fetching ${nordicStockSymbols.length} Nordic stocks from Yahoo Finance`);
-    
-    for (const s of nordicStockSymbols) {
-      try {
-        const yahooSymbol = NORDIC_STOCKS[s.ticker];
-        const quote = await fetchYahooQuote(yahooSymbol);
-        
-        if (quote && quote.price > 0) {
-          priceRecords.push({
-            symbol_id: s.id,
-            price: quote.price,
-            change_24h: quote.change,
-            change_percent_24h: quote.changePercent,
-            high_price: quote.high,
-            low_price: quote.low,
-            open_price: quote.open,
-            volume: quote.volume,
-            market_cap: quote.marketCap,
-            source: 'yahoo',
-          });
-          console.log(`✓ ${s.ticker}: ${quote.price} SEK (${quote.changePercent.toFixed(2)}%)`);
-        } else {
-          console.log(`✗ ${s.ticker}: No quote from Yahoo`);
-        }
-        
-        // Rate limiting - Yahoo allows ~2000 requests/hour, be conservative
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (e) {
-        console.error(`Yahoo error for ${s.ticker}:`, e);
-        errors.push(`Yahoo ${s.ticker}: ${e}`);
-      }
-    }
-
-    // 3. Fetch US stocks from Yahoo Finance
+    // ========== 2. US STOCKS: FMP primary -> Yahoo fallback ==========
     const usStockSymbols = symbols.filter(s => US_STOCKS.includes(s.ticker));
-    console.log(`Fetching ${usStockSymbols.length} US stocks from Yahoo Finance`);
-    
-    for (const s of usStockSymbols) {
-      try {
-        const quote = await fetchYahooQuote(s.ticker);
-        
-        if (quote && quote.price > 0) {
+    console.log(`Fetching ${usStockSymbols.length} US stocks — FMP primary`);
+
+    const fmpFailed: typeof usStockSymbols = [];
+
+    if (FMP_API_KEY && usStockSymbols.length > 0) {
+      const usTickers = usStockSymbols.map(s => s.ticker);
+      const fmpQuotes = await fetchFmpBatchQuotes(usTickers, FMP_API_KEY);
+
+      for (const s of usStockSymbols) {
+        const q = fmpQuotes[s.ticker];
+        if (q && q.price > 0) {
           priceRecords.push({
-            symbol_id: s.id,
-            price: quote.price,
-            change_24h: quote.change,
-            change_percent_24h: quote.changePercent,
-            high_price: quote.high,
-            low_price: quote.low,
-            open_price: quote.open,
-            volume: quote.volume,
-            market_cap: quote.marketCap,
-            source: 'yahoo',
+            symbol_id: s.id, price: q.price,
+            change_24h: q.change, change_percent_24h: q.changePercent,
+            high_price: q.high, low_price: q.low, open_price: q.open,
+            volume: q.volume, market_cap: q.marketCap,
+            source: 'fmp',
           });
-          console.log(`✓ ${s.ticker}: $${quote.price} (${quote.changePercent.toFixed(2)}%)`);
+          console.log(`✓ FMP ${s.ticker}: $${q.price} (${q.changePercent.toFixed(2)}%)`);
         } else {
-          console.log(`✗ ${s.ticker}: No quote from Yahoo`);
+          fmpFailed.push(s);
         }
-        
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (e) {
-        console.error(`Yahoo error for ${s.ticker}:`, e);
-        errors.push(`Yahoo ${s.ticker}: ${e}`);
+      }
+    } else {
+      fmpFailed.push(...usStockSymbols);
+      if (!FMP_API_KEY) console.log('FMP_API_KEY not set, falling back to Yahoo for US stocks');
+    }
+
+    // Yahoo fallback for failed US stocks
+    if (fmpFailed.length > 0) {
+      console.log(`Yahoo fallback for ${fmpFailed.length} US stocks: ${fmpFailed.map(s => s.ticker).join(',')}`);
+      for (const s of fmpFailed) {
+        try {
+          const q = await fetchYahooQuote(s.ticker);
+          if (q && q.price > 0) {
+            priceRecords.push({
+              symbol_id: s.id, price: q.price,
+              change_24h: q.change, change_percent_24h: q.changePercent,
+              high_price: q.high, low_price: q.low, open_price: q.open,
+              volume: q.volume, market_cap: q.marketCap,
+              source: 'yahoo_fallback',
+            });
+            console.log(`✓ Yahoo fallback ${s.ticker}: $${q.price}`);
+          } else {
+            errors.push(`${s.ticker}: no data from FMP or Yahoo`);
+          }
+          await new Promise(r => setTimeout(r, 200));
+        } catch (e) { errors.push(`Yahoo fallback ${s.ticker}: ${e}`); }
       }
     }
 
-    // 4. Fetch metals from Alpha Vantage
+    // ========== 3. NORDIC STOCKS: FMP primary -> Yahoo fallback ==========
+    const nordicStockSymbols = symbols.filter(s => NORDIC_STOCKS[s.ticker]);
+    console.log(`Fetching ${nordicStockSymbols.length} Nordic stocks — FMP primary`);
+
+    const nordicFmpFailed: typeof nordicStockSymbols = [];
+
+    if (FMP_API_KEY) {
+      for (const s of nordicStockSymbols) {
+        const fmpTicker = NORDIC_STOCKS[s.ticker]; // e.g. VOLV-B.ST
+        try {
+          const q = await fetchFmpSingleQuote(fmpTicker, FMP_API_KEY);
+          if (q && q.price > 0) {
+            priceRecords.push({
+              symbol_id: s.id, price: q.price,
+              change_24h: q.change, change_percent_24h: q.changePercent,
+              high_price: q.high, low_price: q.low, open_price: q.open,
+              volume: q.volume, market_cap: q.marketCap,
+              source: 'fmp',
+            });
+            console.log(`✓ FMP ${s.ticker}: ${q.price} (${q.changePercent.toFixed(2)}%)`);
+          } else {
+            nordicFmpFailed.push(s);
+          }
+          await new Promise(r => setTimeout(r, 150)); // FMP rate limit
+        } catch (e) {
+          nordicFmpFailed.push(s);
+          console.error(`FMP Nordic error ${s.ticker}:`, e);
+        }
+      }
+    } else {
+      nordicFmpFailed.push(...nordicStockSymbols);
+    }
+
+    // Yahoo fallback for failed Nordic stocks
+    if (nordicFmpFailed.length > 0) {
+      console.log(`Yahoo fallback for ${nordicFmpFailed.length} Nordic stocks`);
+      for (const s of nordicFmpFailed) {
+        try {
+          const yahooSymbol = NORDIC_STOCKS[s.ticker];
+          const q = await fetchYahooQuote(yahooSymbol);
+          if (q && q.price > 0) {
+            priceRecords.push({
+              symbol_id: s.id, price: q.price,
+              change_24h: q.change, change_percent_24h: q.changePercent,
+              high_price: q.high, low_price: q.low, open_price: q.open,
+              volume: q.volume, market_cap: q.marketCap,
+              source: 'yahoo_fallback',
+            });
+            console.log(`✓ Yahoo fallback ${s.ticker}: ${q.price}`);
+          } else {
+            errors.push(`${s.ticker}: no data from FMP or Yahoo`);
+          }
+          await new Promise(r => setTimeout(r, 200));
+        } catch (e) { errors.push(`Yahoo fallback ${s.ticker}: ${e}`); }
+      }
+    }
+
+    // ========== 4. METALS via Alpha Vantage (unchanged) ==========
     if (ALPHA_VANTAGE_API_KEY) {
       const metalSymbols = symbols.filter(s => METALS.includes(s.ticker));
       console.log(`Fetching ${metalSymbols.length} metals from Alpha Vantage`);
-      
       for (const s of metalSymbols) {
         try {
           const res = await fetch(
             `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${s.ticker}&to_currency=USD&apikey=${ALPHA_VANTAGE_API_KEY}`
           );
-          
           if (res.ok) {
             const data = await res.json();
             const rate = data['Realtime Currency Exchange Rate'];
             if (rate?.['5. Exchange Rate']) {
               const price = parseFloat(rate['5. Exchange Rate']);
               priceRecords.push({
-                symbol_id: s.id,
-                price,
-                change_24h: 0,
-                change_percent_24h: 0,
-                volume: 0,
-                source: 'alphavantage',
+                symbol_id: s.id, price, change_24h: 0, change_percent_24h: 0,
+                volume: 0, source: 'alphavantage',
               });
               console.log(`✓ ${s.ticker}: $${price}`);
             }
           }
-          // Alpha Vantage free tier: 5 calls/min
-          await new Promise(resolve => setTimeout(resolve, 12000));
-        } catch (e) {
-          console.error(`Alpha Vantage error for ${s.ticker}:`, e);
-          errors.push(`AlphaVantage ${s.ticker}: ${e}`);
-        }
+          await new Promise(r => setTimeout(r, 12000));
+        } catch (e) { errors.push(`AlphaVantage ${s.ticker}: ${e}`); }
       }
-    } else {
-      console.log('ALPHA_VANTAGE_API_KEY not configured, skipping metals');
     }
 
-    // 5. Swedish funds - use NAV fallback (no real-time API available for these)
+    // ========== 5. SWEDISH FUNDS (unchanged) ==========
     const fundSymbols = symbols.filter(s => SWEDISH_FUNDS[s.ticker]);
-    console.log(`Adding ${fundSymbols.length} Swedish funds with NAV estimates`);
-    
     for (const s of fundSymbols) {
       const baseNAV = SWEDISH_FUNDS[s.ticker];
-      // Small daily variation based on date (deterministic, not random)
       const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
-      const variation = Math.sin(dayOfYear * 0.1) * 0.02; // ±2% based on day
+      const variation = Math.sin(dayOfYear * 0.1) * 0.02;
       const nav = baseNAV * (1 + variation);
-      
       priceRecords.push({
-        symbol_id: s.id,
-        price: parseFloat(nav.toFixed(2)),
+        symbol_id: s.id, price: parseFloat(nav.toFixed(2)),
         change_24h: parseFloat((baseNAV * variation).toFixed(2)),
         change_percent_24h: parseFloat((variation * 100).toFixed(2)),
-        volume: 0,
-        source: 'nav_estimate',
+        volume: 0, source: 'nav_estimate',
       });
     }
 
-    // 6. Fetch market cap from FMP for stocks missing it
-    const FMP_API_KEY = Deno.env.get('FMP_API_KEY');
-    const idToTicker = new Map(symbols.map(s => [s.id, s.ticker]));
-    if (FMP_API_KEY) {
-      const stocksNeedingMcap = priceRecords.filter(p =>
-        (p.source === 'yahoo') && (!p.market_cap || p.market_cap === 0)
-      );
-      if (stocksNeedingMcap.length > 0) {
-        console.log(`Fetching market cap from FMP for ${stocksNeedingMcap.length} stocks`);
-        // US stocks: clean tickers for FMP batch
-        const usTickers = stocksNeedingMcap
-          .map(p => idToTicker.get(p.symbol_id) || '')
-          .filter(t => US_STOCKS.includes(t));
-        if (usTickers.length > 0) {
-          try {
-            const res = await fetch(`https://financialmodelingprep.com/api/v3/profile/${usTickers.join(',')}?apikey=${FMP_API_KEY}`);
-            if (res.ok) {
-              const profiles = await res.json();
-              if (Array.isArray(profiles)) {
-                for (const p of profiles) {
-                  if (p.mktCap > 0) {
-                    const rec = priceRecords.find(r => idToTicker.get(r.symbol_id) === p.symbol);
-                    if (rec) { rec.market_cap = p.mktCap; console.log(`✓ FMP mcap ${p.symbol}: $${(p.mktCap/1e9).toFixed(1)}B`); }
-                  }
-                }
-              }
-            }
-          } catch (e) { console.error('FMP US batch error:', e); }
-        }
-        // Nordic stocks: try Yahoo-style tickers on FMP (e.g. VOLV-B.ST)
-        const nordicNeedMcap = stocksNeedingMcap
-          .map(p => ({ id: p.symbol_id, ticker: idToTicker.get(p.symbol_id) || '' }))
-          .filter(s => NORDIC_STOCKS[s.ticker]);
-        for (const s of nordicNeedMcap.slice(0, 30)) {
-          try {
-            const fmpTicker = NORDIC_STOCKS[s.ticker];
-            const res = await fetch(`https://financialmodelingprep.com/api/v3/profile/${fmpTicker}?apikey=${FMP_API_KEY}`);
-            if (res.ok) {
-              const profiles = await res.json();
-              if (Array.isArray(profiles) && profiles[0]?.mktCap > 0) {
-                const rec = priceRecords.find(r => r.symbol_id === s.id);
-                if (rec) { rec.market_cap = profiles[0].mktCap; console.log(`✓ FMP mcap ${s.ticker}: $${(profiles[0].mktCap/1e9).toFixed(1)}B`); }
-              }
-            }
-            await new Promise(r => setTimeout(r, 150));
-          } catch {}
-        }
-      }
-    }
+    // ========== 6. CROSS-VALIDATION: Yahoo validates FMP prices ==========
+    const DEVIATION_THRESHOLD = 0.03;
+    const REPLACE_THRESHOLD = 0.15;
+    const crossValidationResults: { ticker: string; fmp: number; yahoo: number; source: string; deviation: number; action: string }[] = [];
 
-    // === CROSS-VALIDATION: verify Yahoo prices against FMP & Finnhub ===
-    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
-    const crossValidationResults: { ticker: string; yahoo: number; secondary: number; source: string; deviation: number; action: string }[] = [];
-    const DEVIATION_THRESHOLD = 0.03; // 3% triggers a warning
-    const REPLACE_THRESHOLD = 0.15;   // 15% deviation = replace with secondary
+    // Cross-validate FMP-sourced US stocks with Yahoo
+    const usFmpRecords = priceRecords.filter(p => {
+      const t = idToTicker.get(p.symbol_id);
+      return t && US_STOCKS.includes(t) && p.source === 'fmp';
+    });
 
-    // idToTicker already declared above
-
-    // Cross-validate US stocks via FMP batch quote
-    if (FMP_API_KEY) {
-      const usRecords = priceRecords.filter(p => {
-        const t = idToTicker.get(p.symbol_id);
-        return t && US_STOCKS.includes(t) && p.source === 'yahoo';
-      });
-      if (usRecords.length > 0) {
-        const tickers = usRecords.map(r => idToTicker.get(r.symbol_id)).filter(Boolean);
-        try {
-          const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
-          if (res.ok) {
-            const quotes = await res.json();
-            if (Array.isArray(quotes)) {
-              for (const q of quotes) {
-                if (!q.price || q.price <= 0) continue;
-                const rec = usRecords.find(r => idToTicker.get(r.symbol_id) === q.symbol);
-                if (!rec) continue;
-                const deviation = Math.abs(rec.price - q.price) / q.price;
-                const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : deviation > DEVIATION_THRESHOLD ? 'WARNING' : 'OK';
-                if (deviation > DEVIATION_THRESHOLD) {
-                  crossValidationResults.push({
-                    ticker: q.symbol, yahoo: rec.price, secondary: q.price,
-                    source: 'fmp', deviation: parseFloat((deviation * 100).toFixed(2)), action,
-                  });
-                }
-                if (deviation > REPLACE_THRESHOLD) {
-                  console.log(`⚠ PRICE REPLACED ${q.symbol}: Yahoo=$${rec.price} -> FMP=$${q.price} (${(deviation*100).toFixed(1)}% off)`);
-                  rec.price = q.price;
-                  rec.change_24h = q.change || rec.change_24h;
-                  rec.change_percent_24h = q.changesPercentage || rec.change_percent_24h;
-                  rec.source = 'fmp_validated';
-                }
-              }
-            }
-          }
-        } catch (e) { console.error('FMP cross-validation error:', e); }
-      }
-
-      // Cross-validate Nordic stocks via FMP (sample up to 15 to stay within rate limits)
-      const nordicRecords = priceRecords.filter(p => {
-        const t = idToTicker.get(p.symbol_id);
-        return t && NORDIC_STOCKS[t] && p.source === 'yahoo';
-      }).slice(0, 15);
-      
-      for (const rec of nordicRecords) {
+    if (usFmpRecords.length > 0) {
+      console.log(`Cross-validating ${usFmpRecords.length} US FMP prices with Yahoo`);
+      for (const rec of usFmpRecords) {
         const ticker = idToTicker.get(rec.symbol_id)!;
-        const fmpTicker = NORDIC_STOCKS[ticker];
         try {
-          const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${fmpTicker}?apikey=${FMP_API_KEY}`);
-          if (res.ok) {
-            const quotes = await res.json();
-            const q = Array.isArray(quotes) ? quotes[0] : null;
-            if (q?.price && q.price > 0) {
-              const deviation = Math.abs(rec.price - q.price) / q.price;
-              const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : deviation > DEVIATION_THRESHOLD ? 'WARNING' : 'OK';
-              if (deviation > DEVIATION_THRESHOLD) {
-                crossValidationResults.push({
-                  ticker, yahoo: rec.price, secondary: q.price,
-                  source: 'fmp', deviation: parseFloat((deviation * 100).toFixed(2)), action,
-                });
-              }
-              if (deviation > REPLACE_THRESHOLD) {
-                console.log(`⚠ PRICE REPLACED ${ticker}: Yahoo=${rec.price} -> FMP=${q.price} (${(deviation*100).toFixed(1)}% off)`);
-                rec.price = q.price;
-                rec.source = 'fmp_validated';
-              }
+          const yq = await fetchYahooQuote(ticker);
+          if (yq && yq.price > 0) {
+            const deviation = Math.abs(rec.price - yq.price) / yq.price;
+            const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : deviation > DEVIATION_THRESHOLD ? 'WARNING' : 'OK';
+            if (deviation > DEVIATION_THRESHOLD) {
+              crossValidationResults.push({
+                ticker, fmp: rec.price, yahoo: yq.price,
+                source: 'yahoo', deviation: parseFloat((deviation * 100).toFixed(2)), action,
+              });
+            }
+            if (deviation > REPLACE_THRESHOLD) {
+              console.log(`⚠ PRICE REPLACED ${ticker}: FMP=$${rec.price} -> Yahoo=$${yq.price} (${(deviation*100).toFixed(1)}% off)`);
+              rec.price = yq.price;
+              rec.change_24h = yq.change;
+              rec.change_percent_24h = yq.changePercent;
+              rec.market_cap = yq.marketCap || rec.market_cap;
+              rec.source = 'yahoo_validated';
             }
           }
-          await new Promise(r => setTimeout(r, 150));
+          await new Promise(r => setTimeout(r, 200));
         } catch {}
       }
     }
 
-    // Cross-validate US stocks via Finnhub as third source
+    // Cross-validate FMP-sourced Nordic stocks with Yahoo (sample 15)
+    const nordicFmpRecords = priceRecords.filter(p => {
+      const t = idToTicker.get(p.symbol_id);
+      return t && NORDIC_STOCKS[t] && p.source === 'fmp';
+    }).slice(0, 15);
+
+    if (nordicFmpRecords.length > 0) {
+      console.log(`Cross-validating ${nordicFmpRecords.length} Nordic FMP prices with Yahoo`);
+      for (const rec of nordicFmpRecords) {
+        const ticker = idToTicker.get(rec.symbol_id)!;
+        const yahooSymbol = NORDIC_STOCKS[ticker];
+        try {
+          const yq = await fetchYahooQuote(yahooSymbol);
+          if (yq && yq.price > 0) {
+            const deviation = Math.abs(rec.price - yq.price) / yq.price;
+            const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : deviation > DEVIATION_THRESHOLD ? 'WARNING' : 'OK';
+            if (deviation > DEVIATION_THRESHOLD) {
+              crossValidationResults.push({
+                ticker, fmp: rec.price, yahoo: yq.price,
+                source: 'yahoo', deviation: parseFloat((deviation * 100).toFixed(2)), action,
+              });
+            }
+            if (deviation > REPLACE_THRESHOLD) {
+              console.log(`⚠ PRICE REPLACED ${ticker}: FMP=${rec.price} -> Yahoo=${yq.price} (${(deviation*100).toFixed(1)}% off)`);
+              rec.price = yq.price;
+              rec.source = 'yahoo_validated';
+            }
+          }
+          await new Promise(r => setTimeout(r, 200));
+        } catch {}
+      }
+    }
+
+    // Finnhub third-source validation for US stocks (unchanged)
     if (FINNHUB_API_KEY) {
-      const usYahooRecords = priceRecords.filter(p => {
+      const usRecords = priceRecords.filter(p => {
         const t = idToTicker.get(p.symbol_id);
-        return t && US_STOCKS.includes(t) && (p.source === 'yahoo' || p.source === 'fmp_validated');
+        return t && US_STOCKS.includes(t) && (p.source === 'fmp' || p.source === 'yahoo_validated' || p.source === 'yahoo_fallback');
       });
-      for (const rec of usYahooRecords) {
+      for (const rec of usRecords) {
         const ticker = idToTicker.get(rec.symbol_id)!;
         try {
           const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_API_KEY}`);
@@ -585,13 +520,12 @@ Deno.serve(async (req) => {
             if (q?.c && q.c > 0) {
               const deviation = Math.abs(rec.price - q.c) / q.c;
               if (deviation > DEVIATION_THRESHOLD) {
-                const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : 'WARNING';
                 crossValidationResults.push({
-                  ticker, yahoo: rec.price, secondary: q.c,
-                  source: 'finnhub', deviation: parseFloat((deviation * 100).toFixed(2)), action,
+                  ticker, fmp: rec.price, yahoo: q.c,
+                  source: 'finnhub', deviation: parseFloat((deviation * 100).toFixed(2)),
+                  action: deviation > REPLACE_THRESHOLD ? 'REPLACED' : 'WARNING',
                 });
-                if (deviation > REPLACE_THRESHOLD && rec.source !== 'fmp_validated') {
-                  console.log(`⚠ PRICE REPLACED ${ticker}: ${rec.source}=$${rec.price} -> Finnhub=$${q.c} (${(deviation*100).toFixed(1)}% off)`);
+                if (deviation > REPLACE_THRESHOLD && rec.source !== 'yahoo_validated') {
                   rec.price = q.c;
                   rec.source = 'finnhub_validated';
                 }
@@ -606,12 +540,13 @@ Deno.serve(async (req) => {
     if (crossValidationResults.length > 0) {
       console.log(`Cross-validation: ${crossValidationResults.length} deviations detected`);
       for (const r of crossValidationResults) {
-        console.log(`  ${r.action} ${r.ticker}: Yahoo=${r.yahoo} vs ${r.source}=${r.secondary} (${r.deviation}% off)`);
+        console.log(`  ${r.action} ${r.ticker}: FMP=${r.fmp} vs ${r.source}=${r.yahoo} (${r.deviation}% off)`);
       }
     } else {
       console.log('Cross-validation: all prices within 3% tolerance ✓');
     }
 
+    // Log missing
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
     const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id) && !SWEDISH_FUNDS[s.ticker]);
     if (missingSymbols.length > 0) {
@@ -624,19 +559,17 @@ Deno.serve(async (req) => {
       if (insertError) {
         console.error('Insert error:', insertError);
         return new Response(JSON.stringify({ error: insertError.message }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
     }
 
     console.log(`Updated ${priceRecords.length} prices`);
-    
-    return new Response(JSON.stringify({ 
+
+    return new Response(JSON.stringify({
       updated: priceRecords.length,
       sources: priceRecords.reduce((acc: Record<string, number>, p) => {
-        acc[p.source] = (acc[p.source] || 0) + 1;
-        return acc;
+        acc[p.source] = (acc[p.source] || 0) + 1; return acc;
       }, {}),
       cross_validation: crossValidationResults.length > 0 ? crossValidationResults : undefined,
       missing: missingSymbols.map(s => s.ticker),
@@ -647,8 +580,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Error:', error);
     return new Response(JSON.stringify({ error: String(error) }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
