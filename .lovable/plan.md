@@ -1,117 +1,49 @@
 
-# Fix: Riktig data för match-analys
+
+# Fix: Betting backtest-data saknas
 
 ## Rotorsak
 
-`fetch-matches` sparar bara grundläggande matchinfo och försöker scrapa en hårdkodad `goal.com`-URL som alltid returnerar 404. Ingen H2H, ingen lagform, inga tabellpositioner skickas vidare till AI:n — som då tvingas gissa och väljer "oavgjort 33%".
+Två buggar blockerar all backtest-data:
 
-Tre konkreta luckor att täppa:
+1. **`fetch-matches` tittar bara framåt** (idag + 7 dagar). Matcher som redan spelats hamnar utanför fönstret och får aldrig sina resultat uppdaterade. Vissa matcher visar fortfarande `status: 'upcoming'` trots att de avgjorts.
 
-1. **Football-Data.org utnyttjas knappt** — API:t erbjuder H2H, standings, och team-stats men inget av det hämtas
-2. **Firecrawl scrape = fel strategi** — hårdkodade `goal.com`-preview-URLer fungerar aldrig; rätt strategi är Firecrawl Search med lagnamnets termer
-3. **`analyze-match` gör ingen extra datahämtning** — den litar helt på vad `source_data` råkar innehålla sedan `fetch-matches` kördes
+2. **Inget scorar `betting_predictions`**. Funktionen `score-predictions` hanterar bara aktie/krypto-prediktioner (`asset_predictions` + `watchlist_cases`) men rör aldrig `betting_predictions`. Kolumnen `outcome` sätts aldrig, och BacktestPanel filtrerar på `outcome IS NOT NULL` — alltså noll resultat.
 
 ---
 
-## Ändringar: `supabase/functions/fetch-matches/index.ts`
+## Lösning
 
-**Ny datahämtning per match från Football-Data.org:**
+### 1. `fetch-matches` — hämta även resultat bakåt
 
-För varje match hämtas även:
-
-```
-GET /v4/matches/{matchId}/head2head?limit=5
-→ Senaste 5 möten lag A vs lag B
-→ Vinster/förluster/oavgjorda räknas
-→ Spara i source_data.h2h
-
-GET /v4/competitions/{compCode}/standings?season=2025
-→ Hemmalagets position, form, mål, poäng
-→ Bortalagets position, form, mål, poäng
-→ Spara i source_data.standings (hemma + borta rad)
-```
-
-Football-Data.org gratis-tier tillåter 10 req/min. Lägg in `sleep(6000ms)` mellan match-iterationer, eller batcha med 10 matcher per körning.
-
-**Ersätt Firecrawl scrape med Firecrawl Search:**
-
-Nuläge (fungerar aldrig):
-```
-URL: https://www.goal.com/en/match/real-sociedad-vs-real-oviedo/preview
-→ 404
-```
-
-Ersätts med:
-```
-Firecrawl Search API:
-POST https://api.firecrawl.dev/v1/search
-{
-  "query": "Real Sociedad vs Real Oviedo La Liga 2026 preview prediction",
-  "limit": 3,
-  "scrapeOptions": { "formats": ["markdown"] }
-}
-→ Returnerar relevanta artiklar från nätet med innehåll
-→ Spara i source_data.scraped_articles[]
-```
-
-Dessutom: **Lägre Firecrawl-budget** (3 sökningar per match, max 10 matcher/dag = 30 req) — Firecrawl Search förbrukar färre credits än scrape.
-
----
-
-## Ändringar: `supabase/functions/analyze-match/index.ts`
-
-**Hämta rik data direkt i analyze-match:**
-
-Eftersom `source_data` kan vara gammal (matcher hämtades för dagar sedan), ska `analyze-match` alltid göra egna live-anrop för att komplettera:
+Utöka datumfönstret till att även titta **3 dagar bakåt** för att fånga resultat för matcher som redan spelats:
 
 ```
-1. Läs match från DB → hämta external_id (football-{id})
-2. Extrahera Football-Data.org match-ID ur external_id
-3. GET /v4/matches/{id}/head2head?limit=10
-   → Spara h2h-statistik i prompten
-4. GET /v4/competitions/{compCode}/standings
-   → Hitta hem/borta-lagets position och form
-5. Kör GNews search för matchen (om GNEWS_API_KEY finns)
-6. Kör Firecrawl Search för matchen (om FIRECRAWL_API_KEY finns)
+dateFrom = idag - 3 dagar
+dateTo   = idag + 7 dagar
 ```
 
-Allt sammansätts i en strukturerad prompt med faktiska siffror:
+Football-Data.org returnerar slutresultat (`score.fullTime`) för avslutade matcher. Nuvarande kod sparar redan `home_score` och `away_score` i upsert-logiken (rad 305-306), men de når aldrig databasen eftersom matcherna aldrig hämtas igen.
+
+### 2. `score-predictions` — ny sektion för betting
+
+Lägg till en tredje sektion i `score-predictions` som:
 
 ```
-H2H (senaste 5 möten):
-- Real Sociedad 2-0 Real Oviedo (2024-11-03)
-- Real Oviedo 1-1 Real Sociedad (2024-04-21)
-→ Real Sociedad 2V, 1O, 2F i H2H
-
-STANDINGS (La Liga 2025):
-Real Sociedad: Plats 8, 34 poäng, Form: WDLWW
-Real Oviedo: Plats 18, 22 poäng, Form: LLLWD
-
-RECENT FORM (senaste 5):
-Real Sociedad: W(2-0), D(1-1), L(0-2), W(3-1), W(1-0)
-Real Oviedo: L(1-3), L(0-2), W(2-1), D(1-1), L(0-1)
+1. Hämta alla betting_matches med status = 'finished' 
+   OCH home_score IS NOT NULL OCH away_score IS NOT NULL
+2. Hitta matchande betting_predictions WHERE outcome IS NULL 
+   OCH match_id i listan ovan
+3. Beräkna outcome:
+   - home_score > away_score → 'home'
+   - home_score < away_score → 'away'
+   - home_score = away_score → 'draw'
+4. UPDATE betting_predictions SET outcome, scored_at = now()
 ```
 
-**Förbättrad prompt till Gemini:**
+### 3. Kör engångs-fix för befintliga matcher
 
-Prompten byggs dynamiskt med all tillgänglig data och instruerar AI:n:
-- Beräkna Poisson-sannolikheter baserat på goals scored/conceded per match
-- Vikta tabellposition + form + H2H
-- Sätt confidence baserat på datakvalitet
-
----
-
-## Confidence-capping justering
-
-Ny logik:
-
-| Datasituation | Cap |
-|---|---|
-| H2H >= 5 + standings + form | 80 |
-| H2H >= 3 + standings | 70 |
-| Standings men ingen H2H | 65 |
-| Bara football-data.org (inga stats) | 55 |
-| Inga källor alls | 45 |
+Eftersom `fetch-matches` redan har uppdaterat vissa matcher till `status: 'finished'` med korrekta scores, behöver vi bara trigga scoring. Matcherna som fortfarande visar `upcoming` trots att de spelats fixas automatiskt vid nästa `fetch-matches`-körning med det utökade fönstret.
 
 ---
 
@@ -119,7 +51,50 @@ Ny logik:
 
 | Fil | Ändring |
 |---|---|
-| `supabase/functions/fetch-matches/index.ts` | Lägg till H2H + standings per match, ersätt Firecrawl scrape med Firecrawl Search |
-| `supabase/functions/analyze-match/index.ts` | Hämta live H2H + standings + GNews + Firecrawl Search i analyze-steget, bygg strukturerad prompt med faktiska siffror |
+| `supabase/functions/fetch-matches/index.ts` | Ändra `dateFrom` till `idag - 3 dagar` istället för bara `idag` |
+| `supabase/functions/score-predictions/index.ts` | Lägg till sektion 3: scora `betting_predictions` baserat på matchresultat |
 
-Secrets som redan finns och används: `FOOTBALL_DATA_API_KEY`, `FIRECRAWL_API_KEY`, `GNEWS_API_KEY`
+---
+
+## Teknisk detalj
+
+I `score-predictions/index.ts`, ny logik efter befintlig watchlist-scoring:
+
+```
+// 3. Score betting_predictions
+const { data: finishedMatches } = await supabase
+  .from('betting_matches')
+  .select('id, home_score, away_score')
+  .eq('status', 'finished')
+  .not('home_score', 'is', null)
+  .not('away_score', 'is', null);
+
+// Hämta oscorade predictions för dessa matcher
+const matchIds = finishedMatches.map(m => m.id);
+const { data: unscoredBets } = await supabase
+  .from('betting_predictions')
+  .select('id, match_id, predicted_winner')
+  .is('outcome', null)
+  .in('match_id', matchIds);
+
+// Beräkna och uppdatera outcome per prediction
+for (const pred of unscoredBets) {
+  const match = finishedMatches.find(m => m.id === pred.match_id);
+  const outcome = match.home_score > match.away_score ? 'home'
+    : match.home_score < match.away_score ? 'away' : 'draw';
+  
+  await supabase.from('betting_predictions')
+    .update({ outcome, scored_at: now })
+    .eq('id', pred.id);
+}
+```
+
+I `fetch-matches/index.ts`:
+
+```
+// Ändra rad 58-59 från:
+const dateFrom = today.toISOString().split("T")[0];
+// Till:
+const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000);
+const dateFrom = threeDaysAgo.toISOString().split("T")[0];
+```
