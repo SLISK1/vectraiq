@@ -453,7 +453,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         confidence_raw: confidenceRaw,
         confidence_capped: confidenceCapped,
         cap_reason: capReason,
-        key_factors: aiResult.key_factors || [],
+        key_factors: {
+          factors: aiResult.key_factors || [],
+          side_predictions: aiResult.side_predictions || null,
+        },
         ai_reasoning: aiResult.ai_reasoning || "",
         sources_used: sources,
         sources_hash: sourcesHash,

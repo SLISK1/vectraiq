@@ -157,6 +157,37 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
               </div>
             )}
 
+            {/* Side prediction badges */}
+            {(() => {
+              const kf = prediction.key_factors as any;
+              const sp = kf?.side_predictions || (kf && !Array.isArray(kf) ? kf : null)?.side_predictions;
+              if (!sp) return null;
+              return (
+                <div className="flex flex-wrap gap-1.5">
+                  {sp.total_goals && (
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
+                      ⚽ {sp.total_goals.prediction === 'over' ? 'Ö' : 'U'}{sp.total_goals.line} {Math.round(sp.total_goals.prob * 100)}%
+                    </span>
+                  )}
+                  {sp.btts && (
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
+                      🎯 BTTS {sp.btts.prediction === 'yes' ? 'Ja' : 'Nej'} {Math.round(sp.btts.prob * 100)}%
+                    </span>
+                  )}
+                  {sp.corners && (
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
+                      🚩 Hörnor {sp.corners.prediction === 'over' ? 'Ö' : 'U'}{sp.corners.line} {Math.round(sp.corners.prob * 100)}%
+                    </span>
+                  )}
+                  {sp.cards && (
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
+                      🟨 Kort {sp.cards.prediction === 'over' ? 'Ö' : 'U'}{sp.cards.line} {Math.round(sp.cards.prob * 100)}%
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+
             <button
               onClick={() => setShowDetail(true)}
               className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
