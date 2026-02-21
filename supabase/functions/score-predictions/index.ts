@@ -221,8 +221,8 @@ Deno.serve(async (req) => {
         const match = finishedMatches.find((m: any) => m.id === pred.match_id);
         if (!match) continue;
         
-        const outcome = match.home_score > match.away_score ? 'home'
-          : match.home_score < match.away_score ? 'away' : 'draw';
+        const outcome = match.home_score > match.away_score ? 'home_win'
+          : match.home_score < match.away_score ? 'away_win' : 'draw';
         const hit = outcome === pred.predicted_winner;
         
         const { error: betUpdateErr } = await supabase
