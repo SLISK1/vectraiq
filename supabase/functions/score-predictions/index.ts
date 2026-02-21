@@ -223,7 +223,9 @@ Deno.serve(async (req) => {
         
         const outcome = match.home_score > match.away_score ? 'home_win'
           : match.home_score < match.away_score ? 'away_win' : 'draw';
-        const hit = outcome === pred.predicted_winner;
+        // Normalize: predicted_winner uses 'home'/'away'/'draw', outcome uses 'home_win'/'away_win'/'draw'
+        const normalizedOutcome = outcome === 'home_win' ? 'home' : outcome === 'away_win' ? 'away' : 'draw';
+        const hit = normalizedOutcome === pred.predicted_winner;
         
         const { error: betUpdateErr } = await supabase
           .from('betting_predictions')

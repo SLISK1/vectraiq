@@ -55,8 +55,9 @@ Deno.serve(async (req) => {
     if (sport === "football" || sport === "all") {
       if (footballApiKey) {
         const today = new Date();
-        const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000);
-        const dateFrom = threeDaysAgo.toISOString().split("T")[0];
+        const daysBack = body.days_back || 14;
+        const pastDate = new Date(today.getTime() - daysBack * 24 * 60 * 60 * 1000);
+        const dateFrom = pastDate.toISOString().split("T")[0];
         const dateTo = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
         // Fetch all matches for the week
