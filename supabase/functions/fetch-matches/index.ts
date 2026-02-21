@@ -101,6 +101,17 @@ Deno.serve(async (req) => {
           }
         }
 
+        // Pre-fetch existing matches from DB to check for cached H2H data
+        const externalIds = filteredMatches.map((m: any) => `football-${m.id}`);
+        const { data: existingMatches } = await supabase
+          .from("betting_matches")
+          .select("external_id, source_data")
+          .in("external_id", externalIds);
+        const existingMap: Record<string, any> = {};
+        for (const em of existingMatches || []) {
+          existingMap[em.external_id] = em.source_data;
+        }
+
         // Process each match
         for (const match of filteredMatches) {
           const compCode = match.competition?.code;
@@ -111,44 +122,47 @@ Deno.serve(async (req) => {
           const matchDate = match.utcDate;
           const matchId = match.id;
 
-          // --- H2H: fetch per match ---
-          let h2hData: any = null;
-          try {
-            const h2hRes = await fetch(
-              `https://api.football-data.org/v4/matches/${matchId}/head2head?limit=5`,
-              { headers: { "X-Auth-Token": footballApiKey } }
-            );
-            if (h2hRes.ok) {
-              const h2hJson = await h2hRes.json();
-              const h2hMatches = h2hJson.matches || [];
-              // Summarise
-              let homeWins = 0, awayWins = 0, draws = 0;
-              const recentMeetings = h2hMatches.map((m: any) => {
-                const hg = m.score?.fullTime?.home ?? null;
-                const ag = m.score?.fullTime?.away ?? null;
-                const winner = m.score?.winner;
-                if (winner === "HOME_TEAM") homeWins++;
-                else if (winner === "AWAY_TEAM") awayWins++;
-                else if (winner === "DRAW") draws++;
-                return {
-                  date: m.utcDate?.split("T")[0],
-                  home: m.homeTeam?.name,
-                  away: m.awayTeam?.name,
-                  score: hg !== null ? `${hg}-${ag}` : null,
-                  winner,
+          // --- H2H: only fetch if not already cached ---
+          const cachedSource = existingMap[externalId] as any;
+          let h2hData: any = cachedSource?.h2h || null;
+
+          if (!h2hData) {
+            try {
+              const h2hRes = await fetch(
+                `https://api.football-data.org/v4/matches/${matchId}/head2head?limit=5`,
+                { headers: { "X-Auth-Token": footballApiKey } }
+              );
+              if (h2hRes.ok) {
+                const h2hJson = await h2hRes.json();
+                const h2hMatches = h2hJson.matches || [];
+                let homeWins = 0, awayWins = 0, draws = 0;
+                const recentMeetings = h2hMatches.map((m: any) => {
+                  const hg = m.score?.fullTime?.home ?? null;
+                  const ag = m.score?.fullTime?.away ?? null;
+                  const winner = m.score?.winner;
+                  if (winner === "HOME_TEAM") homeWins++;
+                  else if (winner === "AWAY_TEAM") awayWins++;
+                  else if (winner === "DRAW") draws++;
+                  return {
+                    date: m.utcDate?.split("T")[0],
+                    home: m.homeTeam?.name,
+                    away: m.awayTeam?.name,
+                    score: hg !== null ? `${hg}-${ag}` : null,
+                    winner,
+                  };
+                });
+                h2hData = {
+                  matches: recentMeetings,
+                  homeTeamWins: homeWins,
+                  awayTeamWins: awayWins,
+                  draws,
+                  totalMeetings: h2hMatches.length,
                 };
-              });
-              h2hData = {
-                matches: recentMeetings,
-                homeTeamWins: homeWins,
-                awayTeamWins: awayWins,
-                draws,
-                totalMeetings: h2hMatches.length,
-              };
+              }
+              await sleep(6500);
+            } catch (e) {
+              console.warn(`H2H fetch failed for match ${matchId}:`, e);
             }
-            await sleep(6500);
-          } catch (e) {
-            console.warn(`H2H fetch failed for match ${matchId}:`, e);
           }
 
           // --- STANDINGS: extract from cache ---
