@@ -99,6 +99,7 @@ Deno.serve(async (req) => {
     const footballApiKey = Deno.env.get("FOOTBALL_DATA_API_KEY");
     const gnewsApiKey = Deno.env.get("GNEWS_API_KEY");
     const firecrawlApiKey = Deno.env.get("FIRECRAWL_API_KEY");
+    const newsApiKey = Deno.env.get("NEWSAPI_KEY");
 
     // === LIVE DATA ENRICHMENT ===
     // Extract football-data match ID from external_id (format: "football-{id}")
@@ -219,6 +220,33 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Live NewsAPI search
+    let newsApiArticles: any[] = [];
+    if (newsApiKey) {
+      try {
+        const q = encodeURIComponent(`${match.home_team} ${match.away_team}`);
+        const newsApiRes = await fetch(
+          `https://newsapi.org/v2/everything?q=${q}&sortBy=relevancy&pageSize=5&language=en&apiKey=${newsApiKey}`
+        );
+        if (newsApiRes.ok) {
+          const newsApiData = await newsApiRes.json();
+          newsApiArticles = (newsApiData.articles || [])
+            .filter((a: any) => a.title && a.title !== "[Removed]")
+            .map((a: any) => ({
+              url: a.url,
+              title: a.title,
+              date: a.publishedAt,
+              source: a.source?.name,
+              description: (a.description || "").substring(0, 300),
+              content: (a.content || "").substring(0, 500),
+              type: classifyArticle(a.title + " " + (a.description || "")),
+            }));
+        }
+      } catch (e) {
+        console.warn("NewsAPI fetch failed:", e);
+      }
+    }
+
     // Live Firecrawl Search
     let liveScrapedArticles: any[] = sourceData.scraped_articles || [];
     if (firecrawlApiKey) {
@@ -258,7 +286,7 @@ Deno.serve(async (req) => {
     const h2hSection = buildH2HSection(liveH2H, match.home_team, match.away_team);
     const standingsSection = buildStandingsSection(liveStandings, match.home_team, match.away_team);
     const formSection = buildFormSection(liveStandings);
-    const newsSection = buildNewsSection(liveNewsArticles);
+    const newsSection = buildNewsSection([...liveNewsArticles, ...newsApiArticles]);
     const scrapedSection = buildScrapedSection(liveScrapedArticles);
 
     // === EVIDENCE GATING ===
@@ -294,6 +322,15 @@ Deno.serve(async (req) => {
       if (type === "news") hasOnlyOpinion = false;
       const text = ((article.title || "") + " " + (article.description || "")).toLowerCase();
       if (text.includes("injury") || text.includes("injured") || text.includes("fit") || text.includes("doubt")) hasInjuryData = true;
+    }
+    for (const article of newsApiArticles) {
+      const type = article.type || "news";
+      sources.push({ url: article.url || "", title: `[NewsAPI] ${article.title || ""}`, date: article.date || "", type });
+      if (type === "confirmed_fact") { hasConfirmedFact = true; hasOnlyOpinion = false; }
+      if (type === "stats") { hasStats = true; hasOnlyOpinion = false; }
+      if (type === "news") hasOnlyOpinion = false;
+      const text = ((article.title || "") + " " + (article.description || "") + " " + (article.content || "")).toLowerCase();
+      if (text.includes("injury") || text.includes("injured") || text.includes("fit") || text.includes("doubt") || text.includes("lineup") || text.includes("suspended")) hasInjuryData = true;
     }
     for (const article of liveScrapedArticles) {
       sources.push({ url: article.url || "", title: article.title || "", date: new Date().toISOString().split("T")[0], type: "stats" });
