@@ -1,100 +1,128 @@
 
+# Liga-filter och utokade match-prediktioner
 
-# Fix: Betting backtest-data saknas
+## 1. Liga-filter pa BettingPage
 
-## Rotorsak
+Lagg till ett filter-rad under sport-valjaren som visar alla unika ligor fran matcherna i databasen. Anvandaren kan valja en eller flera ligor, eller "Alla" for att visa samtliga.
 
-Två buggar blockerar all backtest-data:
+**Implementering i `src/pages/BettingPage.tsx`:**
+- Ny state: `selectedLeague` (string | 'all')
+- Extrahera unika ligor fran `matches` array efter laddning
+- Visa knappar/badges for varje liga (Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League, etc.)
+- Filtrera matchlistan pa vald liga innan rendering
+- DB-queryn filtrar ocksa pa liga om inte "Alla" ar valt, for battre prestanda
 
-1. **`fetch-matches` tittar bara framåt** (idag + 7 dagar). Matcher som redan spelats hamnar utanför fönstret och får aldrig sina resultat uppdaterade. Vissa matcher visar fortfarande `status: 'upcoming'` trots att de avgjorts.
-
-2. **Inget scorar `betting_predictions`**. Funktionen `score-predictions` hanterar bara aktie/krypto-prediktioner (`asset_predictions` + `watchlist_cases`) men rör aldrig `betting_predictions`. Kolumnen `outcome` sätts aldrig, och BacktestPanel filtrerar på `outcome IS NOT NULL` — alltså noll resultat.
-
----
-
-## Lösning
-
-### 1. `fetch-matches` — hämta även resultat bakåt
-
-Utöka datumfönstret till att även titta **3 dagar bakåt** för att fånga resultat för matcher som redan spelats:
-
-```
-dateFrom = idag - 3 dagar
-dateTo   = idag + 7 dagar
-```
-
-Football-Data.org returnerar slutresultat (`score.fullTime`) för avslutade matcher. Nuvarande kod sparar redan `home_score` och `away_score` i upsert-logiken (rad 305-306), men de når aldrig databasen eftersom matcherna aldrig hämtas igen.
-
-### 2. `score-predictions` — ny sektion för betting
-
-Lägg till en tredje sektion i `score-predictions` som:
-
-```
-1. Hämta alla betting_matches med status = 'finished' 
-   OCH home_score IS NOT NULL OCH away_score IS NOT NULL
-2. Hitta matchande betting_predictions WHERE outcome IS NULL 
-   OCH match_id i listan ovan
-3. Beräkna outcome:
-   - home_score > away_score → 'home'
-   - home_score < away_score → 'away'
-   - home_score = away_score → 'draw'
-4. UPDATE betting_predictions SET outcome, scored_at = now()
-```
-
-### 3. Kör engångs-fix för befintliga matcher
-
-Eftersom `fetch-matches` redan har uppdaterat vissa matcher till `status: 'finished'` med korrekta scores, behöver vi bara trigga scoring. Matcherna som fortfarande visar `upcoming` trots att de spelats fixas automatiskt vid nästa `fetch-matches`-körning med det utökade fönstret.
+**UI-design:**
+- Horisontell scroll-rad med liga-badges under sport-valjaren
+- "Alla" knapp forst, sedan varje liga med match-antal i parentes
+- Samma stil som sport-valjarna men i `variant="outline"` storlek `sm`
 
 ---
 
-## Filer som ändras
+## 2. Utokade prediktioner (hornor, kort, mål, frisparkar)
 
-| Fil | Ändring |
-|---|---|
-| `supabase/functions/fetch-matches/index.ts` | Ändra `dateFrom` till `idag - 3 dagar` istället för bara `idag` |
-| `supabase/functions/score-predictions/index.ts` | Lägg till sektion 3: scora `betting_predictions` baserat på matchresultat |
+Utoka AI-analysen sa att `analyze-match` aven returnerar sidoprediktioner for:
+- **Totalt antal mal** (Over/Under 2.5)
+- **Hornor** (Over/Under 9.5)
+- **Kort** (Over/Under 3.5)
+- **Bada lagen gor mal** (BTTS Ja/Nej)
 
----
+### Andringar i `supabase/functions/analyze-match/index.ts`:
 
-## Teknisk detalj
-
-I `score-predictions/index.ts`, ny logik efter befintlig watchlist-scoring:
+Utoka prompten med extra JSON-falt:
 
 ```
-// 3. Score betting_predictions
-const { data: finishedMatches } = await supabase
-  .from('betting_matches')
-  .select('id, home_score, away_score')
-  .eq('status', 'finished')
-  .not('home_score', 'is', null)
-  .not('away_score', 'is', null);
-
-// Hämta oscorade predictions för dessa matcher
-const matchIds = finishedMatches.map(m => m.id);
-const { data: unscoredBets } = await supabase
-  .from('betting_predictions')
-  .select('id, match_id, predicted_winner')
-  .is('outcome', null)
-  .in('match_id', matchIds);
-
-// Beräkna och uppdatera outcome per prediction
-for (const pred of unscoredBets) {
-  const match = finishedMatches.find(m => m.id === pred.match_id);
-  const outcome = match.home_score > match.away_score ? 'home'
-    : match.home_score < match.away_score ? 'away' : 'draw';
-  
-  await supabase.from('betting_predictions')
-    .update({ outcome, scored_at: now })
-    .eq('id', pred.id);
+"side_predictions": {
+  "total_goals": { "line": 2.5, "prediction": "over"|"under", "prob": 0.0-1.0, "reasoning": "..." },
+  "btts": { "prediction": "yes"|"no", "prob": 0.0-1.0, "reasoning": "..." },
+  "corners": { "line": 9.5, "prediction": "over"|"under", "prob": 0.0-1.0, "reasoning": "..." },
+  "cards": { "line": 3.5, "prediction": "over"|"under", "prob": 0.0-1.0, "reasoning": "..." }
 }
 ```
 
-I `fetch-matches/index.ts`:
+Spara `side_predictions` i `betting_predictions.key_factors` JSONB-kolumnen (inget schemabyte behovs — `key_factors` ar redan JSONB).
 
+### Andringar i `src/components/betting/MatchDetailModal.tsx`:
+
+Lagg till en ny sektion "Sidoprediktioner" som visar:
+- Over/Under 2.5 mal med sannolikhet
+- BTTS (Bada lagen gor mal)
+- Hornor Over/Under 9.5
+- Kort Over/Under 3.5
+
+Varje rad visar prediktion + sannolikhet i % + kort motivering.
+
+### Andringar i `src/components/betting/MatchCard.tsx`:
+
+Visa ett kompakt sammandrag av sidoprediktionerna under huvudprediktionen — t.ex. ikoner med "O2.5" "BTTS" etc. som smaknappar/badges.
+
+---
+
+## Filer som andras
+
+| Fil | Andring |
+|---|---|
+| `src/pages/BettingPage.tsx` | Lagg till `selectedLeague` state, liga-filter UI, filtrera matcher |
+| `src/components/betting/MatchCard.tsx` | Visa sidoprediktions-badges i kompakt format |
+| `src/components/betting/MatchDetailModal.tsx` | Ny sektion for sidoprediktioner med detaljer |
+| `supabase/functions/analyze-match/index.ts` | Utoka prompt med side_predictions, spara i key_factors |
+
+---
+
+## Tekniska detaljer
+
+### Liga-filter (BettingPage)
+
+```tsx
+// Ny state
+const [selectedLeague, setSelectedLeague] = useState<string>('all');
+
+// Extrahera ligor fran matches
+const leagues = [...new Set(matches.map(m => m.league))];
+
+// Filtrera
+const filteredMatches = selectedLeague === 'all' 
+  ? matches 
+  : matches.filter(m => m.league === selectedLeague);
 ```
-// Ändra rad 58-59 från:
-const dateFrom = today.toISOString().split("T")[0];
-// Till:
-const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000);
-const dateFrom = threeDaysAgo.toISOString().split("T")[0];
+
+### Prompt-utvidgning (analyze-match)
+
+Prompten utvidgas med:
 ```
+Also predict these side markets based on the statistical data:
+- Total goals: Over/Under 2.5 (use Poisson with the calculated goal expectations)
+- BTTS (Both Teams To Score): based on goals scored/conceded per game
+- Corners: Over/Under 9.5 (estimate from league averages and team attacking style)
+- Cards: Over/Under 3.5 (estimate from league discipline stats and match importance)
+
+Include in your JSON response:
+"side_predictions": {
+  "total_goals": { "line": 2.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
+  "btts": { "prediction": "yes"|"no", "prob": <float>, "reasoning": "<short Swedish>" },
+  "corners": { "line": 9.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" },
+  "cards": { "line": 3.5, "prediction": "over"|"under", "prob": <float>, "reasoning": "<short Swedish>" }
+}
+```
+
+Sidoprediktionerna sparas i `key_factors` JSONB-kolumnen som ett extra objekt, sa att inget databasschema behover andras:
+
+```ts
+key_factors: {
+  factors: aiResult.key_factors || [],
+  side_predictions: aiResult.side_predictions || null,
+}
+```
+
+### MatchDetailModal — ny sektion
+
+En "Sidomarknader"-sektion med 4 rader i en grid som visar:
+- Ikon + label (t.ex. fotboll-ikon + "Mal O/U 2.5")
+- Prediktion (Over/Under)
+- Sannolikhet i procent
+- Kort motivering
+
+### MatchCard — kompakta badges
+
+Under huvudprediktionen visas smaknappar som:
+`[O2.5 67%] [BTTS 58%] [Hornor U9.5 55%]`
