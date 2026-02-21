@@ -80,7 +80,8 @@ const transformToRankedAsset = async (
   symbol: SymbolWithPrice, 
   horizon: Horizon, 
   filterDirection: 'UP' | 'DOWN',
-  priceHistoryCache: Map<string, PriceData[]>
+  priceHistoryCache: Map<string, PriceData[]>,
+  avCacheMap?: Map<string, { indicator_type: string; data: any }[]>
 ): Promise<RankedAsset | null> => {
   const price = symbol.latestPrice;
   const currentPrice = price ? Number(price.price) : 0;
@@ -107,6 +108,8 @@ const transformToRankedAsset = async (
     return null;
   }
   
+  const avCache = avCacheMap?.get(symbol.id);
+  
   const context = createAnalysisContext(
     symbol.ticker,
     symbol.name,
@@ -115,7 +118,8 @@ const transformToRankedAsset = async (
     currentPrice,
     priceHistory,
     horizon,
-    symbol.fundamentals
+    symbol.fundamentals,
+    avCache
   );
   
   const analysis = runAnalysis(context);
@@ -232,10 +236,32 @@ export const useRankedAssets = (horizon: Horizon, direction: 'UP' | 'DOWN') => {
         symbols.map(s => s.id),
         days
       );
+
+      // Fetch Alpha Vantage indicator cache
+      let avCacheMap: Map<string, { indicator_type: string; data: any }[]> | undefined;
+      try {
+        const { data: avData } = await supabase
+          .from('alpha_indicators_cache')
+          .select('symbol_id, indicator_type, data')
+          .in('symbol_id', symbols.map(s => s.id))
+          .gt('valid_until', new Date().toISOString());
+        
+        if (avData && avData.length > 0) {
+          avCacheMap = new Map();
+          for (const row of avData) {
+            const existing = avCacheMap.get(row.symbol_id) || [];
+            existing.push({ indicator_type: row.indicator_type, data: row.data });
+            avCacheMap.set(row.symbol_id, existing);
+          }
+          console.log(`AV cache: ${avCacheMap.size} symbols with enriched indicators`);
+        }
+      } catch (e) {
+        console.log('AV cache fetch failed (non-critical):', e);
+      }
       
       // Transform all symbols with their history
       const promises = symbols.map(s => 
-        transformToRankedAsset(s, horizon, direction, priceHistoryCache)
+        transformToRankedAsset(s, horizon, direction, priceHistoryCache, avCacheMap)
       );
       const results = await Promise.all(promises);
       

@@ -45,6 +45,11 @@ export interface TechnicalIndicators {
   bollingerBands?: { upper: number; middle: number; lower: number; percentB: number };
   atr?: number;
   stochastic?: { k: number; d: number };
+  // Alpha Vantage enriched indicators
+  avRsi?: number;
+  avMacd?: { value: number; signal: number; histogram: number };
+  adx?: number;
+  vwap?: number;
 }
 
 export interface FundamentalMetrics {
@@ -122,6 +127,7 @@ export interface AnalysisContext {
   priceHistory: PriceData[];
   fundamentals?: FundamentalMetrics;
   macro?: MacroData;
+  avCache?: { indicator_type: string; data: any }[];
 }
 
 // Metadata structure stored in symbols.metadata

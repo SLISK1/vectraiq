@@ -258,9 +258,9 @@ export const runAnalysis = (
   
   const results: AnalysisResult[] = [];
   
-  // 1. Technical Analysis
+  // 1. Technical Analysis (enriched with Alpha Vantage indicators if available)
   if (weights.technical > 0 && priceHistory.length >= 10) {
-    results.push(analyzeTechnical(priceHistory, currentPrice, horizon));
+    results.push(analyzeTechnical(priceHistory, currentPrice, horizon, context.avCache));
   }
   
   // 2. Quantitative Analysis
@@ -416,7 +416,8 @@ export const createAnalysisContext = (
   currentPrice: number,
   priceHistory: PriceData[],
   horizon: Horizon,
-  fundamentals?: import('./types').FundamentalMetrics
+  fundamentals?: import('./types').FundamentalMetrics,
+  avCache?: { indicator_type: string; data: any }[]
 ): AnalysisContext => ({
   ticker,
   name,
@@ -426,4 +427,5 @@ export const createAnalysisContext = (
   currentPrice,
   priceHistory,
   fundamentals,
+  avCache,
 });

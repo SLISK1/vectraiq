@@ -160,63 +160,127 @@ export const calculateAllIndicators = (priceHistory: PriceData[]): TechnicalIndi
   };
 };
 
+// Enrich indicators with Alpha Vantage cached data
+export const enrichWithAVIndicators = (
+  indicators: TechnicalIndicators,
+  avCache: { indicator_type: string; data: any }[]
+): TechnicalIndicators => {
+  const enriched = { ...indicators };
+
+  for (const entry of avCache) {
+    switch (entry.indicator_type) {
+      case 'RSI':
+        if (entry.data?.latest != null) {
+          enriched.avRsi = entry.data.latest;
+        }
+        break;
+      case 'MACD':
+        if (entry.data?.latest) {
+          enriched.avMacd = {
+            value: entry.data.latest.macd,
+            signal: entry.data.latest.signal,
+            histogram: entry.data.latest.histogram,
+          };
+        }
+        break;
+      case 'ADX':
+        if (entry.data?.latest != null) {
+          enriched.adx = entry.data.latest;
+        }
+        break;
+      case 'VWAP':
+        if (entry.data?.latest != null) {
+          enriched.vwap = entry.data.latest;
+        }
+        break;
+    }
+  }
+
+  return enriched;
+};
+
 // Main technical analysis function
 export const analyzeTechnical = (
   priceHistory: PriceData[],
   currentPrice: number,
-  horizon: Horizon
+  horizon: Horizon,
+  avCache?: { indicator_type: string; data: any }[]
 ): AnalysisResult => {
-  const indicators = calculateAllIndicators(priceHistory);
+  let indicators = calculateAllIndicators(priceHistory);
+  
+  // Enrich with AV data if available
+  if (avCache && avCache.length > 0) {
+    indicators = enrichWithAVIndicators(indicators, avCache);
+  }
+
   const evidence: Evidence[] = [];
   
   let bullishSignals = 0;
   let bearishSignals = 0;
   let totalSignals = 0;
   
-  // RSI Analysis
-  if (indicators.rsi !== undefined) {
+  // RSI Analysis (use AV RSI if available for cross-validation)
+  const effectiveRsi = indicators.avRsi ?? indicators.rsi;
+  if (effectiveRsi !== undefined) {
     totalSignals++;
-    if (indicators.rsi < 30) {
+    const rsiSource = indicators.avRsi != null ? 'RSI (AV-validerad)' : 'RSI';
+    if (effectiveRsi < 30) {
       bullishSignals++;
       evidence.push({
         type: 'indicator',
-        description: `RSI översålt (${indicators.rsi.toFixed(1)})`,
-        value: indicators.rsi,
+        description: `${rsiSource} översålt (${effectiveRsi.toFixed(1)})`,
+        value: effectiveRsi,
         timestamp: new Date().toISOString(),
-        source: 'RSI',
+        source: rsiSource,
       });
-    } else if (indicators.rsi > 70) {
+    } else if (effectiveRsi > 70) {
       bearishSignals++;
       evidence.push({
         type: 'indicator',
-        description: `RSI överköpt (${indicators.rsi.toFixed(1)})`,
-        value: indicators.rsi,
+        description: `${rsiSource} överköpt (${effectiveRsi.toFixed(1)})`,
+        value: effectiveRsi,
         timestamp: new Date().toISOString(),
-        source: 'RSI',
+        source: rsiSource,
       });
+    }
+    
+    // RSI divergence check: if local and AV RSI disagree significantly
+    if (indicators.rsi != null && indicators.avRsi != null) {
+      const rsiDiff = Math.abs(indicators.rsi - indicators.avRsi);
+      if (rsiDiff > 10) {
+        evidence.push({
+          type: 'indicator',
+          description: `RSI-avvikelse: lokal=${indicators.rsi.toFixed(1)} vs AV=${indicators.avRsi.toFixed(1)}`,
+          value: rsiDiff,
+          timestamp: new Date().toISOString(),
+          source: 'RSI Cross-Validation',
+        });
+      }
     }
   }
   
-  // MACD Analysis
-  if (indicators.macd) {
+  // MACD Analysis (prefer AV if available)
+  const effectiveMacd = indicators.avMacd ?? indicators.macd;
+  if (effectiveMacd) {
     totalSignals++;
-    if (indicators.macd.histogram > 0 && indicators.macd.value > indicators.macd.signal) {
+    const macdSource = indicators.avMacd ? 'MACD (AV)' : 'MACD';
+    if (effectiveMacd.histogram > 0 && effectiveMacd.value > effectiveMacd.signal) {
       bullishSignals++;
       evidence.push({
         type: 'indicator',
-        description: 'MACD bullish crossover',
-        value: indicators.macd.histogram,
+        description: `${macdSource} bullish crossover`,
+        value: effectiveMacd.histogram,
         timestamp: new Date().toISOString(),
-        source: 'MACD',
+        source: macdSource,
       });
-    } else if (indicators.macd.histogram < 0 && indicators.macd.value < indicators.macd.signal) {
+    } else if (effectiveMacd.histogram < 0 && effectiveMacd.value < effectiveMacd.signal) {
       bearishSignals++;
       evidence.push({
         type: 'indicator',
-        description: 'MACD bearish crossover',
-        value: indicators.macd.histogram,
+        description: `${macdSource} bearish crossover`,
+        value: effectiveMacd.histogram,
         timestamp: new Date().toISOString(),
-        source: 'MACD',
+        source: macdSource,
       });
     }
   }
@@ -294,6 +358,57 @@ export const analyzeTechnical = (
     }
   }
   
+  // ADX Analysis (trend strength from Alpha Vantage)
+  if (indicators.adx != null) {
+    totalSignals++;
+    if (indicators.adx > 25) {
+      // Strong trend — amplify the direction signal
+      evidence.push({
+        type: 'trend',
+        description: `ADX stark trend (${indicators.adx.toFixed(1)}) — förstärker riktningssignal`,
+        value: indicators.adx,
+        timestamp: new Date().toISOString(),
+        source: 'ADX (Alpha Vantage)',
+      });
+      // ADX confirms whatever direction we already have
+      if (bullishSignals > bearishSignals) bullishSignals++;
+      else if (bearishSignals > bullishSignals) bearishSignals++;
+    } else if (indicators.adx < 20) {
+      evidence.push({
+        type: 'trend',
+        description: `ADX svag trend (${indicators.adx.toFixed(1)}) — sidledes marknad`,
+        value: indicators.adx,
+        timestamp: new Date().toISOString(),
+        source: 'ADX (Alpha Vantage)',
+      });
+    }
+  }
+  
+  // VWAP Analysis (institutional support/resistance)
+  if (indicators.vwap != null && currentPrice > 0) {
+    totalSignals++;
+    const vwapDiff = ((currentPrice - indicators.vwap) / indicators.vwap) * 100;
+    if (currentPrice > indicators.vwap * 1.01) {
+      bullishSignals++;
+      evidence.push({
+        type: 'indicator',
+        description: `Pris ${vwapDiff.toFixed(1)}% över VWAP — köptryck`,
+        value: indicators.vwap,
+        timestamp: new Date().toISOString(),
+        source: 'VWAP (Alpha Vantage)',
+      });
+    } else if (currentPrice < indicators.vwap * 0.99) {
+      bearishSignals++;
+      evidence.push({
+        type: 'indicator',
+        description: `Pris ${Math.abs(vwapDiff).toFixed(1)}% under VWAP — säljtryck`,
+        value: indicators.vwap,
+        timestamp: new Date().toISOString(),
+        source: 'VWAP (Alpha Vantage)',
+      });
+    }
+  }
+  
   // Calculate direction and strength
   const netSignal = bullishSignals - bearishSignals;
   const direction: Direction = netSignal > 0 ? 'UP' : netSignal < 0 ? 'DOWN' : 'NEUTRAL';
@@ -302,9 +417,10 @@ export const analyzeTechnical = (
     ? Math.round(50 + (netSignal / totalSignals) * 50)
     : 50;
   
-  // Coverage based on available indicators
+  // Coverage based on available indicators (now out of 14 with AV additions)
   const availableIndicators = Object.values(indicators).filter(v => v !== undefined).length;
-  const coverage = Math.round((availableIndicators / 10) * 100);
+  const totalPossibleIndicators = 14; // 10 base + 4 AV
+  const coverage = Math.round((availableIndicators / totalPossibleIndicators) * 100);
   
   // Confidence based on signal agreement
   const signalAgreement = totalSignals > 0 

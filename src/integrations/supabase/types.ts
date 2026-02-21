@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      alpha_indicators_cache: {
+        Row: {
+          data: Json
+          fetched_at: string
+          id: string
+          indicator_type: string
+          symbol_id: string
+          timeframe: string
+          valid_until: string
+        }
+        Insert: {
+          data?: Json
+          fetched_at?: string
+          id?: string
+          indicator_type: string
+          symbol_id: string
+          timeframe?: string
+          valid_until?: string
+        }
+        Update: {
+          data?: Json
+          fetched_at?: string
+          id?: string
+          indicator_type?: string
+          symbol_id?: string
+          timeframe?: string
+          valid_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alpha_indicators_cache_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       asset_predictions: {
         Row: {
           baseline_price: number | null
