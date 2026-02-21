@@ -205,9 +205,11 @@ Deno.serve(async (req) => {
             }
           }
 
-          // --- Firecrawl Search (replaces broken goal.com scrape) ---
-          let scrapedArticles: any[] = [];
-          if (firecrawlApiKey && HIGH_IMPACT_LEAGUES.includes(league)) {
+          // --- Firecrawl Search (use cached if available and < 12h old) ---
+          let scrapedArticles: any[] = cachedSource?.scraped_articles || [];
+          const scrapedStale = !scrapedArticles.length || (Date.now() - newsFetchedAt > 12 * 60 * 60 * 1000);
+
+          if (firecrawlApiKey && HIGH_IMPACT_LEAGUES.includes(league) && scrapedStale) {
             // Check daily budget
             const todayStr = new Date().toISOString().split("T")[0];
             const { data: budgetData } = await supabase
@@ -218,7 +220,7 @@ Deno.serve(async (req) => {
               .single();
 
             const searchesUsed = (budgetData?.source_data as any)?.searches_used || 0;
-            const DAILY_SEARCH_BUDGET = 30; // 3 searches × 10 matches/day
+            const DAILY_SEARCH_BUDGET = 30;
 
             if (searchesUsed < DAILY_SEARCH_BUDGET) {
               const matchYear = new Date(matchDate).getFullYear();
@@ -249,7 +251,6 @@ Deno.serve(async (req) => {
                       source: "firecrawl_search",
                     }));
 
-                    // Update budget tracker
                     await supabase.from("betting_matches").upsert(
                       {
                         external_id: `budget-fc-${todayStr}`,
