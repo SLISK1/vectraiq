@@ -13,7 +13,7 @@ export interface SymbolWithPrice extends Symbol {
 }
 
 // Fetch all symbols with their latest prices
-// Prioritizes price_history (Yahoo/real data) over raw_prices (may have fallback)
+// Prioritizes price_history (real data) over raw_prices (may have fallback)
 export const fetchSymbolsWithPrices = async (): Promise<SymbolWithPrice[]> => {
   // Get all symbols
   const { data: symbols, error: symbolsError } = await supabase
@@ -51,7 +51,7 @@ export const fetchSymbolsWithPrices = async (): Promise<SymbolWithPrice[]> => {
     }
   });
 
-  // Get the latest price_history (which has real Yahoo data)
+  // Get the latest price_history (which has validated data)
   // This is more accurate for Nordic stocks
   const { data: historyPrices, error: historyError } = await supabase
     .from('price_history')
@@ -97,7 +97,7 @@ export const fetchSymbolsWithPrices = async (): Promise<SymbolWithPrice[]> => {
     const historyPrice = latestHistoryPrices.get(symbol.id);
     
     // Use history price if raw price is from fallback source OR if history is newer
-    // History prices from Yahoo are more accurate than fallback
+    // History prices are more accurate than fallback
     const useHistoryPrice = historyPrice && (
       rawPrice?.source === 'fallback' || 
       rawPrice?.source === 'nav_estimate' ||

@@ -82,7 +82,7 @@ export const RealityCheck = () => {
           <div className="p-3 rounded-lg bg-muted/50 space-y-2">
             <h4 className="font-medium text-sm">Datakällor</h4>
             <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• Dagliga priser: Yahoo Finance, Börsdata</li>
+              <li>• Dagliga priser: FMP, Finnhub, Alpha Vantage (korsvaliderade)</li>
               <li>• Nyheter: DI, SvD, Affärsvärlden (via RSS/scraping)</li>
               <li>• Rapporter: Bolagsverket, Nasdaq OMX</li>
               <li>• Makrodata: SCB, Riksbanken, Konjunkturinstitutet</li>
