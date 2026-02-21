@@ -157,21 +157,36 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
               </div>
             )}
 
-            {/* Side prediction badges */}
+            {/* Side prediction badges with edge */}
             {(() => {
               const kf = prediction.key_factors as any;
               const sp = kf?.side_predictions || (kf && !Array.isArray(kf) ? kf : null)?.side_predictions;
+              const se = kf?.side_edges as Record<string, number> | null;
               if (!sp) return null;
+
+              const EdgeTag = ({ marketKey }: { marketKey: string }) => {
+                const e = se?.[marketKey];
+                if (e === undefined || e === null) return null;
+                const pct = Math.round(e * 100);
+                return (
+                  <span className={`font-bold ${e > 0 ? 'text-primary' : 'text-destructive'}`}>
+                    {e > 0 ? '+' : ''}{pct}%
+                  </span>
+                );
+              };
+
               return (
                 <div className="flex flex-wrap gap-1.5">
                   {sp.total_goals && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground flex items-center gap-1">
                       ⚽ {sp.total_goals.prediction === 'over' ? 'Ö' : 'U'}{sp.total_goals.line} {Math.round(sp.total_goals.prob * 100)}%
+                      <EdgeTag marketKey="total_goals" />
                     </span>
                   )}
                   {sp.btts && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground flex items-center gap-1">
                       🎯 BTTS {sp.btts.prediction === 'yes' ? 'Ja' : 'Nej'} {Math.round(sp.btts.prob * 100)}%
+                      <EdgeTag marketKey="btts" />
                     </span>
                   )}
                   {sp.first_half_goals && (
