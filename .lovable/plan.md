@@ -1,39 +1,35 @@
 
+# Visa kommande matcher forst, behall avslutade for historik
 
-## Automatisk scoring via pg_cron
+## Problem
+Betting-sidan sorterar alla matcher kronologiskt (aldsta forst), vilket gor att 21 avslutade och 3 live-matcher visas fore de 38 kommande matcherna. Anvandaren maste scrolla langt for att hitta kommande matcher.
 
-### Bakgrund
-Edge function `score-predictions` finns redan och hanterar scoring av asset_predictions, watchlist_cases och betting_predictions. Den behöver bara schemaläggas att köras automatiskt varje timme.
+## Losning
+Separera matcherna i tva sektioner: **Kommande matcher** visas forst (sorterade med narmaste matchen overst), och **Avslutade matcher** visas i en hopfallbar sektion nedanfor for att kunna foljas upp for prediktionsprecision och ROI.
 
-### Implementering
+## Andringar
 
-**1. SQL via insert-verktyget (ej migration)**
+### 1. BettingPage.tsx - Dela upp matcher i sektioner
+- Filtrera matchlistan i tva grupper: `upcoming`/`live` och `finished`
+- Visa kommande matcher forst, sorterade med narmaste match overst
+- Visa avslutade matcher i en `Collapsible`-sektion med rubrik "Avslutade matcher (for ROI-uppfoljning)"
+- Avslutade matcher sorteras med senast spelade forst
 
-Skapa ett pg_cron-jobb som anropar `score-predictions` varje hel timme via `pg_net`:
+### 2. Andrad databasfraga
+- Andra `loadMatches`-fragor fran `.order('match_date', { ascending: true })` till `.order('match_date', { ascending: false })` sa att vi far ratt ordning i minnet
+- Alternativt: behall ASC-ordning och vand i koden for respektive sektion
 
-```sql
-SELECT cron.schedule(
-  'score-predictions-hourly',
-  '0 * * * *',
-  $$
-  SELECT net.http_post(
-    url := 'https://togoiyrzglwbuskghcve.supabase.co/functions/v1/score-predictions',
-    headers := '{"Content-Type": "application/json", "Authorization": "Bearer <ANON_KEY>"}'::jsonb,
-    body := '{"time": "' || now()::text || '"}'::jsonb
-  ) AS request_id;
-  $$
-);
+## Teknisk detalj
+
+```text
+Fore:
+  [Alla matcher, ASC]  -->  gamla matcher overst
+
+Efter:
+  [Kommande/Live, ASC]     --> narmaste match overst
+  ---collapsible---
+  [Avslutade, DESC]        --> senast spelade overst
 ```
 
-Anon-nyckeln används eftersom `verify_jwt = false` redan finns i `supabase/config.toml` for `score-predictions`.
-
-**2. Verifiera att pg_cron och pg_net extensions är aktiverade**
-
-Kör `CREATE EXTENSION IF NOT EXISTS pg_cron` och `CREATE EXTENSION IF NOT EXISTS pg_net` innan schemat skapas.
-
-### Tekniska detaljer
-- Schemat: `0 * * * *` = varje hel timme
-- Endpoint: redan konfigurerad med `verify_jwt = false`
-- Auth: edge function validerar `x-internal-call` header ELLER service role key, men med `verify_jwt = false` passerar anropet igenom direkt till funktionslogiken
-- Inga kodändringar krävs -- bara ett SQL-insert för cron-jobbet
-
+Filen som andras:
+- `src/pages/BettingPage.tsx`: Dela `filteredMatches` i `upcomingMatches` och `finishedMatches`, rendera i tva separata sektioner. Anvand befintlig `Collapsible`-komponent fran shadcn for den hopfallbara sektionen.
