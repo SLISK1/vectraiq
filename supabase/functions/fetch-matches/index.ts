@@ -178,9 +178,13 @@ Deno.serve(async (req) => {
             awayStanding = table.find((row: any) => row.team?.id === awayTeamId) || null;
           }
 
-          // --- GNews articles ---
-          let newsArticles: any[] = [];
-          if (gnewsApiKey) {
+          // --- GNews articles (use cached if available and < 6h old) ---
+          let newsArticles: any[] = cachedSource?.news || [];
+          const newsFetchedAt = cachedSource?.fetched_at ? new Date(cachedSource.fetched_at).getTime() : 0;
+          const sixHoursMs = 6 * 60 * 60 * 1000;
+          const newsStale = !newsArticles.length || (Date.now() - newsFetchedAt > sixHoursMs);
+
+          if (gnewsApiKey && newsStale) {
             try {
               const query = encodeURIComponent(`"${homeTeam}" "${awayTeam}" injury OR lineup OR prediction`);
               const gnewsRes = await fetch(
