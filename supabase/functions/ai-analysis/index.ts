@@ -353,8 +353,8 @@ ${hasFirecrawlDeep ? '6. Referera till externa analyser och rapporter i din bed√
         throw new Error(`Unknown analysis type: ${type}`);
     }
 
-    // Use GPT-5 for deep analysis, Gemini for others
-    const model = type === 'deep_analysis' ? 'openai/gpt-5' : 'google/gemini-3-flash-preview';
+    // Use GPT-5.2 for deep analysis (enhanced reasoning), Gemini for others
+    const model = type === 'deep_analysis' ? 'openai/gpt-5.2' : 'google/gemini-3-flash-preview';
     const maxTokens = type === 'deep_analysis' ? 4000 : 1000;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
