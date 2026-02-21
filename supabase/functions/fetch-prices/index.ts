@@ -441,8 +441,8 @@ Deno.serve(async (req) => {
 
     // 6. Fetch market cap from FMP for stocks missing it
     const FMP_API_KEY = Deno.env.get('FMP_API_KEY');
+    const idToTicker = new Map(symbols.map(s => [s.id, s.ticker]));
     if (FMP_API_KEY) {
-      const idToTicker = new Map(symbols.map(s => [s.id, s.ticker]));
       const stocksNeedingMcap = priceRecords.filter(p =>
         (p.source === 'yahoo') && (!p.market_cap || p.market_cap === 0)
       );
@@ -489,6 +489,129 @@ Deno.serve(async (req) => {
       }
     }
 
+    // === CROSS-VALIDATION: verify Yahoo prices against FMP & Finnhub ===
+    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
+    const crossValidationResults: { ticker: string; yahoo: number; secondary: number; source: string; deviation: number; action: string }[] = [];
+    const DEVIATION_THRESHOLD = 0.03; // 3% triggers a warning
+    const REPLACE_THRESHOLD = 0.15;   // 15% deviation = replace with secondary
+
+    // idToTicker already declared above
+
+    // Cross-validate US stocks via FMP batch quote
+    if (FMP_API_KEY) {
+      const usRecords = priceRecords.filter(p => {
+        const t = idToTicker.get(p.symbol_id);
+        return t && US_STOCKS.includes(t) && p.source === 'yahoo';
+      });
+      if (usRecords.length > 0) {
+        const tickers = usRecords.map(r => idToTicker.get(r.symbol_id)).filter(Boolean);
+        try {
+          const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${tickers.join(',')}?apikey=${FMP_API_KEY}`);
+          if (res.ok) {
+            const quotes = await res.json();
+            if (Array.isArray(quotes)) {
+              for (const q of quotes) {
+                if (!q.price || q.price <= 0) continue;
+                const rec = usRecords.find(r => idToTicker.get(r.symbol_id) === q.symbol);
+                if (!rec) continue;
+                const deviation = Math.abs(rec.price - q.price) / q.price;
+                const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : deviation > DEVIATION_THRESHOLD ? 'WARNING' : 'OK';
+                if (deviation > DEVIATION_THRESHOLD) {
+                  crossValidationResults.push({
+                    ticker: q.symbol, yahoo: rec.price, secondary: q.price,
+                    source: 'fmp', deviation: parseFloat((deviation * 100).toFixed(2)), action,
+                  });
+                }
+                if (deviation > REPLACE_THRESHOLD) {
+                  console.log(`⚠ PRICE REPLACED ${q.symbol}: Yahoo=$${rec.price} -> FMP=$${q.price} (${(deviation*100).toFixed(1)}% off)`);
+                  rec.price = q.price;
+                  rec.change_24h = q.change || rec.change_24h;
+                  rec.change_percent_24h = q.changesPercentage || rec.change_percent_24h;
+                  rec.source = 'fmp_validated';
+                }
+              }
+            }
+          }
+        } catch (e) { console.error('FMP cross-validation error:', e); }
+      }
+
+      // Cross-validate Nordic stocks via FMP (sample up to 15 to stay within rate limits)
+      const nordicRecords = priceRecords.filter(p => {
+        const t = idToTicker.get(p.symbol_id);
+        return t && NORDIC_STOCKS[t] && p.source === 'yahoo';
+      }).slice(0, 15);
+      
+      for (const rec of nordicRecords) {
+        const ticker = idToTicker.get(rec.symbol_id)!;
+        const fmpTicker = NORDIC_STOCKS[ticker];
+        try {
+          const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${fmpTicker}?apikey=${FMP_API_KEY}`);
+          if (res.ok) {
+            const quotes = await res.json();
+            const q = Array.isArray(quotes) ? quotes[0] : null;
+            if (q?.price && q.price > 0) {
+              const deviation = Math.abs(rec.price - q.price) / q.price;
+              const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : deviation > DEVIATION_THRESHOLD ? 'WARNING' : 'OK';
+              if (deviation > DEVIATION_THRESHOLD) {
+                crossValidationResults.push({
+                  ticker, yahoo: rec.price, secondary: q.price,
+                  source: 'fmp', deviation: parseFloat((deviation * 100).toFixed(2)), action,
+                });
+              }
+              if (deviation > REPLACE_THRESHOLD) {
+                console.log(`⚠ PRICE REPLACED ${ticker}: Yahoo=${rec.price} -> FMP=${q.price} (${(deviation*100).toFixed(1)}% off)`);
+                rec.price = q.price;
+                rec.source = 'fmp_validated';
+              }
+            }
+          }
+          await new Promise(r => setTimeout(r, 150));
+        } catch {}
+      }
+    }
+
+    // Cross-validate US stocks via Finnhub as third source
+    if (FINNHUB_API_KEY) {
+      const usYahooRecords = priceRecords.filter(p => {
+        const t = idToTicker.get(p.symbol_id);
+        return t && US_STOCKS.includes(t) && (p.source === 'yahoo' || p.source === 'fmp_validated');
+      });
+      for (const rec of usYahooRecords) {
+        const ticker = idToTicker.get(rec.symbol_id)!;
+        try {
+          const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_API_KEY}`);
+          if (res.ok) {
+            const q = await res.json();
+            if (q?.c && q.c > 0) {
+              const deviation = Math.abs(rec.price - q.c) / q.c;
+              if (deviation > DEVIATION_THRESHOLD) {
+                const action = deviation > REPLACE_THRESHOLD ? 'REPLACED' : 'WARNING';
+                crossValidationResults.push({
+                  ticker, yahoo: rec.price, secondary: q.c,
+                  source: 'finnhub', deviation: parseFloat((deviation * 100).toFixed(2)), action,
+                });
+                if (deviation > REPLACE_THRESHOLD && rec.source !== 'fmp_validated') {
+                  console.log(`⚠ PRICE REPLACED ${ticker}: ${rec.source}=$${rec.price} -> Finnhub=$${q.c} (${(deviation*100).toFixed(1)}% off)`);
+                  rec.price = q.c;
+                  rec.source = 'finnhub_validated';
+                }
+              }
+            }
+          }
+          await new Promise(r => setTimeout(r, 100));
+        } catch {}
+      }
+    }
+
+    if (crossValidationResults.length > 0) {
+      console.log(`Cross-validation: ${crossValidationResults.length} deviations detected`);
+      for (const r of crossValidationResults) {
+        console.log(`  ${r.action} ${r.ticker}: Yahoo=${r.yahoo} vs ${r.source}=${r.secondary} (${r.deviation}% off)`);
+      }
+    } else {
+      console.log('Cross-validation: all prices within 3% tolerance ✓');
+    }
+
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
     const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id) && !SWEDISH_FUNDS[s.ticker]);
     if (missingSymbols.length > 0) {
@@ -515,6 +638,7 @@ Deno.serve(async (req) => {
         acc[p.source] = (acc[p.source] || 0) + 1;
         return acc;
       }, {}),
+      cross_validation: crossValidationResults.length > 0 ? crossValidationResults : undefined,
       missing: missingSymbols.map(s => s.ticker),
       errors: errors.length ? errors : undefined,
     }), {
