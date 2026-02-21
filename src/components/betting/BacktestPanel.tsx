@@ -44,12 +44,19 @@ export const BacktestPanel = () => {
 
       setTotalPredictions(preds.length);
 
+      // Helper: normalize outcome to match predicted_winner format
+      const normalizeOutcome = (outcome: string) => {
+        if (outcome === 'home_win') return 'home';
+        if (outcome === 'away_win') return 'away';
+        return outcome; // 'draw' stays 'draw'
+      };
+
       // League stats
       const leagueMap = new Map<string, { total: number; correct: number; edgeSum: number; edgeCount: number }>();
       for (const p of preds) {
         const match = (p as any).betting_matches;
         const league = match?.league || 'Okänd';
-        const correct = p.predicted_winner === p.outcome;
+        const correct = p.predicted_winner === normalizeOutcome(p.outcome || '');
 
         if (!leagueMap.has(league)) leagueMap.set(league, { total: 0, correct: 0, edgeSum: 0, edgeCount: 0 });
         const entry = leagueMap.get(league)!;
@@ -84,7 +91,7 @@ export const BacktestPanel = () => {
         const inBin = preds.filter(
           (p) => p.confidence_capped >= bin.min && p.confidence_capped < bin.max
         );
-        const correct = inBin.filter((p) => p.predicted_winner === p.outcome).length;
+        const correct = inBin.filter((p) => p.predicted_winner === normalizeOutcome(p.outcome || '')).length;
         return {
           range: bin.range,
           predictions: inBin.length,
@@ -101,7 +108,7 @@ export const BacktestPanel = () => {
       for (const p of preds) {
         if (p.market_odds_home && p.outcome) {
           totalBets++;
-          const correct = p.predicted_winner === p.outcome;
+          const correct = p.predicted_winner === normalizeOutcome(p.outcome || '');
           let odds = 0;
           if (p.predicted_winner === 'home') odds = Number(p.market_odds_home);
           else if (p.predicted_winner === 'draw') odds = Number(p.market_odds_draw) || 0;
