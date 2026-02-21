@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-call",
 };
 
 const SPORT_ODDS_KEY: Record<string, string> = {
@@ -46,35 +46,107 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const internalHeader = req.headers.get("x-internal-call");
     const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+
+    // Auth: allow internal calls (cron) or authenticated users
+    if (!internalHeader && !authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
 
     const supabaseService = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Validate user auth if not internal
+    if (!internalHeader) {
+      const supabase = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader! } } }
+      );
+      const token = authHeader!.replace("Bearer ", "");
+      const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+      if (claimsError || !claimsData?.claims) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
-    const { match_id } = await req.json();
+    const body = await req.json();
+    const { match_id, batch } = body;
+
+    // --- Batch mode: analyze all upcoming matches without predictions ---
+    if (batch) {
+      const { data: upcomingMatches } = await supabaseService
+        .from("betting_matches")
+        .select("id")
+        .eq("status", "upcoming")
+        .neq("sport", "system")
+        .order("match_date", { ascending: true })
+        .limit(50);
+
+      if (!upcomingMatches || upcomingMatches.length === 0) {
+        return new Response(
+          JSON.stringify({ success: true, analyzed: 0, message: "No upcoming matches" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Get matches that already have predictions
+      const matchIds = upcomingMatches.map((m: any) => m.id);
+      const { data: existingPreds } = await supabaseService
+        .from("betting_predictions")
+        .select("match_id")
+        .in("match_id", matchIds);
+
+      const analyzedIds = new Set((existingPreds || []).map((p: any) => p.match_id));
+      const toAnalyze = matchIds.filter((id: string) => !analyzedIds.has(id));
+
+      // Analyze up to 5 matches per batch to stay within time limits
+      const batchLimit = Math.min(toAnalyze.length, 5);
+      let analyzed = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < batchLimit; i++) {
+        try {
+          // Call self for each match (reuse the single-match logic below)
+          const url = Deno.env.get("SUPABASE_URL") + "/functions/v1/analyze-match";
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-call": "true",
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
+            },
+            body: JSON.stringify({ match_id: toAnalyze[i] }),
+          });
+          if (res.ok) analyzed++;
+          else errors.push(`Match ${toAnalyze[i]}: ${res.status}`);
+        } catch (e) {
+          errors.push(`Match ${toAnalyze[i]}: ${e}`);
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          analyzed,
+          skipped: analyzedIds.size,
+          remaining: toAnalyze.length - batchLimit,
+          errors: errors.length > 0 ? errors : undefined,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- Single match mode ---
     if (!match_id) {
       return new Response(JSON.stringify({ error: "match_id required" }), {
         status: 400,
