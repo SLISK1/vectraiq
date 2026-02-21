@@ -15,6 +15,67 @@ interface AnalysisRequest {
   currentPrice?: number;
 }
 
+// Fetch financial analyses via Firecrawl Search
+async function fetchFirecrawlAnalyses(ticker: string, companyName: string, assetType: string): Promise<string> {
+  const FIRECRAWL_API_KEY = Deno.env.get('FIRECRAWL_API_KEY');
+  if (!FIRECRAWL_API_KEY) {
+    console.log('FIRECRAWL_API_KEY not configured, skipping Firecrawl search');
+    return '';
+  }
+
+  try {
+    const searchTerms = assetType === 'crypto'
+      ? `${companyName} crypto analysis price prediction`
+      : `${companyName} ${ticker} stock analysis quarterly earnings forecast`;
+
+    console.log(`Firecrawl search: "${searchTerms}"`);
+
+    const response = await fetch('https://api.firecrawl.dev/v1/search', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: searchTerms,
+        limit: 5,
+        lang: 'en',
+        tbs: 'qdr:w', // Last week
+        scrapeOptions: { formats: ['markdown'] },
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`Firecrawl search error: ${response.status}`, errText);
+      return '';
+    }
+
+    const data = await response.json();
+    const results = data?.data || [];
+
+    if (results.length === 0) return '';
+
+    // Extract relevant snippets (max ~800 chars per result to stay within prompt limits)
+    const snippets = results
+      .filter((r: any) => r.markdown || r.description)
+      .slice(0, 3)
+      .map((r: any, i: number) => {
+        const content = (r.markdown || r.description || '').substring(0, 800);
+        const source = r.url ? new URL(r.url).hostname : 'unknown';
+        const title = r.title || 'Untitled';
+        return `[${i + 1}. ${title} — ${source}]\n${content}`;
+      })
+      .join('\n\n');
+
+    console.log(`Firecrawl: got ${results.length} results, using ${Math.min(3, results.length)}`);
+    return snippets;
+  } catch (e) {
+    console.error('Firecrawl search failed:', e);
+    return '';
+  }
+}
+
 // Fetch recent news from news_cache for a ticker
 async function getRecentNews(ticker: string, supabase: any): Promise<string> {
   try {
@@ -113,8 +174,13 @@ Deno.serve(async (req) => {
         const newsText = await getRecentNews(ticker, supabase);
         const hasRealNews = newsText.length > 0;
 
+        // Fetch financial analyses via Firecrawl
+        const firecrawlSentiment = await fetchFirecrawlAnalyses(ticker, name, assetType);
+        const hasFirecrawl = firecrawlSentiment.length > 0;
+
         systemPrompt = `Du är en finansanalytiker specialiserad på sentimentanalys för den svenska och globala marknaden. 
 ${hasRealNews ? 'Du har tillgång till riktiga nyhetsrubriker nedan. Basera din analys på dessa nyheter.' : 'Inga nyheter hittades. Basera din analys på allmänt marknadssentiment.'}
+${hasFirecrawl ? 'Du har även tillgång till utdrag från aktuella finansanalyser nedan.' : ''}
 Svara ENDAST med ett JSON-objekt i exakt detta format:
 {
   "direction": "UP" | "DOWN" | "NEUTRAL",
@@ -131,9 +197,13 @@ Svara ENDAST med ett JSON-objekt i exakt detta format:
 Horisont: ${horizon}
 ${currentPrice ? `Aktuellt pris: ${currentPrice}` : ''}
 
-${hasRealNews ? `SENASTE NYHETER:\n${newsText}\n\nAnalysera sentimentet i ovanstående nyheter. Identifiera positiva och negativa signaler.` : 'Inga aktuella nyheter tillgängliga. Ge en neutral basestimering.'}
+${hasRealNews ? `SENASTE NYHETER:\n${newsText}\n` : 'Inga aktuella nyheter tillgängliga.'}
 
-OBS: Var realistisk och balanserad. Ge inte för extrema värden.${hasRealNews ? ' Referera specifikt till nyheterna i din evidence.' : ''}`;
+${hasFirecrawl ? `FINANSANALYSER (från webben):\n${firecrawlSentiment}\n` : ''}
+
+${hasRealNews || hasFirecrawl ? 'Analysera sentimentet i ovanstående material. Identifiera positiva och negativa signaler.' : 'Ge en neutral basestimering.'}
+
+OBS: Var realistisk och balanserad. Ge inte för extrema värden.${hasRealNews ? ' Referera specifikt till nyheterna i din evidence.' : ''}${hasFirecrawl ? ' Referera till finansanalyserna i din evidence.' : ''}`;
         break;
       }
 
@@ -213,6 +283,10 @@ Identifiera eventuella mönster som:
         const newsText = await getRecentNews(ticker, supabase);
         const hasRealNews = newsText.length > 0;
 
+        // Fetch financial analyses via Firecrawl
+        const firecrawlDeep = await fetchFirecrawlAnalyses(ticker, name, assetType);
+        const hasFirecrawlDeep = firecrawlDeep.length > 0;
+
         // Fetch fundamentals from symbols metadata
         const { data: symbolData } = await supabase
           .from('symbols')
@@ -232,6 +306,7 @@ Identifiera eventuella mönster som:
           : 'Ingen prishistorik tillgänglig';
 
         systemPrompt = `Du är en senior investeringsanalytiker som ger djupa, nyanserade aktieanalyser. Du kombinerar teknisk analys, fundamental analys och sentimentanalys till en helhetsbild. Skriv på svenska.
+${hasFirecrawlDeep ? 'Du har tillgång till utdrag från aktuella finansanalyser och rapporter. Använd dessa som komplement.' : ''}
 
 Svara ENDAST med ett JSON-objekt i exakt detta format:
 {
@@ -262,12 +337,15 @@ ${fundSection}
 
 ${hasRealNews ? `SENASTE NYHETER:\n${newsText}` : 'Inga nyheter tillgängliga.'}
 
+${hasFirecrawlDeep ? `FINANSANALYSER (från webben):\n${firecrawlDeep}` : ''}
+
 INSTRUKTIONER:
 1. Kombinera teknisk, fundamental och sentimentanalys
 2. Identifiera 2-3 huvudsakliga risker och katalysatorer
 3. Ge pristargets för bear/base/bull scenario
 4. Bedöm value rating (1=övervärderad, 10=kraftigt undervärderad)
-5. Var ärlig om osäkerhet och databegränsningar`;
+5. Var ärlig om osäkerhet och databegränsningar
+${hasFirecrawlDeep ? '6. Referera till externa analyser och rapporter i din bedömning' : ''}`;
         break;
       }
 
