@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { MatchCard } from '@/components/betting/MatchCard';
 import { PoolTipsCard } from '@/components/betting/PoolTipsCard';
 import { BacktestPanel } from '@/components/betting/BacktestPanel';
-import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered, Database } from 'lucide-react';
+import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered, Database, ChevronDown, History } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 type Sport = 'football' | 'ufc' | 'topptipset' | 'stryktipset';
 
@@ -93,8 +94,8 @@ export const BettingPage = () => {
         .select('*')
         .eq('sport', selectedSport)
         .neq('status', 'budget_tracker')
-        .order('match_date', { ascending: true })
-        .limit(30);
+        .order('match_date', { ascending: false })
+        .limit(60);
 
       if (error) throw error;
       setMatches((data || []) as BettingMatch[]);
@@ -249,6 +250,17 @@ export const BettingPage = () => {
     ? matches
     : matches.filter(m => m.league === selectedLeague);
 
+  // Split into upcoming/live and finished
+  const now = new Date();
+  const upcomingMatches = filteredMatches
+    .filter(m => m.status !== 'FINISHED' && m.status !== 'finished')
+    .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime());
+  const finishedMatches = filteredMatches
+    .filter(m => m.status === 'FINISHED' || m.status === 'finished')
+    .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime());
+
+  const [showFinished, setShowFinished] = useState(false);
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Disclaimer */}
@@ -372,19 +384,54 @@ export const BettingPage = () => {
               </Button>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {filteredMatches.map((match) => (
-                <MatchCard
-                  key={match.id}
-                  match={match}
-                  prediction={predictions.get(match.id)}
-                  isAnalyzing={analyzingId === match.id}
-                  onAnalyze={() => handleAnalyze(match.id)}
-                  onSave={() => handleSaveMatch(match.id, predictions.get(match.id)?.id)}
-                  isLoggedIn={!!user}
-                />
-              ))}
-            </div>
+            <>
+              {upcomingMatches.length > 0 && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {upcomingMatches.map((match) => (
+                    <MatchCard
+                      key={match.id}
+                      match={match}
+                      prediction={predictions.get(match.id)}
+                      isAnalyzing={analyzingId === match.id}
+                      onAnalyze={() => handleAnalyze(match.id)}
+                      onSave={() => handleSaveMatch(match.id, predictions.get(match.id)?.id)}
+                      isLoggedIn={!!user}
+                    />
+                  ))}
+                </div>
+              )}
+              {upcomingMatches.length === 0 && finishedMatches.length > 0 && (
+                <div className="glass-card rounded-xl p-8 text-center">
+                  <p className="text-sm text-muted-foreground">Inga kommande matcher just nu. Se avslutade nedan.</p>
+                </div>
+              )}
+              {finishedMatches.length > 0 && (
+                <Collapsible open={showFinished} onOpenChange={setShowFinished}>
+                  <CollapsibleTrigger asChild>
+                    <button className="flex items-center gap-2 w-full p-3 rounded-lg bg-muted/30 border border-border hover:bg-muted/50 transition-colors text-sm font-medium text-muted-foreground">
+                      <History className="w-4 h-4" />
+                      Avslutade matcher ({finishedMatches.length}) — för ROI-uppföljning
+                      <ChevronDown className={`w-4 h-4 ml-auto transition-transform ${showFinished ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="grid gap-4 sm:grid-cols-2 mt-4">
+                      {finishedMatches.map((match) => (
+                        <MatchCard
+                          key={match.id}
+                          match={match}
+                          prediction={predictions.get(match.id)}
+                          isAnalyzing={analyzingId === match.id}
+                          onAnalyze={() => handleAnalyze(match.id)}
+                          onSave={() => handleSaveMatch(match.id, predictions.get(match.id)?.id)}
+                          isLoggedIn={!!user}
+                        />
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+            </>
           )}
         </>
       )}
