@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 interface AnalysisRequest {
-  type: 'sentiment' | 'ml_prediction' | 'pattern_recognition';
+  type: 'sentiment' | 'ml_prediction' | 'pattern_recognition' | 'deep_analysis';
   ticker: string;
   name: string;
   assetType: 'stock' | 'crypto' | 'metal';
@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!['sentiment', 'ml_prediction', 'pattern_recognition'].includes(type)) {
+    if (!['sentiment', 'ml_prediction', 'pattern_recognition', 'deep_analysis'].includes(type)) {
       return new Response(JSON.stringify({ error: "Invalid analysis type" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -209,9 +209,75 @@ Identifiera eventuella mönster som:
         break;
       }
 
+      case 'deep_analysis': {
+        const newsText = await getRecentNews(ticker, supabase);
+        const hasRealNews = newsText.length > 0;
+
+        // Fetch fundamentals from symbols metadata
+        const { data: symbolData } = await supabase
+          .from('symbols')
+          .select('metadata, sector, exchange')
+          .eq('ticker', ticker)
+          .single();
+
+        const fundamentals = (symbolData?.metadata as any)?.fundamentals || {};
+        const sector = symbolData?.sector || 'Okänd';
+
+        const fundSection = Object.keys(fundamentals).length > 0
+          ? `FUNDAMENTA:\n- P/E: ${fundamentals.peRatio ?? 'N/A'}\n- P/B: ${fundamentals.pbRatio ?? 'N/A'}\n- ROE: ${fundamentals.roe ?? 'N/A'}\n- Revenue Growth: ${fundamentals.revenueGrowth ?? 'N/A'}\n- Dividend Yield: ${fundamentals.dividendYield ?? 'N/A'}\n- Debt/Equity: ${fundamentals.debtToEquity ?? 'N/A'}`
+          : 'FUNDAMENTA: Ej tillgänglig';
+
+        const priceDataSummary = priceHistory && priceHistory.length > 0
+          ? `PRISDATA (${priceHistory.length} datapunkter):\nStart: ${priceHistory[0].price} (${priceHistory[0].timestamp})\nSlut: ${priceHistory[priceHistory.length - 1].price} (${priceHistory[priceHistory.length - 1].timestamp})\nHögsta: ${Math.max(...priceHistory.map(p => p.price))}\nLägsta: ${Math.min(...priceHistory.map(p => p.price))}\nFörändring: ${((priceHistory[priceHistory.length - 1].price / priceHistory[0].price - 1) * 100).toFixed(2)}%`
+          : 'Ingen prishistorik tillgänglig';
+
+        systemPrompt = `Du är en senior investeringsanalytiker som ger djupa, nyanserade aktieanalyser. Du kombinerar teknisk analys, fundamental analys och sentimentanalys till en helhetsbild. Skriv på svenska.
+
+Svara ENDAST med ett JSON-objekt i exakt detta format:
+{
+  "direction": "UP" | "DOWN" | "NEUTRAL",
+  "strength": <number 0-100>,
+  "confidence": <number 0-100>,
+  "summary": "<2-3 meningars sammanfattning>",
+  "deep_reasoning": "<3-5 stycken djupanalys på svenska>",
+  "value_rating": <1-10>,
+  "risk_factors": ["<risk1>", "<risk2>", ...],
+  "catalysts": ["<katalysator1>", "<katalysator2>", ...],
+  "price_targets": { "bear": <number>, "base": <number>, "bull": <number> },
+  "recommendation": "strong_buy" | "buy" | "hold" | "sell" | "strong_sell",
+  "evidence": [
+    { "type": "deep_analysis", "description": "<kort beskrivning>", "value": "<värde>", "source": "GPT-5 Deep Analysis" }
+  ]
+}`;
+
+        userPrompt = `Ge en djupanalys av ${ticker} (${name}).
+Tillgångstyp: ${assetType === 'stock' ? 'aktie' : assetType === 'crypto' ? 'kryptovaluta' : 'råvara'}
+Sektor: ${sector}
+Horisont: ${horizon}
+${currentPrice ? `Aktuellt pris: ${currentPrice}` : ''}
+
+${priceDataSummary}
+
+${fundSection}
+
+${hasRealNews ? `SENASTE NYHETER:\n${newsText}` : 'Inga nyheter tillgängliga.'}
+
+INSTRUKTIONER:
+1. Kombinera teknisk, fundamental och sentimentanalys
+2. Identifiera 2-3 huvudsakliga risker och katalysatorer
+3. Ge pristargets för bear/base/bull scenario
+4. Bedöm value rating (1=övervärderad, 10=kraftigt undervärderad)
+5. Var ärlig om osäkerhet och databegränsningar`;
+        break;
+      }
+
       default:
         throw new Error(`Unknown analysis type: ${type}`);
     }
+
+    // Use GPT-5 for deep analysis, Gemini for others
+    const model = type === 'deep_analysis' ? 'openai/gpt-5' : 'google/gemini-3-flash-preview';
+    const maxTokens = type === 'deep_analysis' ? 4000 : 1000;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -220,13 +286,13 @@ Identifiera eventuella mönster som:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
-        max_tokens: 1000,
+        temperature: type === 'deep_analysis' ? 0.4 : 0.3,
+        max_tokens: maxTokens,
       }),
     });
 

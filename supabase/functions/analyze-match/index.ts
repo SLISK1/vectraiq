@@ -495,7 +495,62 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       });
     }
 
-    // === CONFIDENCE CAPPING (data-driven) ===
+    // === GPT-5 DEEP SYNTHESIS ===
+    let deepAnalysis: string | null = null;
+    try {
+      const deepPrompt = `Du är en expertanalytiker inom fotbollsbetting. Du har fått en strukturerad AI-prediktion och all underliggande data. Din uppgift är att ge en DJUPARE analys som hittar nyanser, risker och möjligheter som den första analysen kan ha missat.
+
+MATCH: ${match.home_team} vs ${match.away_team} (${match.league})
+DATUM: ${new Date(match.match_date).toLocaleDateString("sv-SE")}
+
+STRUKTURERAD PREDIKTION:
+- Vinnare: ${aiResult.predicted_winner} (sannolikhet: ${(aiResult.predicted_prob * 100).toFixed(1)}%)
+- Konfidensgrad: ${aiResult.confidence_raw}/100
+- Nyckelfaktorer: ${JSON.stringify(aiResult.key_factors?.slice(0, 5) || [])}
+- Sidmarknader: ${JSON.stringify(aiResult.side_predictions || {})}
+
+UNDERLIGGANDE DATA:
+${h2hSection}
+${standingsSection}
+${formSection}
+${oddsContext}
+
+NYHETSKONTEXT:
+${newsSection}
+
+INSTRUKTIONER:
+1. Identifiera TAKTISKA faktorer (spelstil, formation, matchtemperament)
+2. Hitta VALUE-möjligheter: var skiljer sig modellens sannolikhet mest från marknadsodds?
+3. Identifiera RISKER som kan göra prediktionen fel
+4. Ge en SAMMANFATTANDE rekommendation med value rating (1-10)
+5. Skriv på svenska, max 400 ord
+6. Var ärlig om osäkerhet`;
+
+      const deepRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${lovableApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-5",
+          messages: [{ role: "user", content: deepPrompt }],
+          temperature: 0.4,
+          max_tokens: 2000,
+        }),
+      });
+
+      if (deepRes.ok) {
+        const deepData = await deepRes.json();
+        deepAnalysis = deepData.choices?.[0]?.message?.content || null;
+        console.log("GPT-5 deep analysis completed successfully");
+      } else {
+        console.warn("GPT-5 deep analysis failed:", deepRes.status);
+      }
+    } catch (e) {
+      console.warn("GPT-5 deep analysis error:", e);
+    }
+
     let confidenceRaw = Math.min(100, Math.max(0, Math.round(aiResult.confidence_raw || 50)));
     let cap = 45; // default: no sources
     const capReasons: string[] = [];
@@ -583,11 +638,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           factors: aiResult.key_factors || [],
           side_predictions: sidePredictions,
           side_edges: sideEdges,
+          deep_analysis: deepAnalysis,
         },
         ai_reasoning: aiResult.ai_reasoning || "",
         sources_used: sources,
         sources_hash: sourcesHash,
-        model_version: "3.0",
+        model_version: "4.0-gpt5",
         market_odds_home: marketOddsHome,
         market_odds_draw: marketOddsDraw,
         market_odds_away: marketOddsAway,
