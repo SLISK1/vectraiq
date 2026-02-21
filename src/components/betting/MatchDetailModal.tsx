@@ -49,11 +49,18 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   news: 'Nyhet',
 };
 
-const SideMarketItem = ({ emoji, label, prob, reasoning }: { emoji: string; label: string; prob: number; reasoning?: string }) => (
+const SideMarketItem = ({ emoji, label, prob, reasoning, edge }: { emoji: string; label: string; prob: number; reasoning?: string; edge?: number | null }) => (
   <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
     <span className="text-lg">{emoji}</span>
-    <div className="min-w-0">
-      <p className="text-sm font-medium">{label}</p>
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">{label}</p>
+        {edge !== null && edge !== undefined && (
+          <span className={`text-xs font-bold ${edge > 0 ? 'text-primary' : 'text-destructive'}`}>
+            Edge: {edge > 0 ? '+' : ''}{Math.round(edge * 100)}%
+          </span>
+        )}
+      </div>
       <p className="text-xs text-primary font-bold">{Math.round(prob * 100)}%</p>
       {reasoning && <p className="text-xs text-muted-foreground mt-0.5">{reasoning}</p>}
     </div>
@@ -85,6 +92,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
   const rawKf = prediction.key_factors;
   const keyFactors: any[] = Array.isArray(rawKf) ? rawKf : (rawKf?.factors || []);
   const sidePredictions = !Array.isArray(rawKf) ? rawKf?.side_predictions : null;
+  const sideEdges: Record<string, number> | null = !Array.isArray(rawKf) ? rawKf?.side_edges || null : null;
   const sourcesUsed: any[] = Array.isArray(prediction.sources_used) ? prediction.sources_used : [];
 
   return (
@@ -176,6 +184,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     label={`Mål ${sidePredictions.total_goals.prediction === 'over' ? 'Över' : 'Under'} ${sidePredictions.total_goals.line}`}
                     prob={sidePredictions.total_goals.prob}
                     reasoning={sidePredictions.total_goals.reasoning}
+                    edge={sideEdges?.total_goals}
                   />
                 )}
                 {sidePredictions.btts && (
@@ -184,6 +193,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     label={`BTTS ${sidePredictions.btts.prediction === 'yes' ? 'Ja' : 'Nej'}`}
                     prob={sidePredictions.btts.prob}
                     reasoning={sidePredictions.btts.reasoning}
+                    edge={sideEdges?.btts}
                   />
                 )}
                 {sidePredictions.corners && (

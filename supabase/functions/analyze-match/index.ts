@@ -14,6 +14,29 @@ const SPORT_ODDS_KEY: Record<string, string> = {
   "Ligue 1": "soccer_france_ligue_one",
   "Champions League": "soccer_uefa_champs_league",
   "Europa League": "soccer_uefa_europa_league",
+  "Conference League": "soccer_uefa_europa_conference_league",
+  "Allsvenskan": "soccer_sweden_allsvenskan",
+  "Superettan": "soccer_sweden_superettan",
+  "Eredivisie": "soccer_netherlands_eredivisie",
+  "Primeira Liga": "soccer_portugal_primeira_liga",
+  "Liga Portugal": "soccer_portugal_primeira_liga",
+  "Premiership": "soccer_spl",
+  "Scottish Premiership": "soccer_spl",
+  "Belgian Pro League": "soccer_belgium_first_div",
+  "Jupiler Pro League": "soccer_belgium_first_div",
+  "Super Lig": "soccer_turkey_super_league",
+  "Süper Lig": "soccer_turkey_super_league",
+  "MLS": "soccer_usa_mls",
+  "World Cup": "soccer_fifa_world_cup",
+  "Copa America": "soccer_conmebol_copa_america",
+  "Euro Championship": "soccer_uefa_european_championship",
+  "Championship": "soccer_efl_champ",
+  "League One": "soccer_england_league1",
+  "League Two": "soccer_england_league2",
+  "Serie B": "soccer_italy_serie_b",
+  "La Liga 2": "soccer_spain_segunda_division",
+  "2. Bundesliga": "soccer_germany_bundesliga2",
+  "Ligue 2": "soccer_france_ligue_two",
   ufc: "mma_mixed_martial_arts",
 };
 
@@ -283,13 +306,17 @@ Deno.serve(async (req) => {
     let marketOddsHome: number | null = null;
     let marketOddsDraw: number | null = null;
     let marketOddsAway: number | null = null;
-    let marketImpliedProb: number | null = null;
+    let marketImpliedProbHome: number | null = null;
+    let marketImpliedProbDraw: number | null = null;
+    let marketImpliedProbAway: number | null = null;
+    let totalsOdds: { line: number; over: number; under: number } | null = null;
+    let bttsOdds: { yes: number; no: number } | null = null;
 
     if (oddsApiKey) {
       const sportKey = SPORT_ODDS_KEY[match.league] || SPORT_ODDS_KEY[match.sport] || "soccer_epl";
       try {
         const oddsRes = await fetch(
-          `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${oddsApiKey}&regions=eu&markets=h2h&oddsFormat=decimal`
+          `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${oddsApiKey}&regions=eu&markets=h2h,totals,btts&oddsFormat=decimal`
         );
         if (oddsRes.ok) {
           const oddsData = await oddsRes.json();
@@ -298,11 +325,15 @@ Deno.serve(async (req) => {
             marketOddsHome = matchedOdds.home;
             marketOddsDraw = matchedOdds.draw;
             marketOddsAway = matchedOdds.away;
+            totalsOdds = matchedOdds.totals || null;
+            bttsOdds = matchedOdds.btts || null;
             const rawHome = 1 / matchedOdds.home;
             const rawDraw = matchedOdds.draw ? 1 / matchedOdds.draw : 0;
             const rawAway = 1 / matchedOdds.away;
             const total = rawHome + rawDraw + rawAway;
-            marketImpliedProb = rawHome / total;
+            marketImpliedProbHome = rawHome / total;
+            marketImpliedProbDraw = rawDraw > 0 ? rawDraw / total : null;
+            marketImpliedProbAway = rawAway / total;
           }
         }
       } catch (e) {
@@ -319,9 +350,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    const oddsContext = marketOddsHome
-      ? `\nMARKET ODDS: Home ${marketOddsHome} | Draw ${marketOddsDraw || "N/A"} | Away ${marketOddsAway}\nMarket implied home win probability: ${marketImpliedProb ? (marketImpliedProb * 100).toFixed(1) + "%" : "N/A"}`
-      : "";
+    let oddsContext = "";
+    if (marketOddsHome) {
+      oddsContext = `\nMARKET ODDS (1X2): Home ${marketOddsHome} | Draw ${marketOddsDraw || "N/A"} | Away ${marketOddsAway}`;
+      oddsContext += `\nImplied probabilities: Home ${marketImpliedProbHome ? (marketImpliedProbHome * 100).toFixed(1) + "%" : "N/A"} | Draw ${marketImpliedProbDraw ? (marketImpliedProbDraw * 100).toFixed(1) + "%" : "N/A"} | Away ${marketImpliedProbAway ? (marketImpliedProbAway * 100).toFixed(1) + "%" : "N/A"}`;
+      if (totalsOdds) {
+        oddsContext += `\nSIDE MARKET ODDS - Total Goals ${totalsOdds.line}: Over ${totalsOdds.over} | Under ${totalsOdds.under}`;
+      }
+      if (bttsOdds) {
+        oddsContext += `\nSIDE MARKET ODDS - BTTS: Yes ${bttsOdds.yes} | No ${bttsOdds.no}`;
+      }
+    }
 
     const prompt = `You are an evidence-based football prediction AI. Use the provided statistical data to calculate probabilities using Poisson distribution logic. Weight table position, form, and H2H history.
 
@@ -453,7 +492,38 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const capReason = capReasons.length > 0 ? capReasons.join("; ") : null;
 
     const predictedProb = Math.min(1, Math.max(0, aiResult.predicted_prob || 0.5));
+    const predictedWinner = aiResult.predicted_winner || "draw";
+
+    // Calculate market_implied_prob for the predicted winner specifically
+    let marketImpliedProb: number | null = null;
+    if (predictedWinner === "home" && marketImpliedProbHome !== null) {
+      marketImpliedProb = marketImpliedProbHome;
+    } else if (predictedWinner === "away" && marketImpliedProbAway !== null) {
+      marketImpliedProb = marketImpliedProbAway;
+    } else if (predictedWinner === "draw" && marketImpliedProbDraw !== null) {
+      marketImpliedProb = marketImpliedProbDraw;
+    }
     const modelEdge = marketImpliedProb !== null ? predictedProb - marketImpliedProb : null;
+
+    // Calculate side market edges
+    const sidePredictions = aiResult.side_predictions || null;
+    let sideEdges: Record<string, number> | null = null;
+    if (sidePredictions) {
+      sideEdges = {};
+      if (sidePredictions.total_goals && totalsOdds) {
+        const isOver = sidePredictions.total_goals.prediction === "over";
+        const sideOdds = isOver ? totalsOdds.over : totalsOdds.under;
+        const impliedProb = 1 / sideOdds;
+        sideEdges.total_goals = (sidePredictions.total_goals.prob || 0) - impliedProb;
+      }
+      if (sidePredictions.btts && bttsOdds) {
+        const isYes = sidePredictions.btts.prediction === "yes";
+        const sideOdds = isYes ? bttsOdds.yes : bttsOdds.no;
+        const impliedProb = 1 / sideOdds;
+        sideEdges.btts = (sidePredictions.btts.prob || 0) - impliedProb;
+      }
+      if (Object.keys(sideEdges).length === 0) sideEdges = null;
+    }
 
     const sourcesStr = JSON.stringify(sources);
     const encoder = new TextEncoder();
@@ -467,14 +537,15 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       .from("betting_predictions")
       .insert({
         match_id,
-        predicted_winner: aiResult.predicted_winner || "draw",
+        predicted_winner: predictedWinner,
         predicted_prob: predictedProb,
         confidence_raw: confidenceRaw,
         confidence_capped: confidenceCapped,
         cap_reason: capReason,
         key_factors: {
           factors: aiResult.key_factors || [],
-          side_predictions: aiResult.side_predictions || null,
+          side_predictions: sidePredictions,
+          side_edges: sideEdges,
         },
         ai_reasoning: aiResult.ai_reasoning || "",
         sources_used: sources,
@@ -579,7 +650,11 @@ function classifyArticle(text: string): "confirmed_fact" | "stats" | "opinion" |
   return "news";
 }
 
-function findMatchInOdds(oddsArray: any[], homeTeam: string, awayTeam: string) {
+function findMatchInOdds(oddsArray: any[], homeTeam: string, awayTeam: string): {
+  home: number; draw: number | null; away: number;
+  totals?: { line: number; over: number; under: number };
+  btts?: { yes: number; no: number };
+} | null {
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
   const normHome = normalize(homeTeam);
   const normAway = normalize(awayTeam);
@@ -593,13 +668,45 @@ function findMatchInOdds(oddsArray: any[], homeTeam: string, awayTeam: string) {
     ) {
       const bookmaker = event.bookmakers?.find((b: any) => b.key === "pinnacle") || event.bookmakers?.[0];
       if (!bookmaker) continue;
+
+      // H2H market
       const h2hMarket = bookmaker.markets?.find((m: any) => m.key === "h2h");
       if (!h2hMarket) continue;
       const outcomes = h2hMarket.outcomes || [];
       const homeOdds = outcomes.find((o: any) => normalize(o.name) === eHome)?.price;
       const awayOdds = outcomes.find((o: any) => normalize(o.name) === eAway)?.price;
       const drawOdds = outcomes.find((o: any) => o.name.toLowerCase() === "draw")?.price;
-      if (homeOdds && awayOdds) return { home: homeOdds, draw: drawOdds || null, away: awayOdds };
+      if (!homeOdds || !awayOdds) continue;
+
+      const result: any = { home: homeOdds, draw: drawOdds || null, away: awayOdds };
+
+      // Totals market (Over/Under)
+      const totalsMarket = bookmaker.markets?.find((m: any) => m.key === "totals");
+      if (totalsMarket) {
+        const totalsOutcomes = totalsMarket.outcomes || [];
+        const overOutcome = totalsOutcomes.find((o: any) => o.name === "Over");
+        const underOutcome = totalsOutcomes.find((o: any) => o.name === "Under");
+        if (overOutcome && underOutcome) {
+          result.totals = {
+            line: overOutcome.point ?? 2.5,
+            over: overOutcome.price,
+            under: underOutcome.price,
+          };
+        }
+      }
+
+      // BTTS market
+      const bttsMarket = bookmaker.markets?.find((m: any) => m.key === "btts");
+      if (bttsMarket) {
+        const bttsOutcomes = bttsMarket.outcomes || [];
+        const yesOutcome = bttsOutcomes.find((o: any) => o.name === "Yes")?.price;
+        const noOutcome = bttsOutcomes.find((o: any) => o.name === "No")?.price;
+        if (yesOutcome && noOutcome) {
+          result.btts = { yes: yesOutcome, no: noOutcome };
+        }
+      }
+
+      return result;
     }
   }
   return null;
