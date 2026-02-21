@@ -439,10 +439,58 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Note: No fallback for stocks/crypto that fail - we only want real data
+    // 6. Fetch market cap from FMP for stocks missing it
+    const FMP_API_KEY = Deno.env.get('FMP_API_KEY');
+    if (FMP_API_KEY) {
+      const idToTicker = new Map(symbols.map(s => [s.id, s.ticker]));
+      const stocksNeedingMcap = priceRecords.filter(p =>
+        (p.source === 'yahoo') && (!p.market_cap || p.market_cap === 0)
+      );
+      if (stocksNeedingMcap.length > 0) {
+        console.log(`Fetching market cap from FMP for ${stocksNeedingMcap.length} stocks`);
+        // US stocks: clean tickers for FMP batch
+        const usTickers = stocksNeedingMcap
+          .map(p => idToTicker.get(p.symbol_id) || '')
+          .filter(t => US_STOCKS.includes(t));
+        if (usTickers.length > 0) {
+          try {
+            const res = await fetch(`https://financialmodelingprep.com/api/v3/profile/${usTickers.join(',')}?apikey=${FMP_API_KEY}`);
+            if (res.ok) {
+              const profiles = await res.json();
+              if (Array.isArray(profiles)) {
+                for (const p of profiles) {
+                  if (p.mktCap > 0) {
+                    const rec = priceRecords.find(r => idToTicker.get(r.symbol_id) === p.symbol);
+                    if (rec) { rec.market_cap = p.mktCap; console.log(`✓ FMP mcap ${p.symbol}: $${(p.mktCap/1e9).toFixed(1)}B`); }
+                  }
+                }
+              }
+            }
+          } catch (e) { console.error('FMP US batch error:', e); }
+        }
+        // Nordic stocks: try Yahoo-style tickers on FMP (e.g. VOLV-B.ST)
+        const nordicNeedMcap = stocksNeedingMcap
+          .map(p => ({ id: p.symbol_id, ticker: idToTicker.get(p.symbol_id) || '' }))
+          .filter(s => NORDIC_STOCKS[s.ticker]);
+        for (const s of nordicNeedMcap.slice(0, 30)) {
+          try {
+            const fmpTicker = NORDIC_STOCKS[s.ticker];
+            const res = await fetch(`https://financialmodelingprep.com/api/v3/profile/${fmpTicker}?apikey=${FMP_API_KEY}`);
+            if (res.ok) {
+              const profiles = await res.json();
+              if (Array.isArray(profiles) && profiles[0]?.mktCap > 0) {
+                const rec = priceRecords.find(r => r.symbol_id === s.id);
+                if (rec) { rec.market_cap = profiles[0].mktCap; console.log(`✓ FMP mcap ${s.ticker}: $${(profiles[0].mktCap/1e9).toFixed(1)}B`); }
+              }
+            }
+            await new Promise(r => setTimeout(r, 150));
+          } catch {}
+        }
+      }
+    }
+
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
     const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id) && !SWEDISH_FUNDS[s.ticker]);
-    
     if (missingSymbols.length > 0) {
       console.log(`⚠ Missing prices for ${missingSymbols.length} symbols: ${missingSymbols.map(s => s.ticker).join(', ')}`);
     }

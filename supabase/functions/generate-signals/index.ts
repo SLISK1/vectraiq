@@ -256,12 +256,14 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     let batchLimit = 20, batchOffset = 0;
-    let horizon = '1d';
+    let horizons: string[] = ['1d'];
     try {
       const body = await req.json();
       if (body?.limit) batchLimit = Math.min(Number(body.limit), 50);
       if (body?.offset) batchOffset = Number(body.offset);
-      if (body?.horizon) horizon = body.horizon;
+      if (body?.horizon) horizons = [body.horizon];
+      if (body?.horizons && Array.isArray(body.horizons)) horizons = body.horizons;
+      if (body?.allHorizons) horizons = ['1d', '1w', '1mo', '1y'];
     } catch {}
 
     // Get active symbols
@@ -278,7 +280,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Generating signals for ${symbols.length} symbols (offset ${batchOffset})`);
+    console.log(`Generating signals for ${symbols.length} symbols, horizons: ${horizons.join(',')}, offset ${batchOffset}`);
 
     const results: { ticker: string; success: boolean; modules?: number; error?: string }[] = [];
     let totalInserted = 0;
@@ -313,61 +315,66 @@ Deno.serve(async (req) => {
           analyzeMacro(),
         ];
 
-        // Delete old signals for this symbol+horizon
-        await supabase.from('signals').delete().eq('symbol_id', symbol.id).eq('horizon', horizon);
+        let symbolInserted = 0;
 
-        // Insert new signals
-        const inserts = signals.map(s => ({
-          symbol_id: symbol.id,
-          module: s.module,
-          direction: s.direction as 'UP' | 'DOWN' | 'NEUTRAL',
-          strength: Math.round(s.strength),
-          confidence: Math.round(s.confidence),
-          coverage: Math.round(s.coverage),
-          horizon: horizon as any,
-          evidence: s.evidence,
-        }));
+        for (const horizon of horizons) {
+          // Delete old signals for this symbol+horizon
+          await supabase.from('signals').delete().eq('symbol_id', symbol.id).eq('horizon', horizon);
 
-        const { error: insertErr } = await supabase.from('signals').insert(inserts);
-        if (insertErr) {
-          results.push({ ticker: symbol.ticker, success: false, error: insertErr.message });
-        } else {
-          totalInserted += inserts.length;
-          results.push({ ticker: symbol.ticker, success: true, modules: inserts.length });
-          
-          // Save prediction snapshot to asset_predictions (append-only)
-          // Aggregate signal into overall direction + confidence
-          const bullish = signals.filter(s => s.direction === 'UP');
-          const bearish = signals.filter(s => s.direction === 'DOWN');
-          const overallDir: Direction = bullish.length > bearish.length ? 'UP' : bearish.length > bullish.length ? 'DOWN' : 'NEUTRAL';
-          const avgConfidence = Math.round(signals.reduce((sum, s) => sum + s.confidence, 0) / signals.length);
-          const totalScore = Math.round(signals.reduce((sum, s) => sum + s.strength, 0) / signals.length);
-          
-          // Get benchmark ticker
-          const assetType = (symbol.asset_type || 'stock') as AssetType;
-          const benchmarkTicker = getBenchmarkTicker(assetType, symbol.currency || 'SEK');
-          const benchmarkPrice = await fetchBenchmarkPrice(benchmarkTicker);
-          
-          await supabase.from('asset_predictions').insert({
+          // Insert new signals
+          const inserts = signals.map(s => ({
             symbol_id: symbol.id,
+            module: s.module,
+            direction: s.direction as 'UP' | 'DOWN' | 'NEUTRAL',
+            strength: Math.round(s.strength),
+            confidence: Math.round(s.confidence),
+            coverage: Math.round(s.coverage),
             horizon: horizon as any,
-            predicted_direction: overallDir,
-            predicted_prob: overallDir === 'UP' ? (bullish.length / signals.length) : (bearish.length / signals.length),
-            confidence: avgConfidence,
-            total_score: totalScore,
-            entry_price: currentPrice,
-            baseline_ticker: benchmarkTicker,
-            baseline_price: benchmarkPrice,
-          });
+            evidence: s.evidence,
+          }));
+
+          const { error: insertErr } = await supabase.from('signals').insert(inserts);
+          if (insertErr) {
+            results.push({ ticker: symbol.ticker, success: false, error: insertErr.message });
+          } else {
+            symbolInserted += inserts.length;
+
+            // Save prediction snapshot
+            const bullish = signals.filter(s => s.direction === 'UP');
+            const bearish = signals.filter(s => s.direction === 'DOWN');
+            const overallDir: Direction = bullish.length > bearish.length ? 'UP' : bearish.length > bullish.length ? 'DOWN' : 'NEUTRAL';
+            const avgConfidence = Math.round(signals.reduce((sum, s) => sum + s.confidence, 0) / signals.length);
+            const totalScore = Math.round(signals.reduce((sum, s) => sum + s.strength, 0) / signals.length);
+
+            const assetType = (symbol.asset_type || 'stock') as AssetType;
+            const benchmarkTicker = getBenchmarkTicker(assetType, symbol.currency || 'SEK');
+            // Only fetch benchmark once per symbol (not per horizon)
+            const benchmarkPrice = horizon === horizons[0] ? await fetchBenchmarkPrice(benchmarkTicker) : null;
+
+            await supabase.from('asset_predictions').insert({
+              symbol_id: symbol.id,
+              horizon: horizon as any,
+              predicted_direction: overallDir,
+              predicted_prob: overallDir === 'UP' ? (bullish.length / signals.length) : (bearish.length / signals.length),
+              confidence: avgConfidence,
+              total_score: totalScore,
+              entry_price: currentPrice,
+              baseline_ticker: benchmarkTicker,
+              baseline_price: benchmarkPrice,
+            });
+          }
         }
+
+        totalInserted += symbolInserted;
+        results.push({ ticker: symbol.ticker, success: true, modules: symbolInserted });
       } catch (e) {
         results.push({ ticker: symbol.ticker, success: false, error: String(e) });
       }
     }
 
-    console.log(`Done: ${totalInserted} signals inserted for ${results.filter(r => r.success).length} symbols`);
+    console.log(`Done: ${totalInserted} signals inserted for ${results.filter(r => r.success).length} symbols across ${horizons.length} horizons`);
 
-    return new Response(JSON.stringify({ inserted: totalInserted, symbols: results.length, offset: batchOffset, results }), {
+    return new Response(JSON.stringify({ inserted: totalInserted, symbols: results.length, horizons, offset: batchOffset, results }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {

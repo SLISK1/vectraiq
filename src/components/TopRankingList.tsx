@@ -75,8 +75,9 @@ export const TopRankingList = ({
             </div>
           ))
         ) : assets.length === 0 ? (
-          <div className="glass-card rounded-xl p-8 text-center text-muted-foreground">
-            Inga signaler tillgängliga för denna horisont
+          <div className="glass-card rounded-xl p-8 text-center text-muted-foreground space-y-2">
+            <p>Inga signaler tillgängliga för denna kombination</p>
+            <p className="text-xs">Prova ett annat filter eller en annan horisont. Tillgångar utan tillräcklig prishistorik filtreras bort automatiskt.</p>
           </div>
         ) : (
           assets.map((asset, index) => (
