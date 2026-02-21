@@ -1,99 +1,108 @@
 
 
-# Integrera Perplexity for djupare tillgangsanalys
+# Fixa och utöka odds-integration i analyze-match
 
-## Nulagsbild
+## Problemanalys
 
-Idag anvander `ai-analysis` edge function enbart:
-- **news_cache** (GNews-rubriker) for sentimentanalys
-- **Prishistorik** (fran klienten) for ML och monsterigenkanning
-- **Gemini LLM** for att tolka data och generera JSON-signaler
+Odds-hämtning finns redan (rad 282-311) men har tre brister:
 
-Det saknas realtidsinformation om nyheter, analytikerrapporter, sektorutveckling och makrotrender som paverkar enskilda tillgangar. Perplexity kan fylla detta gap genom att gora en AI-driven webbsokning for varje tillgang och returnera ett grundat svar med kallor.
+| Problem | Effekt |
+|---------|--------|
+| `SPORT_ODDS_KEY` saknar manga ligor | Matcher i t.ex. Allsvenskan, Eredivisie far aldrig odds |
+| `marketImpliedProb` beraknas alltid for hemmavinst | `model_edge` blir fel nar AI:n tippar borta/oavgjort |
+| Bara h2h-marknaden hamtas | Side predictions (total goals, BTTS) saknar marknadsodds att jamfora mot |
 
 ## Plan
 
-### 1. Anslut Perplexity-connectorn
-Perplexity ar tillganglig som connector men inte ansluten till projektet annu. Forsta steget ar att koppla den, vilket gor `PERPLEXITY_API_KEY` tillganglig som miljovariabel i edge functions.
+### 1. Utoka `SPORT_ODDS_KEY` med fler ligor
 
-### 2. Lagg till Perplexity-sokning i `ai-analysis` edge function
-For varje analystyp (sentiment, ml_prediction, pattern_recognition), gor ett Perplexity-anrop fore Gemini-steget. Sokfrasen anpassas efter tillgangstyp:
+Lagg till alla ligor som The Odds API stodjer:
 
-| Tillgangstyp | Sokfraga |
-|-------------|----------|
-| Aktie | `"{ticker}" "{name}" stock analysis outlook earnings news {year}` |
-| Krypto | `"{ticker}" crypto price prediction analysis market sentiment {year}` |
-| Metall | `"{ticker}" {name} commodity price forecast supply demand {year}` |
-| Fond | `"{name}" fund performance holdings analysis {year}` |
-
-Parametrar:
-- Modell: `sonar`
-- `search_recency_filter: "week"` for ferska resultat
-- `max_tokens: 500` for att halla svarstiden nere
-
-### 3. Injicera Perplexity-kontext i Gemini-prompten
-Perplexitys svar + citations laggs till i user-prompten som en ny sektion:
-
-```
-WEBBANALYS (Perplexity Search):
-{perplexity_response}
-
-Källor: {citation_urls}
+```text
+Allsvenskan -> soccer_sweden_allsvenskan
+Superettan -> soccer_sweden_superettan
+Eredivisie -> soccer_netherlands_eredivisie
+Primeira Liga -> soccer_portugal_primeira_liga
+Premiership -> soccer_spl (Skottland)
+Belgian Pro League -> soccer_belgium_first_div
+Super Lig -> soccer_turkey_super_league
+MLS -> soccer_usa_mls
+World Cup -> soccer_fifa_world_cup
 ```
 
-Detta ger Gemini konkret, grundad information att basera sin analys pa istallet for att gissa.
+Lagg aven till en fallback-sokning mot The Odds API:s sportlista om ingen mappning matchar.
 
-### 4. Utoka assetType for att stodja fonder
-Lagg till `'fund'` som giltig assetType i valideringen och i prompt-bygget. Fonder saknar traditionella nyckeltal men Perplexity kan hamta NAV-utveckling, innehavsforandringar och fondbetyg.
+### 2. Fixa `marketImpliedProb` for predicted winner
 
-### 5. Fallback vid Perplexity-fel
-Om Perplexity-anropet misslyckas (timeout, rate limit, nyckel saknas) fortsatter analysen utan den extra kontexten -- samma beteende som idag. Logga felet for diagnostik.
-
-### 6. Uppdatera evidence med kallor
-Perplexity returnerar `citations[]` (URL-lista). Dessa laggs till i evidence-listan fran Gemini som en extra post:
-
-```json
-{
-  "type": "web_research",
-  "description": "Realtidsdata fran webbsokning",
-  "value": "3 kallor analyserade",
-  "source": "Perplexity Search"
-}
+Nuvarande kod (rad 301-305):
+```text
+marketImpliedProb = rawHome / total  // Alltid hemmavinst!
 ```
+
+Andras till att berakna implied probability for ALLA tre utfall och spara alla tre:
+
+```text
+marketImpliedProbHome = rawHome / total
+marketImpliedProbDraw = rawDraw / total
+marketImpliedProbAway = rawAway / total
+```
+
+Sedan beraknas `model_edge` baserat pa `predicted_winner`:
+- Om predicted_winner = "home": edge = predictedProb - marketImpliedProbHome
+- Om predicted_winner = "away": edge = predictedProb - marketImpliedProbAway
+- Om predicted_winner = "draw": edge = predictedProb - marketImpliedProbDraw
+
+### 3. Hamta odds for sidmarknader (totals + BTTS)
+
+Utoka The Odds API-anropet till att inkludera fler marknader:
+
+```text
+markets=h2h,totals,btts
+```
+
+Spara totals-odds (over/under 2.5) och BTTS-odds i odds-kontexten som skickas till AI-prompten. Detta ger AI:n marknadsdata att jamfora sina side_predictions mot.
+
+### 4. Inkludera sidodds i prompten
+
+Utoka `oddsContext`-stringen med:
+
+```text
+SIDE MARKET ODDS:
+  Over 2.5 goals: {overOdds} | Under 2.5 goals: {underOdds}
+  BTTS Yes: {bttsYesOdds} | BTTS No: {bttsNoOdds}
+```
+
+### 5. Berakna side market edges
+
+Lagg till logik som beraknar edge for sidmarknaderna ocksa, och spara dem i prediction-objektet (i `key_factors` eller som separata falt).
 
 ## Tekniska detaljer
 
 ### Fil som andras
-- `supabase/functions/ai-analysis/index.ts`
+- `supabase/functions/analyze-match/index.ts`
 
-### Nytt flode i edge function
+### Specifika andringspunkter
+
+1. **Rad 8-18**: Utoka `SPORT_ODDS_KEY` med ~10 fler ligor
+2. **Rad 289**: Andra API-anropet till `markets=h2h,totals,btts`
+3. **Rad 296-306**: Uppdatera `findMatchInOdds` for att returnera totals + BTTS-odds utover h2h
+4. **Rad 301-305**: Berakna implied prob for alla tre utfall
+5. **Rad 322-324**: Utoka `oddsContext` med sidmarknadernas odds
+6. **Rad 456**: Fixa `modelEdge`-berakningen baserat pa predicted_winner
+7. **Rad 582-606**: Utoka `findMatchInOdds` for att extrahera totals + BTTS
+
+### Uppdaterad `findMatchInOdds` returntyp
 
 ```text
-1. Validera input + auth (oforandrat)
-2. [NY] Gor Perplexity-sokning parallellt med news_cache-hamtning
-3. Bygg system/user-prompt MED Perplexity-kontext
-4. Anropa Gemini (oforandrat)
-5. Returnera resultat med utokad evidence
-```
-
-### Perplexity API-anrop (i edge function)
-```text
-POST https://api.perplexity.ai/chat/completions
-Headers: Authorization: Bearer ${PERPLEXITY_API_KEY}
-Body: {
-  model: "sonar",
-  messages: [{ role: "user", content: searchQuery }],
-  search_recency_filter: "week",
-  max_tokens: 500
+{
+  home: number,
+  draw: number | null,
+  away: number,
+  totals?: { line: number, over: number, under: number },
+  btts?: { yes: number, no: number }
 }
-Response: { choices: [{ message: { content: "..." } }], citations: ["url1", "url2"] }
 ```
-
-### Paverkan pa prestanda
-- Perplexity-anropet tar ~1-3 sekunder
-- Kors parallellt med news_cache-hamtning sa total extra latens ar minimal
-- Haller max_tokens lagt (500) for snabb respons
 
 ### Ingen databasandring kravs
-All data floder genom edge function -> klient. Inga nya tabeller eller kolumner behovs.
+Alla nya varden sparas i befintliga JSONB-kolumner (`key_factors`, `sources_used`) eller i de redan existerande odds-kolumnerna.
 
