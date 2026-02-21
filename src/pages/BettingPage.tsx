@@ -58,6 +58,7 @@ export const BettingPage = () => {
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [poolData, setPoolData] = useState<any>(null);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
+  const [selectedLeague, setSelectedLeague] = useState<string>('all');
 
   const { user } = useAuth();
   const { toast } = useToast();
@@ -218,10 +219,17 @@ export const BettingPage = () => {
     if (!isPoolSport) {
       loadMatches();
       setPoolData(null);
+      setSelectedLeague('all');
     } else {
       setMatches([]);
     }
   }, [selectedSport]);
+
+  // Extract unique leagues and filter
+  const leagues = [...new Set(matches.map(m => m.league))];
+  const filteredMatches = selectedLeague === 'all'
+    ? matches
+    : matches.filter(m => m.league === selectedLeague);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -256,6 +264,37 @@ export const BettingPage = () => {
           ))}
         </div>
       </div>
+
+      {/* League filter */}
+      {!isPoolSport && leagues.length > 1 && (
+        <div className="glass-card rounded-xl p-3">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <button
+              onClick={() => setSelectedLeague('all')}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                selectedLeague === 'all'
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-muted/50 text-muted-foreground border-border hover:text-foreground'
+              }`}
+            >
+              Alla ({matches.length})
+            </button>
+            {leagues.map(league => (
+              <button
+                key={league}
+                onClick={() => setSelectedLeague(league)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  selectedLeague === league
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/50 text-muted-foreground border-border hover:text-foreground'
+                }`}
+              >
+                {league} ({matches.filter(m => m.league === league).length})
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Match view */}
       {!isPoolSport && (
@@ -294,7 +333,7 @@ export const BettingPage = () => {
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              {matches.map((match) => (
+              {filteredMatches.map((match) => (
                 <MatchCard
                   key={match.id}
                   match={match}

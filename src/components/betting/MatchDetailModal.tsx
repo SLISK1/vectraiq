@@ -71,7 +71,9 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
   const edge = prediction.model_edge;
   const isCapped = prediction.confidence_capped < prediction.confidence_raw;
 
-  const keyFactors: any[] = Array.isArray(prediction.key_factors) ? prediction.key_factors : [];
+  const rawKf = prediction.key_factors;
+  const keyFactors: any[] = Array.isArray(rawKf) ? rawKf : (rawKf?.factors || []);
+  const sidePredictions = !Array.isArray(rawKf) ? rawKf?.side_predictions : null;
   const sourcesUsed: any[] = Array.isArray(prediction.sources_used) ? prediction.sources_used : [];
 
   return (
@@ -146,6 +148,71 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                   <div className={`flex items-center gap-1 font-bold ${edge > 0 ? 'text-primary' : 'text-destructive'}`}>
                     {edge > 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
                     Edge: {edge > 0 ? '+' : ''}{Math.round(edge * 100)}%
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Side Predictions */}
+          {sidePredictions && (
+            <div className="rounded-xl bg-muted/30 border border-border/50 p-4 space-y-3">
+              <h3 className="text-sm font-semibold">Sidomarknader</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {sidePredictions.total_goals && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
+                    <span className="text-lg">⚽</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        Mål {sidePredictions.total_goals.prediction === 'over' ? 'Över' : 'Under'} {sidePredictions.total_goals.line}
+                      </p>
+                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.total_goals.prob * 100)}%</p>
+                      {sidePredictions.total_goals.reasoning && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.total_goals.reasoning}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {sidePredictions.btts && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
+                    <span className="text-lg">🎯</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        BTTS {sidePredictions.btts.prediction === 'yes' ? 'Ja' : 'Nej'}
+                      </p>
+                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.btts.prob * 100)}%</p>
+                      {sidePredictions.btts.reasoning && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.btts.reasoning}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {sidePredictions.corners && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
+                    <span className="text-lg">🚩</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        Hörnor {sidePredictions.corners.prediction === 'over' ? 'Över' : 'Under'} {sidePredictions.corners.line}
+                      </p>
+                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.corners.prob * 100)}%</p>
+                      {sidePredictions.corners.reasoning && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.corners.reasoning}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {sidePredictions.cards && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
+                    <span className="text-lg">🟨</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        Kort {sidePredictions.cards.prediction === 'over' ? 'Över' : 'Under'} {sidePredictions.cards.line}
+                      </p>
+                      <p className="text-xs text-primary font-bold">{Math.round(sidePredictions.cards.prob * 100)}%</p>
+                      {sidePredictions.cards.reasoning && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{sidePredictions.cards.reasoning}</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
