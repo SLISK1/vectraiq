@@ -1,69 +1,69 @@
 
-# Fler datakällor i matchanalysen
 
-## Nuläge
-`analyze-match` använder idag 4 källor:
-- **Football-Data.org** - H2H, tabellposition, form
-- **GNews** - 5 nyhetsartiklar
-- **Firecrawl Search** - 3 webbartiklar med markdown-innehall (budgetbegransad)
-- **The Odds API** - marknadsodds
+# Fixa saknad data i Dashboard-filtren
 
-Outnyttjade resurser:
-- `NEWSAPI_KEY` - konfigurerad men oanvand i analysen
-- Perplexity - tillganglig som connector, ger AI-sokning med kallhanvisningar
+## Problemanalys
+
+Tre separata dataproblem orsakar de tomma fälten:
+
+| Problem | Orsak | Omfattning |
+|---------|-------|------------|
+| **Large Cap / Mid Cap** tomt | `market_cap = 0` for alla 352 aktier i `raw_prices` | 100% av aktier |
+| **Fonder / Metaller** tomt | 0 rader i `price_history` for dessa tillgangstyper | 11 symboler |
+| **Top 10 UP/DOWN** tomt | Signaler genereras bara for `1d`-horisonten | 3 av 4 horisonter |
 
 ## Plan
 
-### 1. Lagg till Perplexity som primarkalla for djupanalys
-Perplexity gor en AI-driven webbsokning (i princip "Google + sammanfattning") och returnerar ett grundat svar med kallor. Detta ersatter behovet av att manuellt soka och tolka flera webbsidor.
+### 1. Fixa market_cap-data for aktier
 
-- Anslut Perplexity-connectorn till projektet
-- I `analyze-match/index.ts`, lagg till ett Perplexity-anrop som soker efter match-preview, skadeinfo och taktikanalys
-- Anvand `sonar`-modellen med `search_recency_filter: 'week'` for att fa ferska resultat
-- Inkludera citations i prompt-kontexten for AI:n
+Problemet: `fetch-prices` edge function hamtar priser men sparar inte `market_cap` korrekt for aktier (FMP returnerar det i ett annat format an krypto).
 
-### 2. Lagg till NewsAPI som kompletterande nyhetskalla
-`NEWSAPI_KEY` finns redan men anvands inte i analyze-match.
+- Granska `fetch-prices/index.ts` for att se hur market_cap populeras
+- Fixa mappningen sa att FMP:s market cap-data sparas i `raw_prices.market_cap`
+- Kor funktionen for att uppdatera alla aktier
 
-- Lagg till ett NewsAPI-anrop i `analyze-match/index.ts` (endpoint: `everything`)
-- Sok efter `"{home_team}" AND "{away_team}"` senaste 7 dagarna
-- Hamta upp till 5 artiklar, klassificera dem med befintlig `classifyArticle`-funktion
-- Merga med GNews-artiklarna (deduplicera pa URL)
+### 2. Lagg till prishistorik for fonder och metaller
 
-### 3. Uppdatera prompt-byggare
-- Ny funktion `buildPerplexitySection()` som formaterar Perplexitys sammanfattning och kallor
-- Utoka `buildNewsSection()` for att hantera artiklar fran bade GNews och NewsAPI
-- Uppdatera evidence gating: Perplexity-svar med citations hojer confidence cap ytterligare
+Problemet: `fetch-history` edge function hanterar troligen inte dessa tillgangstyper.
 
-### 4. Uppdatera evidence gating och sources
-- Perplexity-kallor laggs till i `sources[]` med typ "stats" eller "confirmed_fact" beroende pa innehall
-- NewsAPI-kallor laggs till pa samma satt som GNews
-- Om Perplexity returnerar skadeinfo setts `hasInjuryData = true`
+- Granska `fetch-history/index.ts` for att se vilka symboler som inkluderas
+- Sakerfall att fonder (7 st) och metaller (4 st) inkluderas i batch-korningen
+- Trigga en manuell historik-hamtning for dessa 11 symboler
+
+### 3. Generera signaler for fler horisonter
+
+Problemet: `generate-signals` edge function kor bara for `1d`.
+
+- Granska `generate-signals/index.ts` for att se vilka horisonter som stods
+- Utoka till att generera signaler for `1w`, `1mo` och `1y`
+- Alternativt: anvand lokalt beraknade signaler (som screener:n redan gor) som fallback i dashboarden nar databassignaler saknas
+
+### 4. Uppdatera filtrering i dashboarden
+
+- Hantera fallet dar `market_cap = 0` battre i UI:t (visa "Saknar data" istallet for att doja tillgangen)
+- Lagg till en fallback i Top 10-listan som beraknar signaler lokalt om databassignaler saknas for vald horisont
 
 ## Tekniska detaljer
 
-### Perplexity-integration (i edge function)
+### Filer som andras
+- `supabase/functions/fetch-prices/index.ts` -- fixa market_cap-mappning
+- `supabase/functions/fetch-history/index.ts` -- inkludera fonder/metaller
+- `supabase/functions/generate-signals/index.ts` -- stod for fler horisonter
+- `src/hooks/useMarketData.ts` -- fallback-logik for signaler
+- `src/pages/Index.tsx` (eller relevant dashboard-komponent) -- UI-hantering av saknad data
+
+### Dataflode efter fix
+
 ```text
-POST https://api.perplexity.ai/chat/completions
-{
-  model: "sonar",
-  messages: [{ role: "user", content: "{home} vs {away} {league} match preview injuries team news form" }],
-  search_recency_filter: "week"
-}
-```
-Returnerar: svar med `citations[]` (URL-lista) som kan anvandas som kallor.
-
-### NewsAPI-integration
-```text
-GET https://newsapi.org/v2/everything?q="{home}" AND "{away}"&from={7dagar}&sortBy=relevancy&pageSize=5&apiKey={key}
+fetch-prices -> raw_prices (med market_cap for aktier)
+fetch-history -> price_history (for alla tillgangstyper)
+generate-signals -> signals (for 1d, 1w, 1mo, 1y)
+Dashboard -> Laser signals + fallback till lokal analys
 ```
 
-### Ordning av datahemtning (parallelliserad)
-Alla externa anrop (Football-Data H2H, standings, GNews, NewsAPI, Perplexity, Firecrawl, Odds) kors med `Promise.allSettled()` dar det ar mojligt for att minimera svarstid. Football-Data har rate-limit (6s) sa de forblir sekventiella.
+### Prioriteringsordning
+1. Market cap-fix (storst paverkan -- laser Large/Mid Cap for 352 aktier)
+2. Prishistorik for fonder/metaller (laser 11 symboler)
+3. Signaler for fler horisonter (laser Top 10 for alla horisonter)
+4. UI-fallbacks (forbattrar upplevelsen aven nar data saknas)
 
-### Paverkan pa Firecrawl-budget
-Firecrawl behalles for hog-impact-matcher men Perplexity minskar beroendet av Firecrawl for vanliga matcher, vilket sparar Firecrawl-credits.
-
-## Filer som andras
-- `supabase/functions/analyze-match/index.ts` - lagg till Perplexity + NewsAPI, ny prompt-sektion, uppdaterad evidence gating
-- Ingen databasandring kravs (sources_used ar redan JSONB)
