@@ -250,13 +250,18 @@ export const BettingPage = () => {
     ? matches
     : matches.filter(m => m.league === selectedLeague);
 
-  // Split into upcoming/live and finished
+  // Split into upcoming and finished/played
+  // A match is considered "played" if status is FINISHED or match_date is in the past
   const now = new Date();
+  const isMatchPlayed = (m: BettingMatch) => {
+    if (m.status === 'FINISHED' || m.status === 'finished') return true;
+    return new Date(m.match_date) < now;
+  };
   const upcomingMatches = filteredMatches
-    .filter(m => m.status !== 'FINISHED' && m.status !== 'finished')
+    .filter(m => !isMatchPlayed(m))
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime());
   const finishedMatches = filteredMatches
-    .filter(m => m.status === 'FINISHED' || m.status === 'finished')
+    .filter(m => isMatchPlayed(m))
     .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime());
 
   const [showFinished, setShowFinished] = useState(false);
