@@ -77,7 +77,7 @@ const getStaticMacroData = (): MacroData => {
 // Analyze how macro affects different asset types
 const analyzeMacroImpact = (
   macro: MacroData,
-  assetType: 'stock' | 'crypto' | 'metal',
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
   horizon: Horizon
 ): { score: number; signals: Evidence[] } => {
   let score = 0;
@@ -164,7 +164,7 @@ export const analyzeMacro = (
   priceHistory: PriceData[],
   currentPrice: number,
   horizon: Horizon,
-  assetType: 'stock' | 'crypto' | 'metal'
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund'
 ): AnalysisResult => {
   const evidence: Evidence[] = [];
   

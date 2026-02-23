@@ -413,7 +413,7 @@ export const runAsyncAnalyses = async (
 export const createAnalysisContext = (
   ticker: string,
   name: string,
-  assetType: 'stock' | 'crypto' | 'metal',
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
   currency: string,
   currentPrice: number,
   priceHistory: PriceData[],

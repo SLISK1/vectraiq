@@ -21,7 +21,7 @@ const ML_CACHE_TTL = 5 * 60 * 1000;
 export const fetchAIMLPrediction = async (
   ticker: string,
   name: string,
-  assetType: 'stock' | 'crypto' | 'metal',
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
   horizon: Horizon,
   priceHistory: PriceData[],
   currentPrice: number
@@ -83,7 +83,7 @@ export const analyzeML = async (
   horizon: Horizon,
   ticker: string,
   name: string,
-  assetType: 'stock' | 'crypto' | 'metal'
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund'
 ): Promise<AnalysisResult> => {
   const evidence: Evidence[] = [];
   

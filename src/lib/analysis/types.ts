@@ -120,7 +120,7 @@ export interface MLPrediction {
 export interface AnalysisContext {
   ticker: string;
   name: string;
-  assetType: 'stock' | 'crypto' | 'metal';
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund';
   currency: string;
   horizon: Horizon;
   currentPrice: number;
