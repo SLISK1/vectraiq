@@ -161,35 +161,39 @@ Deno.serve(async (req) => {
       });
     }
 
-    // === FIRE-AND-FORGET: fetch-history, fetch-prices, generate-signals ===
+    // === SEQUENTIAL AWAIT: fetch-history + fetch-prices, then generate-signals ===
     const internalHeaders = {
       Authorization: `Bearer ${supabaseServiceKey}`,
       "Content-Type": "application/json",
       "X-Internal-Call": "true",
     };
 
-    // 1. Fetch history (365 days)
-    fetch(`${supabaseUrl}/functions/v1/fetch-history`, {
-      method: "POST",
-      headers: internalHeaders,
-      body: JSON.stringify({ tickers: [cleanTicker], days: 365 }),
-    }).catch(() => {});
-
-    // 2. Fetch live prices
-    fetch(`${supabaseUrl}/functions/v1/fetch-prices`, {
-      method: "POST",
-      headers: internalHeaders,
-      body: JSON.stringify({ tickers: [cleanTicker] }),
-    }).catch(() => {});
-
-    // 3. Generate signals (delayed slightly to allow price data to arrive)
-    setTimeout(() => {
-      fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
+    // 1. Fetch history + prices in parallel (both must complete before signals)
+    const [histRes, priceRes] = await Promise.allSettled([
+      fetch(`${supabaseUrl}/functions/v1/fetch-history`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: JSON.stringify({ tickers: [cleanTicker], days: 365 }),
+      }),
+      fetch(`${supabaseUrl}/functions/v1/fetch-prices`, {
         method: "POST",
         headers: internalHeaders,
         body: JSON.stringify({ tickers: [cleanTicker] }),
-      }).catch(() => {});
-    }, 5000);
+      }),
+    ]);
+
+    console.log(`History: ${histRes.status}, Prices: ${priceRes.status}`);
+
+    // 2. Generate signals AFTER price data is available
+    try {
+      await fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: JSON.stringify({ tickers: [cleanTicker], allHorizons: true }),
+      });
+    } catch (e) {
+      console.warn('generate-signals trigger failed:', e);
+    }
 
     console.log(`User ${userId} added symbol: ${cleanTicker} (${displayName}, ${assetType}, ${currency})`);
 
