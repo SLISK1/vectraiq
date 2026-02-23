@@ -146,15 +146,20 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
                   {asset.predictedReturns.week1 >= 0 ? '+' : ''}{asset.predictedReturns.week1}%
                 </div>
               </div>
-              <div className="p-3 rounded-lg bg-muted/30 text-center">
-                <div className="text-xs text-muted-foreground mb-1">1 månad</div>
-                <div className={cn(
-                  "font-mono font-bold text-lg",
-                  asset.predictedReturns.month1 >= 0 ? "text-up" : "text-down"
-                )}>
-                  {asset.predictedReturns.month1 >= 0 ? '+' : ''}{asset.predictedReturns.month1}%
-                </div>
-              </div>
+              {(() => {
+                const month1 = asset.predictedReturns.month1 ?? Math.round(((asset.predictedReturns.week1 * 4 + asset.predictedReturns.year1 / 3) / 2) * 100) / 100;
+                return (
+                  <div className="p-3 rounded-lg bg-muted/30 text-center">
+                    <div className="text-xs text-muted-foreground mb-1">1 månad</div>
+                    <div className={cn(
+                      "font-mono font-bold text-lg",
+                      month1 >= 0 ? "text-up" : "text-down"
+                    )}>
+                      {month1 >= 0 ? '+' : ''}{month1}%
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="p-3 rounded-lg bg-muted/30 text-center">
                 <div className="text-xs text-muted-foreground mb-1">1 år</div>
                 <div className={cn(
