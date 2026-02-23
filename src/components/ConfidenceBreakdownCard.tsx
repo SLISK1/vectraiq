@@ -1,6 +1,6 @@
 import { ConfidenceBreakdown } from '@/types/market';
 import { cn } from '@/lib/utils';
-import { Clock, Database, Users, History, Activity } from 'lucide-react';
+import { Clock, Database, Users, Zap, Activity, BarChart3 } from 'lucide-react';
 
 interface ConfidenceBreakdownCardProps {
   breakdown: ConfidenceBreakdown;
@@ -9,10 +9,10 @@ interface ConfidenceBreakdownCardProps {
 }
 
 const metrics: { key: keyof ConfidenceBreakdown; label: string; icon: typeof Clock; weight: number; description: string; inverted?: boolean }[] = [
-  { key: 'freshness', label: 'Data-fräschör', icon: Clock, weight: 25, description: 'Hur nyligen data uppdaterades' },
-  { key: 'coverage', label: 'Datatäckning', icon: Database, weight: 20, description: 'Andel tillgänglig data' },
-  { key: 'agreement', label: 'Signal-enighet', icon: Users, weight: 25, description: 'Hur många moduler pekar samma riktning' },
-  { key: 'reliability', label: 'Historisk träffsäkerhet', icon: History, weight: 20, description: 'Hur väl signalen funkat tidigare' },
+  { key: 'freshness', label: 'Data-fräschör', icon: Clock, weight: 15, description: 'Hur nyligen data uppdaterades' },
+  { key: 'coverage', label: 'Datatäckning', icon: Database, weight: 25, description: 'Andel tillgänglig data' },
+  { key: 'agreement', label: 'Signal-enighet', icon: Users, weight: 25, description: 'Hur många moduler pekar samma riktning (signerad)' },
+  { key: 'signalStrength', label: 'Signalstyrka', icon: Zap, weight: 25, description: 'Modulernas interna konfidens (ej historisk träff)' },
   { key: 'regimeRisk', label: 'Volatilitetsrisk', icon: Activity, weight: 10, description: 'Lägre vid extremvolatilitet', inverted: true },
 ];
 
@@ -39,6 +39,7 @@ export const ConfidenceBreakdownCard = ({ breakdown, totalConfidence, className 
       <div className="space-y-3">
         {metrics.map(({ key, label, icon: Icon, weight, description, inverted }) => {
           const value = breakdown[key as keyof ConfidenceBreakdown];
+          if (typeof value !== 'number') return null;
           const displayValue = inverted ? 100 - value : value;
           const contribution = (weight / 100) * displayValue;
 
@@ -71,11 +72,38 @@ export const ConfidenceBreakdownCard = ({ breakdown, totalConfidence, className 
             </div>
           );
         })}
+
+        {/* Empirical reliability (from DB) */}
+        {breakdown.empiricalReliability != null && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-muted-foreground" />
+                <span>Historisk träffsäkerhet</span>
+                {breakdown.lowSampleWarning && (
+                  <span className="text-xs text-amber-500">(lågt N)</span>
+                )}
+              </div>
+              <span className={cn("font-mono", getColorClass(breakdown.empiricalReliability).split(' ')[0])}>
+                {breakdown.empiricalReliability}%
+              </span>
+            </div>
+            <div className="relative h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className={cn("absolute inset-y-0 left-0 rounded-full transition-all duration-500", getColorClass(breakdown.empiricalReliability))}
+                style={{ width: `${breakdown.empiricalReliability}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Bayesiansk posterior av modulernas faktiska träffar (från self-learning)
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="pt-3 border-t border-border/50">
         <p className="text-xs text-muted-foreground">
-          <strong>Formel:</strong> 0.25×fräschör + 0.20×täckning + 0.25×enighet + 0.20×träffsäkerhet + 0.10×(100 - regimrisk)
+          <strong>Formel:</strong> 0.15×fräschör + 0.25×täckning + 0.25×enighet + 0.25×signalstyrka + 0.10×(100 − regimrisk)
         </p>
       </div>
     </div>

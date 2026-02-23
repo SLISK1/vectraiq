@@ -1,4 +1,5 @@
 // Trend Duration and Stop/Loss Prediction Module
+// Fixed: symmetric R:R for DOWN, min stop distance guardrail, method naming (J)
 
 import { Direction, Horizon, TrendPrediction } from '@/types/market';
 import { PriceData } from './types';
@@ -45,11 +46,9 @@ const findSupportResistance = (prices: PriceData[], direction: Direction): { sup
   const lows = recentPrices.map(p => p.low || p.price);
   const highs = recentPrices.map(p => p.high || p.price);
   
-  // Find clusters of support/resistance
   const sortedLows = [...lows].sort((a, b) => a - b);
   const sortedHighs = [...highs].sort((a, b) => a - b);
   
-  // Use 20th percentile for support, 80th for resistance
   const supportIdx = Math.floor(sortedLows.length * 0.2);
   const resistanceIdx = Math.floor(sortedHighs.length * 0.8);
   
@@ -85,7 +84,6 @@ const calculateHistoricalTrendDurations = (prices: PriceData[]): number[] => {
     }
   }
   
-  // Add final trend
   if (currentDirection !== 'NEUTRAL') {
     durations.push(prices.length - trendStart);
   }
@@ -107,58 +105,60 @@ const horizonToDays: Record<Horizon, number> = {
 export const calculateTrendPrediction = (input: TrendAnalysisInput): TrendPrediction => {
   const { priceHistory, currentPrice, direction, confidence, horizon, volatilityScore } = input;
   
-  // Calculate ATR for volatility-based stop loss
   const atr = calculateATR(priceHistory);
-  const atrMultiplier = 2; // Standard ATR multiplier for stop loss
+  const atrMultiplier = 2;
   
-  // Find support/resistance
   const { support, resistance } = findSupportResistance(priceHistory, direction);
   
-  // Calculate stop loss based on multiple methods
-  const atrStopDistance = atr * atrMultiplier;
-  const supportStopDistance = Math.abs(currentPrice - support);
-  const volatilityStopDistance = currentPrice * (volatilityScore / 100) * 0.15; // 15% of volatility score
+  // Min stop distance guardrail: max(ATR * 1.5, price * 2%)
+  const minStopDistance = Math.max(atr * 1.5, currentPrice * 0.02);
   
-  // Choose the tightest reasonable stop
+  // Calculate stop loss based on multiple methods
+  const atrStopDistance = Math.max(atr * atrMultiplier, minStopDistance);
+  const volatilityStopDistance = Math.max(currentPrice * (volatilityScore / 100) * 0.15, minStopDistance);
+  
   let stopLossPrice: number;
-  let stopLossMethod: 'atr' | 'support' | 'volatility';
+  let stopLossMethod: 'atr' | 'support' | 'resistance' | 'volatility';
   
   if (direction === 'UP') {
+    const supportStopDistance = Math.max(Math.abs(currentPrice - support), minStopDistance);
     const stops = [
       { price: currentPrice - atrStopDistance, method: 'atr' as const },
-      { price: Math.max(support, currentPrice * 0.9), method: 'support' as const },
+      { price: currentPrice - supportStopDistance, method: 'support' as const },
       { price: currentPrice - volatilityStopDistance, method: 'volatility' as const },
     ];
+    // Choose tightest stop (highest price = closest to current)
     const best = stops.reduce((a, b) => a.price > b.price ? a : b);
     stopLossPrice = best.price;
     stopLossMethod = best.method;
   } else if (direction === 'DOWN') {
-    // For short positions, stop loss is above current price
+    // For short: stop loss ABOVE current price, use resistance
+    const resistanceStopDistance = Math.max(Math.abs(resistance - currentPrice), minStopDistance);
     const stops = [
       { price: currentPrice + atrStopDistance, method: 'atr' as const },
-      { price: Math.min(resistance, currentPrice * 1.1), method: 'support' as const },
+      { price: currentPrice + resistanceStopDistance, method: 'resistance' as const },
       { price: currentPrice + volatilityStopDistance, method: 'volatility' as const },
     ];
+    // Choose tightest stop (lowest price = closest to current)
     const best = stops.reduce((a, b) => a.price < b.price ? a : b);
     stopLossPrice = best.price;
     stopLossMethod = best.method;
   } else {
-    // Neutral - use volatility-based
-    stopLossPrice = currentPrice * (1 - volatilityScore / 1000);
+    // NEUTRAL — use volatility-based, wider stop
+    stopLossPrice = currentPrice * (1 - Math.max(volatilityScore / 1000, 0.02));
     stopLossMethod = 'volatility';
   }
   
   const stopLossPercentage = Math.abs((stopLossPrice - currentPrice) / currentPrice) * 100;
-  
-  // Calculate take profit levels based on risk/reward
   const riskAmount = Math.abs(currentPrice - stopLossPrice);
   
+  // Calculate take profit levels
   const calculateTP = (ratio: number): { price: number; percentage: number } => {
     const tpDistance = riskAmount * ratio;
-    const tpPrice = direction === 'UP' 
-      ? currentPrice + tpDistance 
-      : direction === 'DOWN' 
-        ? currentPrice - tpDistance 
+    const tpPrice = direction === 'UP'
+      ? currentPrice + tpDistance
+      : direction === 'DOWN'
+        ? currentPrice - tpDistance
         : currentPrice + tpDistance;
     return {
       price: Math.round(tpPrice * 100) / 100,
@@ -166,21 +166,17 @@ export const calculateTrendPrediction = (input: TrendAnalysisInput): TrendPredic
     };
   };
   
-  // Calculate trend duration based on historical data and horizon
+  // Calculate trend duration
   const historicalDurations = calculateHistoricalTrendDurations(priceHistory);
   const avgDuration = historicalDurations.reduce((a, b) => a + b, 0) / historicalDurations.length;
-  const maxHistoricalDuration = Math.max(...historicalDurations);
   
-  const horizonDays = horizonToDays[horizon];
-  
-  // Adjust trend duration based on confidence and volatility
+  const hDays = horizonToDays[horizon];
   const confidenceMultiplier = confidence / 100;
-  const volatilityPenalty = 1 - (volatilityScore / 200); // Higher volatility = shorter trends
+  const volatilityPenalty = 1 - (volatilityScore / 200);
+  const baseDuration = Math.max(hDays, avgDuration * 0.5);
+  const likelyDuration = Math.max(1, Math.round(baseDuration * confidenceMultiplier * volatilityPenalty));
   
-  const baseDuration = Math.max(horizonDays, avgDuration * 0.5);
-  const likelyDuration = Math.round(baseDuration * confidenceMultiplier * volatilityPenalty);
-  
-  // Calculate trend strength (how strongly is the trend continuing)
+  // Trend strength
   const recentPrices = priceHistory.slice(-10);
   let trendStrength = 50;
   if (recentPrices.length >= 2) {
@@ -192,19 +188,31 @@ export const calculateTrendPrediction = (input: TrendAnalysisInput): TrendPredic
     }
   }
   
-  // Calculate reversal risk based on trend exhaustion and volatility
-  const exhaustionLevel = Math.min(100, (confidence - 30) * 1.5); // High confidence can mean exhaustion
+  // Reversal risk
   const reversalRisk = Math.round(
-    (100 - trendStrength) * 0.4 + 
-    volatilityScore * 0.3 + 
+    (100 - trendStrength) * 0.4 +
+    volatilityScore * 0.3 +
     (100 - confidence) * 0.3
   );
+  
+  // === J: Symmetric risk/reward ratio ===
+  let riskRewardRatio: number;
+  if (direction === 'UP') {
+    const reward = resistance - currentPrice;
+    riskRewardRatio = riskAmount > 0 ? Math.round((reward / riskAmount) * 100) / 100 : 0;
+  } else if (direction === 'DOWN') {
+    const reward = currentPrice - support;
+    riskRewardRatio = riskAmount > 0 ? Math.round((reward / riskAmount) * 100) / 100 : 0;
+  } else {
+    // NEUTRAL: R:R is meaningless
+    riskRewardRatio = 0;
+  }
   
   return {
     trendDuration: {
       minDays: Math.max(1, Math.round(likelyDuration * 0.5)),
       maxDays: Math.round(likelyDuration * 2),
-      likelyDays: Math.max(1, likelyDuration),
+      likelyDays: likelyDuration,
     },
     stopLoss: {
       price: Math.round(stopLossPrice * 100) / 100,
@@ -212,11 +220,11 @@ export const calculateTrendPrediction = (input: TrendAnalysisInput): TrendPredic
       method: stopLossMethod,
     },
     takeProfit: {
-      conservative: calculateTP(1.5), // 1.5:1 risk/reward
-      moderate: calculateTP(2.5),     // 2.5:1 risk/reward
-      aggressive: calculateTP(4),     // 4:1 risk/reward
+      conservative: calculateTP(1.5),
+      moderate: calculateTP(2.5),
+      aggressive: calculateTP(4),
     },
-    riskRewardRatio: Math.round(((resistance - currentPrice) / riskAmount) * 100) / 100,
+    riskRewardRatio: Math.max(0, riskRewardRatio),
     trendStrength: Math.round(trendStrength),
     reversalRisk: Math.min(100, Math.max(0, reversalRisk)),
   };

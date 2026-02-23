@@ -1,11 +1,35 @@
 // Volatility Analysis Module
 // Historical volatility, regime detection, risk metrics
+// Fixed: sampling interval detection (I)
 
 import { AnalysisResult, PriceData, VolatilityMetrics } from './types';
 import { Direction, Horizon, Evidence } from '@/types/market';
 
-// Calculate historical volatility (annualized)
-const calculateHistoricalVolatility = (prices: number[], period: number = 20): number => {
+// Infer annualization factor from data timestamps using MEDIAN delta (robust to gaps)
+export const inferPeriodsPerYear = (priceHistory: PriceData[]): number => {
+  if (priceHistory.length < 2) return 252; // Default to daily
+  
+  const deltas: number[] = [];
+  for (let i = 1; i < priceHistory.length; i++) {
+    const t0 = new Date(priceHistory[i - 1].timestamp).getTime();
+    const t1 = new Date(priceHistory[i].timestamp).getTime();
+    deltas.push((t1 - t0) / (1000 * 60 * 60)); // hours
+  }
+  
+  // Use median to resist weekend/holiday gaps
+  deltas.sort((a, b) => a - b);
+  const medianHours = deltas[Math.floor(deltas.length / 2)];
+  
+  if (medianHours < 0.1) return 525600;   // sub-minute / tick data
+  if (medianHours < 1) return 525600 / 60; // minute data (~8760)
+  if (medianHours < 12) return 8760;       // hourly data
+  if (medianHours < 48) return 252;        // daily data
+  if (medianHours < 200) return 52;        // weekly data
+  return 12;                                // monthly data
+};
+
+// Calculate historical volatility (annualized) with correct period detection
+const calculateHistoricalVolatility = (prices: number[], period: number = 20, periodsPerYear: number = 252): number => {
   if (prices.length < period + 1) return 0;
   
   const returns: number[] = [];
@@ -15,10 +39,10 @@ const calculateHistoricalVolatility = (prices: number[], period: number = 20): n
   
   const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
   const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
-  const dailyVol = Math.sqrt(variance);
+  const periodVol = Math.sqrt(variance);
   
-  // Annualize
-  return dailyVol * Math.sqrt(252) * 100;
+  // Annualize using correct factor
+  return periodVol * Math.sqrt(periodsPerYear) * 100;
 };
 
 // Calculate Average True Range
@@ -62,12 +86,13 @@ const detectVolatilityRegime = (
 };
 
 // Calculate volatility trend (expanding or contracting)
-const calculateVolatilityTrend = (prices: number[], period: number = 20): 'expanding' | 'contracting' | 'stable' => {
+const calculateVolatilityTrend = (prices: number[], period: number = 20, periodsPerYear: number = 252): 'expanding' | 'contracting' | 'stable' => {
   if (prices.length < period * 2) return 'stable';
   
-  const recentVol = calculateHistoricalVolatility(prices.slice(-period), Math.min(period, prices.length - 1));
-  const priorVol = calculateHistoricalVolatility(prices.slice(-period * 2, -period), Math.min(period, prices.length - 1));
+  const recentVol = calculateHistoricalVolatility(prices.slice(-period), Math.min(period, prices.length - 1), periodsPerYear);
+  const priorVol = calculateHistoricalVolatility(prices.slice(-period * 2, -period), Math.min(period, prices.length - 1), periodsPerYear);
   
+  if (priorVol === 0) return 'stable';
   const change = (recentVol - priorVol) / priorVol;
   
   if (change > 0.2) return 'expanding';
@@ -75,7 +100,7 @@ const calculateVolatilityTrend = (prices: number[], period: number = 20): 'expan
   return 'stable';
 };
 
-// Calculate Bollinger Band Width (volatility indicator)
+// Calculate Bollinger Band Width
 const calculateBBWidth = (prices: number[], period: number = 20): number => {
   if (prices.length < period) return 0;
   
@@ -84,7 +109,7 @@ const calculateBBWidth = (prices: number[], period: number = 20): number => {
   const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
   const std = Math.sqrt(variance);
   
-  return ((2 * std * 2) / sma) * 100; // Width as percentage
+  return ((2 * std * 2) / sma) * 100;
 };
 
 // Calculate drawdown metrics
@@ -112,12 +137,13 @@ export const calculateVolatilityMetrics = (priceHistory: PriceData[]): Volatilit
   const highs = priceHistory.map(p => p.high ?? p.price);
   const lows = priceHistory.map(p => p.low ?? p.price);
   
-  const currentVol = calculateHistoricalVolatility(prices);
+  const periodsPerYear = inferPeriodsPerYear(priceHistory);
+  const currentVol = calculateHistoricalVolatility(prices, 20, periodsPerYear);
   
   // Calculate rolling volatility for regime detection
   const rollingVol: number[] = [];
   for (let i = 30; i <= prices.length; i++) {
-    rollingVol.push(calculateHistoricalVolatility(prices.slice(0, i)));
+    rollingVol.push(calculateHistoricalVolatility(prices.slice(0, i), 20, periodsPerYear));
   }
   
   return {
@@ -137,14 +163,15 @@ export const analyzeVolatility = (
   const highs = priceHistory.map(p => p.high ?? p.price);
   const lows = priceHistory.map(p => p.low ?? p.price);
   
+  const periodsPerYear = inferPeriodsPerYear(priceHistory);
   const evidence: Evidence[] = [];
-  let riskScore = 50; // Start neutral
+  let riskScore = 50;
   
-  // 1. Historical Volatility
-  const histVol = calculateHistoricalVolatility(prices);
+  // 1. Historical Volatility (with correct annualization)
+  const histVol = calculateHistoricalVolatility(prices, 20, periodsPerYear);
   evidence.push({
     type: 'volatility',
-    description: 'Historisk volatilitet (20 dagar, annualiserad)',
+    description: `Historisk volatilitet (20 perioder, annualiserad, ${periodsPerYear} per/år)`,
     value: `${histVol.toFixed(1)}%`,
     timestamp: new Date().toISOString(),
     source: 'Historical Volatility',
@@ -158,104 +185,50 @@ export const analyzeVolatility = (
   switch (regime) {
     case 'low':
       regimeRiskAdjustment = -10;
-      evidence.push({
-        type: 'regime',
-        description: 'Låg volatilitetsregim',
-        value: 'Gynnsamt för trendföljande strategier',
-        timestamp: new Date().toISOString(),
-        source: 'Regime Detection',
-      });
+      evidence.push({ type: 'regime', description: 'Låg volatilitetsregim', value: 'Gynnsamt för trendföljande strategier', timestamp: new Date().toISOString(), source: 'Regime Detection' });
       break;
     case 'normal':
       regimeRiskAdjustment = 0;
-      evidence.push({
-        type: 'regime',
-        description: 'Normal volatilitetsregim',
-        value: 'Balanserad risk',
-        timestamp: new Date().toISOString(),
-        source: 'Regime Detection',
-      });
+      evidence.push({ type: 'regime', description: 'Normal volatilitetsregim', value: 'Balanserad risk', timestamp: new Date().toISOString(), source: 'Regime Detection' });
       break;
     case 'high':
       regimeRiskAdjustment = 15;
-      evidence.push({
-        type: 'regime',
-        description: 'Hög volatilitetsregim',
-        value: 'Ökad osäkerhet och risk',
-        timestamp: new Date().toISOString(),
-        source: 'Regime Detection',
-      });
+      evidence.push({ type: 'regime', description: 'Hög volatilitetsregim', value: 'Ökad osäkerhet och risk', timestamp: new Date().toISOString(), source: 'Regime Detection' });
       break;
     case 'extreme':
       regimeRiskAdjustment = 30;
-      evidence.push({
-        type: 'regime',
-        description: 'Extrem volatilitetsregim',
-        value: 'Mycket hög risk - försiktighet rekommenderas',
-        timestamp: new Date().toISOString(),
-        source: 'Regime Detection',
-      });
+      evidence.push({ type: 'regime', description: 'Extrem volatilitetsregim', value: 'Mycket hög risk', timestamp: new Date().toISOString(), source: 'Regime Detection' });
       break;
   }
   riskScore += regimeRiskAdjustment;
   
   // 3. Volatility Trend
-  const volTrend = calculateVolatilityTrend(prices);
+  const volTrend = calculateVolatilityTrend(prices, 20, periodsPerYear);
   if (volTrend === 'expanding') {
     riskScore += 10;
-    evidence.push({
-      type: 'trend',
-      description: 'Expanderande volatilitet',
-      value: 'Ökande osäkerhet',
-      timestamp: new Date().toISOString(),
-      source: 'Volatility Trend',
-    });
+    evidence.push({ type: 'trend', description: 'Expanderande volatilitet', value: 'Ökande osäkerhet', timestamp: new Date().toISOString(), source: 'Volatility Trend' });
   } else if (volTrend === 'contracting') {
     riskScore -= 10;
-    evidence.push({
-      type: 'trend',
-      description: 'Kontraktande volatilitet',
-      value: 'Minskande osäkerhet',
-      timestamp: new Date().toISOString(),
-      source: 'Volatility Trend',
-    });
+    evidence.push({ type: 'trend', description: 'Kontraktande volatilitet', value: 'Minskande osäkerhet', timestamp: new Date().toISOString(), source: 'Volatility Trend' });
   }
   
   // 4. Drawdown Analysis
   const { maxDrawdown, currentDrawdown } = calculateDrawdownMetrics(prices);
   if (currentDrawdown > 10) {
     riskScore += 15;
-    evidence.push({
-      type: 'drawdown',
-      description: 'Signifikant drawdown',
-      value: `Nuvarande: ${currentDrawdown.toFixed(1)}%, Max: ${maxDrawdown.toFixed(1)}%`,
-      timestamp: new Date().toISOString(),
-      source: 'Drawdown Analysis',
-    });
+    evidence.push({ type: 'drawdown', description: 'Signifikant drawdown', value: `Nuvarande: ${currentDrawdown.toFixed(1)}%, Max: ${maxDrawdown.toFixed(1)}%`, timestamp: new Date().toISOString(), source: 'Drawdown Analysis' });
   }
   
   // 5. Bollinger Band Width
   const bbWidth = calculateBBWidth(prices);
-  evidence.push({
-    type: 'bandwidth',
-    description: 'Bollinger Band Width',
-    value: `${bbWidth.toFixed(1)}%`,
-    timestamp: new Date().toISOString(),
-    source: 'BB Width',
-  });
+  evidence.push({ type: 'bandwidth', description: 'Bollinger Band Width', value: `${bbWidth.toFixed(1)}%`, timestamp: new Date().toISOString(), source: 'BB Width' });
   
-  // For volatility module, direction indicates risk level
-  // High volatility = DOWN (bearish for confidence), Low = UP (bullish)
   const direction: Direction = riskScore > 60 ? 'DOWN' : riskScore < 40 ? 'UP' : 'NEUTRAL';
-  
-  // Strength represents how strongly the volatility affects the outlook
   const strength = Math.abs(riskScore - 50) + 50;
   
-  // Coverage based on data availability
   const minRequired = horizon === '1y' ? 252 : horizon === '1mo' ? 60 : 20;
   const coverage = Math.min(100, Math.round((prices.length / minRequired) * 100));
   
-  // Confidence - higher when regime is clear
   const regimeClarity = regime === 'extreme' || regime === 'low' ? 80 : regime === 'high' ? 70 : 60;
   const confidence = Math.round((coverage + regimeClarity) / 2);
   
@@ -274,6 +247,7 @@ export const analyzeVolatility = (
       currentDrawdown,
       bbWidth,
       riskScore,
+      periodsPerYear,
     },
   };
 };

@@ -73,7 +73,7 @@ function calculateStochastic(highs: number[], lows: number[], closes: number[], 
 }
 
 type Direction = 'UP' | 'DOWN' | 'NEUTRAL';
-type AssetType = 'stock' | 'crypto' | 'metal';
+type AssetType = 'stock' | 'crypto' | 'metal' | 'fund';
 
 interface SignalResult {
   module: string;
@@ -278,8 +278,23 @@ Deno.serve(async (req) => {
     }
     console.log(`Loaded ${reliabilityMap.size} module_reliability entries`);
 
+    // Load correct_predictions for Bayesian shrinkage
+    const reliabilityDataMap = new Map<string, { rw: number; correct: number; total: number }>();
+    for (const r of (reliabilityRows || [])) {
+      const key = `${r.module}:${r.horizon}:${r.asset_type}`;
+      reliabilityDataMap.set(key, {
+        rw: Number(r.reliability_weight ?? 1.0),
+        correct: (r as any).correct_predictions ?? 0,
+        total: (r as any).total_predictions ?? 0,
+      });
+    }
+
     function getReliabilityWeight(mod: string, horizon: string, assetType: string): number {
-      return reliabilityMap.get(`${mod}:${horizon}:${assetType}`) ?? 1.0;
+      const entry = reliabilityDataMap.get(`${mod}:${horizon}:${assetType}`);
+      if (!entry || entry.total < 3) return 1.0;
+      // Bayesian shrinkage Beta(10,10)
+      const posteriorMean = (entry.correct + 10) / (entry.total + 20);
+      return Math.max(0.7, Math.min(1.3, 1 + (posteriorMean - 0.5) * 2));
     }
 
     // Get active symbols

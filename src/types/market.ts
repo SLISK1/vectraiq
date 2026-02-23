@@ -27,8 +27,10 @@ export interface ConfidenceBreakdown {
   freshness: number;
   coverage: number;
   agreement: number;
-  reliability: number;
+  signalStrength: number; // Renamed from 'reliability' — module self-reported confidence
   regimeRisk: number;
+  empiricalReliability?: number; // From module_reliability DB (Bayesian posterior)
+  lowSampleWarning?: boolean; // True when empirical data is insufficient
 }
 
 export interface Asset {
@@ -45,12 +47,24 @@ export interface Asset {
   marketCap?: number;
 }
 
+export interface HorizonReturnEstimate {
+  expected: number; // p50 expected move %
+  p10: number; // 10th percentile (bearish scenario)
+  p90: number; // 90th percentile (bullish scenario)
+}
+
 export interface PredictedReturns {
   day1: number;
   week1: number;
   month1: number;
   year1: number;
   year5: number;
+  // Uncertainty bands (new)
+  day1Range?: HorizonReturnEstimate;
+  week1Range?: HorizonReturnEstimate;
+  month1Range?: HorizonReturnEstimate;
+  year1Range?: HorizonReturnEstimate;
+  year5Range?: HorizonReturnEstimate;
 }
 
 export interface TrendPrediction {
@@ -62,7 +76,7 @@ export interface TrendPrediction {
   stopLoss: {
     price: number;
     percentage: number;
-    method: 'atr' | 'support' | 'volatility';
+    method: 'atr' | 'support' | 'resistance' | 'volatility';
   };
   takeProfit: {
     conservative: { price: number; percentage: number };

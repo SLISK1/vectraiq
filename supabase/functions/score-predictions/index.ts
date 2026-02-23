@@ -350,10 +350,12 @@ Deno.serve(async (req) => {
 
         // Upsert module_reliability
         for (const [key, stats] of agg.entries()) {
-          if (stats.total < 3) continue; // need minimum sample size
+          if (stats.total < 3) continue;
           const [mod, hor, assetType] = key.split(':');
           const hitRate = stats.correct / stats.total;
-          const reliabilityWeight = hitRate > 0.6 ? 1.2 : hitRate >= 0.52 ? 1.0 : 0.5;
+          // Bayesian shrinkage with Beta(10,10) prior
+          const posteriorMean = (stats.correct + 10) / (stats.total + 20);
+          const reliabilityWeight = Math.max(0.7, Math.min(1.3, 1 + (posteriorMean - 0.5) * 2));
 
           const { error: upsertErr } = await supabase
             .from('module_reliability')
