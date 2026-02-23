@@ -16,7 +16,7 @@ interface AnalysisRequest {
 }
 
 // Fetch financial analyses via Firecrawl Search
-async function fetchFirecrawlAnalyses(ticker: string, companyName: string, assetType: string): Promise<string> {
+async function fetchFirecrawlAnalyses(ticker: string, companyName: string, assetType: string, maxResults = 5): Promise<string> {
   const FIRECRAWL_API_KEY = Deno.env.get('FIRECRAWL_API_KEY');
   if (!FIRECRAWL_API_KEY) {
     console.log('FIRECRAWL_API_KEY not configured, skipping Firecrawl search');
@@ -28,7 +28,7 @@ async function fetchFirecrawlAnalyses(ticker: string, companyName: string, asset
       ? `${companyName} crypto analysis price prediction`
       : `${companyName} ${ticker} stock analysis quarterly earnings forecast`;
 
-    console.log(`Firecrawl search: "${searchTerms}"`);
+    console.log(`Firecrawl search: "${searchTerms}" (limit: ${maxResults})`);
 
     const response = await fetch('https://api.firecrawl.dev/v1/search', {
       method: 'POST',
@@ -38,7 +38,7 @@ async function fetchFirecrawlAnalyses(ticker: string, companyName: string, asset
       },
       body: JSON.stringify({
         query: searchTerms,
-        limit: 5,
+        limit: maxResults,
         lang: 'en',
         tbs: 'qdr:w', // Last week
         scrapeOptions: { formats: ['markdown'] },
@@ -57,9 +57,10 @@ async function fetchFirecrawlAnalyses(ticker: string, companyName: string, asset
     if (results.length === 0) return '';
 
     // Extract relevant snippets (max ~800 chars per result to stay within prompt limits)
+    const useCount = Math.min(maxResults, results.length);
     const snippets = results
       .filter((r: any) => r.markdown || r.description)
-      .slice(0, 3)
+      .slice(0, useCount)
       .map((r: any, i: number) => {
         const content = (r.markdown || r.description || '').substring(0, 800);
         const source = r.url ? new URL(r.url).hostname : 'unknown';
@@ -68,7 +69,7 @@ async function fetchFirecrawlAnalyses(ticker: string, companyName: string, asset
       })
       .join('\n\n');
 
-    console.log(`Firecrawl: got ${results.length} results, using ${Math.min(3, results.length)}`);
+    console.log(`Firecrawl: got ${results.length} results, using ${useCount}`);
     return snippets;
   } catch (e) {
     console.error('Firecrawl search failed:', e);
@@ -174,11 +175,28 @@ Deno.serve(async (req) => {
         const newsText = await getRecentNews(ticker, supabase);
         const hasRealNews = newsText.length > 0;
 
-        // NOTE: Firecrawl removed from sentiment to conserve API budget.
-        // Firecrawl is only used in deep_analysis where it adds most value.
+        // Firecrawl for sentiment: budget-safe (1 search, max 2 results) — only for stocks & crypto
+        let firecrawlSentiment = '';
+        let hasFirecrawl = false;
+        if (assetType !== 'metal') {
+          firecrawlSentiment = await fetchFirecrawlAnalyses(ticker, name, assetType, 2);
+          hasFirecrawl = firecrawlSentiment.length > 0;
+        }
 
-        systemPrompt = `Du är en finansanalytiker specialiserad på sentimentanalys för den svenska och globala marknaden. 
-${hasRealNews ? 'Du har tillgång till riktiga nyhetsrubriker nedan. Basera din analys på dessa nyheter.' : 'Inga nyheter hittades. Basera din analys på allmänt marknadssentiment.'}
+        const dataSourcesSummary = [
+          hasRealNews ? 'nyheter från GNews' : null,
+          hasFirecrawl ? 'extern marknadsanalys via Firecrawl' : null,
+        ].filter(Boolean).join(' och ');
+
+        systemPrompt = `Du är en finansanalytiker specialiserad på sentimentanalys för den svenska och globala marknaden.
+${dataSourcesSummary ? `Du har tillgång till: ${dataSourcesSummary}. Vikta faktiska nyheter och analyser TUNGT — de är viktigare än allmänna antaganden.` : 'Inga nyheter eller analyser hittades. Basera din analys på allmänt marknadssentiment och ge lägre confidence.'}
+
+VIKTIGT:
+- Varje evidence-objekt MÅSTE referera till en specifik källa (nyhetsrubrik, analyswebbplats).
+- Om nyheter/analyser finns: ge INTE neutral som default — ta ställning baserat på datan.
+- newsScore ska reflektera den faktiska tonen i nyheterna (-100 till 100).
+- confidence ska vara högre (60-85) om du har riktiga nyheter, lägre (30-50) utan.
+
 Svara ENDAST med ett JSON-objekt i exakt detta format:
 {
   "direction": "UP" | "DOWN" | "NEUTRAL",
@@ -188,16 +206,23 @@ Svara ENDAST med ett JSON-objekt i exakt detta format:
   "socialScore": <number -100 to 100>,
   "analystRating": "strong_buy" | "buy" | "hold" | "sell" | "strong_sell",
   "evidence": [
-    { "type": "sentiment", "description": "<kort beskrivning>", "value": "<värde>", "source": "<källa>" }
+    { "type": "sentiment", "description": "<kort beskrivning>", "value": "<värde>", "source": "<specifik källa/rubrik>" }
   ]
 }`;
         userPrompt = `Analysera sentiment för ${ticker} (${name}), en ${assetType === 'stock' ? 'aktie' : assetType === 'crypto' ? 'kryptovaluta' : 'råvara'}.
 Horisont: ${horizon}
 ${currentPrice ? `Aktuellt pris: ${currentPrice}` : ''}
 
-${hasRealNews ? `SENASTE NYHETER:\n${newsText}\n\nAnalysera sentimentet i ovanstående nyheter. Identifiera positiva och negativa signaler.` : 'Inga aktuella nyheter tillgängliga. Ge en neutral basestimering.'}
+${hasRealNews ? `SENASTE NYHETER (från GNews):\n${newsText}` : 'Inga aktuella nyheter tillgängliga.'}
 
-OBS: Var realistisk och balanserad. Ge inte för extrema värden.${hasRealNews ? ' Referera specifikt till nyheterna i din evidence.' : ''}`;
+${hasFirecrawl ? `EXTERN MARKNADSANALYS (från Firecrawl):\n${firecrawlSentiment}` : ''}
+
+INSTRUKTIONER:
+${hasRealNews || hasFirecrawl ? `1. Analysera sentimentet i ovanstående data noggrant.
+2. Identifiera positiva och negativa signaler.
+3. Referera SPECIFIKT till nyhetsrubriker eller analyskällor i varje evidence-objekt.
+4. Låt nyhetstonen driva din direction — undvik neutral om det finns tydliga signaler.` : '1. Inga datakällor tillgängliga. Ge en neutral basestimering med låg confidence (30-45).'}
+5. Var realistisk och balanserad. Ge inte för extrema värden utan stöd.`;
         break;
       }
 
