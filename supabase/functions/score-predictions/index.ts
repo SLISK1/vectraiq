@@ -280,33 +280,101 @@ Deno.serve(async (req) => {
     }
     
     // ==============================
-    // 5. Update module_reliability
+    // 5. Update module_reliability from signal_snapshots
     // ==============================
     const windowDays = 90;
     const windowStart = new Date(now);
     windowStart.setDate(windowStart.getDate() - windowDays);
     
-    // Get all scored predictions within window
+    // Get scored predictions with outcomes within window
     const { data: scoredPreds } = await supabase
       .from('asset_predictions')
-      .select('symbol_id, horizon, hit, predicted_direction, created_at')
-      .not('hit', 'is', null)
-      .gte('created_at', windowStart.toISOString());
+      .select('id, symbol_id, horizon, outcome, created_at')
+      .not('outcome', 'is', null)
+      .gte('created_at', windowStart.toISOString())
+      .limit(1000);
     
+    let reliabilityUpdated = 0;
+
     if (scoredPreds && scoredPreds.length > 0) {
       // Get symbol asset_types
       const symbolIds = [...new Set(scoredPreds.map((p: any) => p.symbol_id))];
-      const { data: symbols } = await supabase
+      const { data: syms } = await supabase
         .from('symbols')
         .select('id, asset_type')
         .in('id', symbolIds);
       
-      const symbolTypeMap = new Map((symbols || []).map((s: any) => [s.id, s.asset_type]));
-      
-      // This would require module-level predictions which aren't stored per module yet
-      // For now, aggregate at prediction level (overall model hit rate)
-      // Future: store per-module signals and cross-reference
-      console.log(`Module reliability: ${scoredPreds.length} scored predictions in window`);
+      const symbolTypeMap = new Map((syms || []).map((s: any) => [s.id, s.asset_type]));
+
+      // Fetch signal_snapshots for these predictions
+      const predIds = scoredPreds.map((p: any) => p.id);
+      // Batch in chunks of 200 to avoid query limits
+      const allSnapshots: any[] = [];
+      for (let i = 0; i < predIds.length; i += 200) {
+        const chunk = predIds.slice(i, i + 200);
+        const { data: snaps } = await supabase
+          .from('signal_snapshots')
+          .select('prediction_id, module, direction, horizon')
+          .in('prediction_id', chunk);
+        if (snaps) allSnapshots.push(...snaps);
+      }
+
+      console.log(`Module reliability: ${scoredPreds.length} scored predictions, ${allSnapshots.length} snapshots in window`);
+
+      if (allSnapshots.length > 0) {
+        // Build prediction outcome lookup
+        const outcomeMap = new Map<string, string>();
+        const predSymbolMap = new Map<string, string>();
+        for (const p of scoredPreds) {
+          outcomeMap.set(p.id, p.outcome);
+          predSymbolMap.set(p.id, p.symbol_id);
+        }
+
+        // Aggregate per (module, horizon, asset_type)
+        const agg = new Map<string, { total: number; correct: number }>();
+
+        for (const snap of allSnapshots) {
+          if (snap.direction === 'NEUTRAL') continue; // skip neutral predictions
+          const outcome = outcomeMap.get(snap.prediction_id);
+          if (!outcome || outcome === 'NEUTRAL') continue;
+          
+          const symbolId = predSymbolMap.get(snap.prediction_id);
+          const assetType = symbolTypeMap.get(symbolId) || 'stock';
+          const key = `${snap.module}:${snap.horizon}:${assetType}`;
+
+          let entry = agg.get(key);
+          if (!entry) { entry = { total: 0, correct: 0 }; agg.set(key, entry); }
+          entry.total++;
+          if (snap.direction === outcome) entry.correct++;
+        }
+
+        // Upsert module_reliability
+        for (const [key, stats] of agg.entries()) {
+          if (stats.total < 3) continue; // need minimum sample size
+          const [mod, hor, assetType] = key.split(':');
+          const hitRate = stats.correct / stats.total;
+          const reliabilityWeight = hitRate > 0.6 ? 1.2 : hitRate >= 0.52 ? 1.0 : 0.5;
+
+          const { error: upsertErr } = await supabase
+            .from('module_reliability')
+            .upsert({
+              module: mod,
+              horizon: hor,
+              asset_type: assetType,
+              total_predictions: stats.total,
+              correct_predictions: stats.correct,
+              hit_rate: hitRate,
+              reliability_weight: reliabilityWeight,
+              window_days: windowDays,
+              last_updated: now.toISOString(),
+            }, { onConflict: 'module,horizon,asset_type' });
+
+          if (!upsertErr) reliabilityUpdated++;
+          else console.error(`module_reliability upsert error for ${key}:`, upsertErr.message);
+        }
+
+        console.log(`Module reliability: updated ${reliabilityUpdated} entries from ${agg.size} aggregations`);
+      }
     }
     
     return new Response(JSON.stringify({
@@ -315,6 +383,7 @@ Deno.serve(async (req) => {
       scored_watchlist: watchlistScored,
       matches_updated: matchesUpdated,
       scored_betting: bettingScored,
+      module_reliability_updated: reliabilityUpdated,
       timestamp: now.toISOString(),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

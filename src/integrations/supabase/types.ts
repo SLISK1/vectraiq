@@ -839,6 +839,57 @@ export type Database = {
           },
         ]
       }
+      signal_snapshots: {
+        Row: {
+          confidence: number
+          created_at: string
+          direction: string
+          horizon: string
+          id: string
+          module: string
+          prediction_id: string
+          strength: number
+          symbol_id: string
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          direction: string
+          horizon: string
+          id?: string
+          module: string
+          prediction_id: string
+          strength: number
+          symbol_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          direction?: string
+          horizon?: string
+          id?: string
+          module?: string
+          prediction_id?: string
+          strength?: number
+          symbol_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_snapshots_prediction_id_fkey"
+            columns: ["prediction_id"]
+            isOneToOne: false
+            referencedRelation: "asset_predictions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signal_snapshots_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       signals: {
         Row: {
           confidence: number
