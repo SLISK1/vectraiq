@@ -210,17 +210,17 @@ Deno.serve(async (req) => {
           const scrapedStale = !scrapedArticles.length || (Date.now() - newsFetchedAt > 12 * 60 * 60 * 1000);
 
           if (firecrawlApiKey && HIGH_IMPACT_LEAGUES.includes(league) && scrapedStale) {
-            // Check daily budget
+            // Check daily budget from api_usage_tracker
             const todayStr = new Date().toISOString().split("T")[0];
             const { data: budgetData } = await supabase
-              .from("betting_matches")
-              .select("source_data")
-              .eq("status", "budget_tracker")
-              .eq("external_id", `budget-fc-${todayStr}`)
+              .from("api_usage_tracker")
+              .select("searches_used")
+              .eq("category", "betting")
+              .eq("date_key", todayStr)
               .single();
 
-            const searchesUsed = (budgetData?.source_data as any)?.searches_used || 0;
-            const DAILY_SEARCH_BUDGET = 30;
+            const searchesUsed = budgetData?.searches_used || 0;
+            const DAILY_SEARCH_BUDGET = 15;
 
             if (searchesUsed < DAILY_SEARCH_BUDGET) {
               const matchYear = new Date(matchDate).getFullYear();
@@ -251,21 +251,14 @@ Deno.serve(async (req) => {
                       source: "firecrawl_search",
                     }));
 
-                    await supabase.from("betting_matches").upsert(
+                    await supabase.from("api_usage_tracker").upsert(
                       {
-                        external_id: `budget-fc-${todayStr}`,
-                        sport: "system",
-                        home_team: "budget",
-                        away_team: "tracker",
-                        league: "system",
-                        match_date: new Date().toISOString(),
-                        status: "budget_tracker",
-                        source_data: {
-                          searches_used: searchesUsed + 3,
-                          last_updated: new Date().toISOString(),
-                        },
+                        category: "betting",
+                        date_key: todayStr,
+                        searches_used: searchesUsed + 3,
+                        last_updated: new Date().toISOString(),
                       },
-                      { onConflict: "external_id" }
+                      { onConflict: "category,date_key" }
                     );
                   }
                 }

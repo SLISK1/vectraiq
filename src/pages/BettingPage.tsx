@@ -67,16 +67,17 @@ export const BettingPage = () => {
 
   const isPoolSport = selectedSport === 'topptipset' || selectedSport === 'stryktipset';
 
-  // Load API budget
+  // Load API budget from api_usage_tracker
   const loadApiBudget = async () => {
     const todayStr = new Date().toISOString().split('T')[0];
     const { data } = await supabase
-      .from('betting_matches')
-      .select('source_data')
-      .eq('external_id', `budget-fc-${todayStr}`)
+      .from('api_usage_tracker')
+      .select('searches_used, last_updated')
+      .eq('category', 'betting')
+      .eq('date_key', todayStr)
       .single();
-    if (data?.source_data) {
-      setApiBudget(data.source_data as any);
+    if (data) {
+      setApiBudget(data as any);
     } else {
       setApiBudget({ searches_used: 0, last_updated: '' });
     }
@@ -287,15 +288,15 @@ export const BettingPage = () => {
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">Firecrawl-budget idag</p>
               <span className="text-xs font-semibold">
-                {apiBudget.searches_used} / 30 sökningar
+                {apiBudget.searches_used} / 15 sökningar
               </span>
             </div>
-            <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${
-                  apiBudget.searches_used > 24 ? 'bg-destructive' : apiBudget.searches_used > 15 ? 'bg-yellow-500' : 'bg-primary'
+                  apiBudget.searches_used > 13 ? 'bg-destructive' : apiBudget.searches_used > 10 ? 'bg-yellow-500' : 'bg-primary'
                 }`}
-                style={{ width: `${Math.min(100, (apiBudget.searches_used / 30) * 100)}%` }}
+                style={{ width: `${Math.min(100, (apiBudget.searches_used / 15) * 100)}%` }}
               />
             </div>
           </div>

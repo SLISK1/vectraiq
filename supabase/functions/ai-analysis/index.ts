@@ -24,11 +24,30 @@ async function fetchFirecrawlAnalyses(ticker: string, companyName: string, asset
   }
 
   try {
+    // --- Budget check ---
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const { createClient: cc } = await import('npm:@supabase/supabase-js@2');
+    const sb = cc(supabaseUrl, serviceKey);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const { data: budgetRow } = await sb
+      .from('api_usage_tracker')
+      .select('searches_used')
+      .eq('category', 'stocks')
+      .eq('date_key', todayStr)
+      .single();
+    const searchesUsed = budgetRow?.searches_used || 0;
+    const STOCK_DAILY_LIMIT = 15;
+    if (searchesUsed >= STOCK_DAILY_LIMIT) {
+      console.log(`Firecrawl stock budget exhausted: ${searchesUsed}/${STOCK_DAILY_LIMIT}`);
+      return '';
+    }
+
     const searchTerms = assetType === 'crypto'
       ? `${companyName} crypto analysis price prediction`
       : `${companyName} ${ticker} stock analysis quarterly earnings forecast`;
 
-    console.log(`Firecrawl search: "${searchTerms}" (limit: ${maxResults})`);
+    console.log(`Firecrawl search: "${searchTerms}" (limit: ${maxResults}, budget: ${searchesUsed}/${STOCK_DAILY_LIMIT})`);
 
     const response = await fetch('https://api.firecrawl.dev/v1/search', {
       method: 'POST',
@@ -70,6 +89,13 @@ async function fetchFirecrawlAnalyses(ticker: string, companyName: string, asset
       .join('\n\n');
 
     console.log(`Firecrawl: got ${results.length} results, using ${useCount}`);
+
+    // --- Track usage ---
+    await sb.from('api_usage_tracker').upsert(
+      { category: 'stocks', date_key: todayStr, searches_used: searchesUsed + 1, last_updated: new Date().toISOString() },
+      { onConflict: 'category,date_key' }
+    );
+
     return snippets;
   } catch (e) {
     console.error('Firecrawl search failed:', e);

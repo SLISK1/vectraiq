@@ -23,8 +23,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, useSymbols, useAddSymbol } from '@/hooks/useMarketData';
 import { usePriceRealtime } from '@/hooks/usePriceRealtime';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Star, History, BarChart3, Loader2, Briefcase, Wallet } from 'lucide-react';
+import { Star, History, BarChart3, Loader2, Briefcase, Wallet, Database } from 'lucide-react';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
@@ -40,6 +41,21 @@ const Index = () => {
   
   // Enable realtime price updates
   usePriceRealtime();
+
+  // Firecrawl budget for stocks
+  const [stockBudget, setStockBudget] = useState<{ searches_used: number } | null>(null);
+  useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    supabase
+      .from('api_usage_tracker')
+      .select('searches_used')
+      .eq('category', 'stocks')
+      .eq('date_key', todayStr)
+      .single()
+      .then(({ data }) => {
+        setStockBudget({ searches_used: (data as any)?.searches_used || 0 });
+      });
+  }, []);
 
   // Data hooks
   const { data: topUp, isLoading: loadingUp } = useRankedAssets(selectedHorizon, 'UP');
@@ -298,6 +314,29 @@ const Index = () => {
           <>
             {/* Reality Check */}
             <RealityCheck />
+
+            {/* Firecrawl Budget Meter */}
+            {stockBudget && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border">
+                <Database className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground">Firecrawl-budget (Aktier) idag</p>
+                    <span className="text-xs font-semibold">
+                      {stockBudget.searches_used} / 15 sökningar
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        stockBudget.searches_used > 13 ? 'bg-destructive' : stockBudget.searches_used > 10 ? 'bg-yellow-500' : 'bg-primary'
+                      }`}
+                      style={{ width: `${Math.min(100, (stockBudget.searches_used / 15) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Search */}
             <div className="glass-card rounded-xl p-4">
