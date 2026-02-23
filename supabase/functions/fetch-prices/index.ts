@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
 
     const { data: symbols, error: symError } = await supabase
-      .from('symbols').select('id, ticker, asset_type').eq('is_active', true);
+      .from('symbols').select('id, ticker, asset_type, metadata').eq('is_active', true);
 
     if (symError) {
       return new Response(JSON.stringify({ error: symError.message }), {
