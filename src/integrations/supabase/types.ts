@@ -52,6 +52,30 @@ export type Database = {
           },
         ]
       }
+      api_usage_tracker: {
+        Row: {
+          category: string
+          date_key: string
+          id: string
+          last_updated: string
+          searches_used: number
+        }
+        Insert: {
+          category: string
+          date_key: string
+          id?: string
+          last_updated?: string
+          searches_used?: number
+        }
+        Update: {
+          category?: string
+          date_key?: string
+          id?: string
+          last_updated?: string
+          searches_used?: number
+        }
+        Relationships: []
+      }
       asset_predictions: {
         Row: {
           baseline_price: number | null
