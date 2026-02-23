@@ -230,7 +230,7 @@ const Index = () => {
           totalScore: 50,
           direction: 'NEUTRAL',
           confidence: 30,
-          confidenceBreakdown: { freshness: 50, coverage: 30, agreement: 50, reliability: 50, regimeRisk: 50 },
+          confidenceBreakdown: { freshness: 50, coverage: 30, agreement: 50, signalStrength: 50, regimeRisk: 50 },
           signals: [],
           topContributors: [],
           horizon: selectedHorizon,
