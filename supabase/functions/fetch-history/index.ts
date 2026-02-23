@@ -258,7 +258,7 @@ Deno.serve(async (req) => {
       days = body.days || 365;
     } catch {}
 
-    let query = supabase.from('symbols').select('id, ticker, asset_type').eq('is_active', true);
+    let query = supabase.from('symbols').select('id, ticker, asset_type, metadata').eq('is_active', true);
     if (requestedTickers?.length) { query = query.in('ticker', requestedTickers); }
     const { data: symbols, error: symError } = await query;
 
