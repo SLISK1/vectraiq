@@ -74,131 +74,88 @@ Deno.serve(async (req) => {
     
     console.log('score-predictions: starting run at', now.toISOString());
     
-    // ==============================
-    // 1. Score expired asset_predictions
-    // ==============================
-    const { data: unscored, error: unscoredErr } = await supabase
-      .from('asset_predictions')
-      .select('id, symbol_id, horizon, predicted_direction, predicted_prob, confidence, entry_price, baseline_ticker, baseline_price, created_at')
-      .is('exit_price', null)
-      .lt('created_at', now.toISOString());
-    
-    if (unscoredErr) {
-      console.error('Error fetching unscored predictions:', unscoredErr);
-    }
-    
     let scoredCount = 0;
-    const modulesToUpdate: Record<string, { module: string; horizon: string; assetType: string; hit: boolean }[]> = {};
+    let watchlistScored = 0;
+    // ==============================
+    // 1. Update stale match results from Football-Data.org (fast, do first)
+    // ==============================
+    const footballApiKey = Deno.env.get('FOOTBALL_DATA_API_KEY');
     
-    // Get horizon durations
-    const horizonDays: Record<string, number> = { '1d': 1, '1w': 7, '1mo': 30, '1y': 365, '1h': 0.04, '1m': 0.001, '1s': 0 };
+    // Find matches past their date that still lack scores
+    const { data: staleMatches } = await supabase
+      .from('betting_matches')
+      .select('id, external_id, match_date')
+      .eq('sport', 'football')
+      .is('home_score', null)
+      .lt('match_date', now.toISOString())
+      .neq('status', 'budget_tracker')
+      .limit(60);
     
-    for (const pred of (unscored || [])) {
-      const daysForHorizon = horizonDays[pred.horizon] || 1;
-      const targetDate = new Date(pred.created_at);
-      targetDate.setDate(targetDate.getDate() + daysForHorizon);
+    let matchesUpdated = 0;
+    
+    if (staleMatches && staleMatches.length > 0 && footballApiKey) {
+      console.log(`score-predictions: ${staleMatches.length} stale matches need result updates`);
       
-      // Only score if horizon has passed
-      if (targetDate > now) continue;
+      // Football-Data.org free tier limits to 10-day date ranges
+      // Make multiple requests to cover last 30 days in 10-day chunks
+      const apiLookup = new Map<string, any>();
+      const chunks = 3; // 3 x 10 days = 30 days
       
-      // Get current price for symbol
-      const exitPrice = await fetchCurrentPrice(supabase, pred.symbol_id);
-      if (!exitPrice) continue;
-      
-      const returnPct = ((exitPrice - Number(pred.entry_price)) / Number(pred.entry_price)) * 100;
-      const outcome = exitPrice > Number(pred.entry_price) ? 'UP' : exitPrice < Number(pred.entry_price) ? 'DOWN' : 'NEUTRAL';
-      const hit = outcome === pred.predicted_direction;
-      
-      // Calculate excess return vs benchmark
-      let excessReturn: number | null = null;
-      if (pred.baseline_ticker && pred.baseline_price) {
+      for (let c = 0; c < chunks; c++) {
+        const chunkEnd = new Date(now.getTime() - c * 10 * 24 * 60 * 60 * 1000);
+        const chunkStart = new Date(chunkEnd.getTime() - 10 * 24 * 60 * 60 * 1000);
+        const dateFrom = chunkStart.toISOString().split('T')[0];
+        const dateTo = chunkEnd.toISOString().split('T')[0];
+        
         try {
-          const baselineData = await fetchYahooPriceRange(
-            pred.baseline_ticker,
-            new Date(pred.created_at),
-            now
+          const res = await fetch(
+            `https://api.football-data.org/v4/matches?dateFrom=${dateFrom}&dateTo=${dateTo}&status=FINISHED`,
+            { headers: { 'X-Auth-Token': footballApiKey } }
           );
-          if (baselineData) {
-            const baselineReturn = ((baselineData.exit - baselineData.entry) / baselineData.entry) * 100;
-            excessReturn = returnPct - baselineReturn;
+          
+          if (res.ok) {
+            const apiData = await res.json();
+            const apiMatches = apiData.matches || [];
+            console.log(`Football-Data.org chunk ${c+1}: ${apiMatches.length} finished matches (${dateFrom} to ${dateTo})`);
+            for (const m of apiMatches) {
+              apiLookup.set(`football-${m.id}`, m);
+            }
+          } else {
+            const errBody = await res.text();
+            console.error(`Football-Data.org API error chunk ${c+1}: ${res.status} - ${errBody}`);
           }
         } catch (e) {
-          console.error('Error fetching baseline:', e);
+          console.error(`Football-Data.org fetch chunk ${c+1} failed:`, e);
         }
       }
       
-      // Update the prediction
-      const { error: updateErr } = await supabase
-        .from('asset_predictions')
-        .update({
-          exit_price: exitPrice,
-          return_pct: returnPct,
-          excess_return: excessReturn,
-          outcome: outcome as any,
-          hit,
-          scored_at: now.toISOString(),
-        })
-        .eq('id', pred.id);
+      console.log(`Total API matches found: ${apiLookup.size}`);
       
-      if (!updateErr) {
-        scoredCount++;
+      for (const stale of staleMatches) {
+        const apiMatch = apiLookup.get(stale.external_id || '');
+        if (!apiMatch) continue;
+        
+        const homeScore = apiMatch.score?.fullTime?.home;
+        const awayScore = apiMatch.score?.fullTime?.away;
+        if (homeScore == null || awayScore == null) continue;
+        
+        const { error: updateErr } = await supabase
+          .from('betting_matches')
+          .update({
+            status: 'finished',
+            home_score: homeScore,
+            away_score: awayScore,
+          })
+          .eq('id', stale.id);
+        
+        if (!updateErr) matchesUpdated++;
       }
+      
+      console.log(`score-predictions: updated ${matchesUpdated} match results from API`);
     }
     
     // ==============================
-    // 2. Score expired watchlist_cases
-    // ==============================
-    const { data: expiredWatchlist } = await supabase
-      .from('watchlist_cases')
-      .select('id, symbol_id, horizon, prediction_direction, entry_price, target_end_time, baseline_ticker, baseline_entry_price')
-      .is('result_locked_at', null)
-      .lt('target_end_time', now.toISOString());
-    
-    let watchlistScored = 0;
-    
-    for (const wl of (expiredWatchlist || [])) {
-      const exitPrice = await fetchCurrentPrice(supabase, wl.symbol_id);
-      if (!exitPrice) continue;
-      
-      const returnPct = ((exitPrice - Number(wl.entry_price)) / Number(wl.entry_price)) * 100;
-      const outcome = exitPrice > Number(wl.entry_price) ? 'UP' : 'DOWN';
-      const hit = outcome === wl.prediction_direction;
-      
-      let excessReturn: number | null = null;
-      let baselineExitPrice: number | null = null;
-      
-      if (wl.baseline_ticker && wl.baseline_entry_price) {
-        try {
-          const baselineData = await fetchYahooPriceRange(
-            wl.baseline_ticker,
-            new Date(wl.target_end_time),
-            now
-          );
-          if (baselineData) {
-            baselineExitPrice = baselineData.exit;
-            const baselineReturn = ((baselineData.exit - Number(wl.baseline_entry_price)) / Number(wl.baseline_entry_price)) * 100;
-            excessReturn = returnPct - baselineReturn;
-          }
-        } catch {}
-      }
-      
-      await supabase
-        .from('watchlist_cases')
-        .update({
-          exit_price: exitPrice,
-          return_pct: returnPct,
-          excess_return: excessReturn,
-          baseline_exit_price: baselineExitPrice,
-          hit,
-          result_locked_at: now.toISOString(),
-        })
-        .eq('id', wl.id);
-      
-      watchlistScored++;
-    }
-    
-    // ==============================
-    // 3. Score betting_predictions
+    // 2. Score betting_predictions
     // ==============================
     const { data: finishedMatches } = await supabase
       .from('betting_matches')
@@ -223,7 +180,6 @@ Deno.serve(async (req) => {
         
         const outcome = match.home_score > match.away_score ? 'home_win'
           : match.home_score < match.away_score ? 'away_win' : 'draw';
-        // Normalize: predicted_winner uses 'home'/'away'/'draw', outcome uses 'home_win'/'away_win'/'draw'
         const normalizedOutcome = outcome === 'home_win' ? 'home' : outcome === 'away_win' ? 'away' : 'draw';
         const hit = normalizedOutcome === pred.predicted_winner;
         
@@ -236,10 +192,95 @@ Deno.serve(async (req) => {
       }
     }
     
-    console.log(`score-predictions: scored ${bettingScored} betting predictions`);
+    console.log(`score-predictions: updated ${matchesUpdated} match results, scored ${bettingScored} betting predictions`);
     
     // ==============================
-    // 4. Update module_reliability
+    // 3. Score expired asset_predictions (slower — Yahoo Finance calls)
+    // ==============================
+    const { data: unscored, error: unscoredErr } = await supabase
+      .from('asset_predictions')
+      .select('id, symbol_id, horizon, predicted_direction, predicted_prob, confidence, entry_price, baseline_ticker, baseline_price, created_at')
+      .is('exit_price', null)
+      .lt('created_at', now.toISOString());
+    
+    if (unscoredErr) {
+      console.error('Error fetching unscored predictions:', unscoredErr);
+    }
+    
+    const horizonDays: Record<string, number> = { '1d': 1, '1w': 7, '1mo': 30, '1y': 365, '1h': 0.04, '1m': 0.001, '1s': 0 };
+    
+    for (const pred of (unscored || [])) {
+      const daysForHorizon = horizonDays[pred.horizon] || 1;
+      const targetDate = new Date(pred.created_at);
+      targetDate.setDate(targetDate.getDate() + daysForHorizon);
+      if (targetDate > now) continue;
+      
+      const exitPrice = await fetchCurrentPrice(supabase, pred.symbol_id);
+      if (!exitPrice) continue;
+      
+      const returnPct = ((exitPrice - Number(pred.entry_price)) / Number(pred.entry_price)) * 100;
+      const outcome = exitPrice > Number(pred.entry_price) ? 'UP' : exitPrice < Number(pred.entry_price) ? 'DOWN' : 'NEUTRAL';
+      const hit = outcome === pred.predicted_direction;
+      
+      let excessReturn: number | null = null;
+      if (pred.baseline_ticker && pred.baseline_price) {
+        try {
+          const baselineData = await fetchYahooPriceRange(pred.baseline_ticker, new Date(pred.created_at), now);
+          if (baselineData) {
+            const baselineReturn = ((baselineData.exit - baselineData.entry) / baselineData.entry) * 100;
+            excessReturn = returnPct - baselineReturn;
+          }
+        } catch (e) {
+          console.error('Error fetching baseline:', e);
+        }
+      }
+      
+      const { error: updateErr } = await supabase
+        .from('asset_predictions')
+        .update({ exit_price: exitPrice, return_pct: returnPct, excess_return: excessReturn, outcome: outcome as any, hit, scored_at: now.toISOString() })
+        .eq('id', pred.id);
+      if (!updateErr) scoredCount++;
+    }
+    
+    // ==============================
+    // 4. Score expired watchlist_cases
+    // ==============================
+    const { data: expiredWatchlist } = await supabase
+      .from('watchlist_cases')
+      .select('id, symbol_id, horizon, prediction_direction, entry_price, target_end_time, baseline_ticker, baseline_entry_price')
+      .is('result_locked_at', null)
+      .lt('target_end_time', now.toISOString());
+    
+    for (const wl of (expiredWatchlist || [])) {
+      const exitPrice = await fetchCurrentPrice(supabase, wl.symbol_id);
+      if (!exitPrice) continue;
+      
+      const returnPct = ((exitPrice - Number(wl.entry_price)) / Number(wl.entry_price)) * 100;
+      const outcome = exitPrice > Number(wl.entry_price) ? 'UP' : 'DOWN';
+      const hit = outcome === wl.prediction_direction;
+      
+      let excessReturn: number | null = null;
+      let baselineExitPrice: number | null = null;
+      if (wl.baseline_ticker && wl.baseline_entry_price) {
+        try {
+          const baselineData = await fetchYahooPriceRange(wl.baseline_ticker, new Date(wl.target_end_time), now);
+          if (baselineData) {
+            baselineExitPrice = baselineData.exit;
+            const baselineReturn = ((baselineData.exit - Number(wl.baseline_entry_price)) / Number(wl.baseline_entry_price)) * 100;
+            excessReturn = returnPct - baselineReturn;
+          }
+        } catch {}
+      }
+      
+      await supabase.from('watchlist_cases').update({
+        exit_price: exitPrice, return_pct: returnPct, excess_return: excessReturn,
+        baseline_exit_price: baselineExitPrice, hit, result_locked_at: now.toISOString(),
+      }).eq('id', wl.id);
+      watchlistScored++;
+    }
+    
+    // ==============================
+    // 5. Update module_reliability
     // ==============================
     const windowDays = 90;
     const windowStart = new Date(now);
@@ -272,6 +313,7 @@ Deno.serve(async (req) => {
       success: true,
       scored_predictions: scoredCount,
       scored_watchlist: watchlistScored,
+      matches_updated: matchesUpdated,
       scored_betting: bettingScored,
       timestamp: now.toISOString(),
     }), {
