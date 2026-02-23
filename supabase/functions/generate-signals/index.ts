@@ -266,6 +266,22 @@ Deno.serve(async (req) => {
       if (body?.allHorizons) horizons = ['1d', '1w', '1mo', '1y'];
     } catch {}
 
+    // ── Fetch module_reliability to adjust weights ──
+    const { data: reliabilityRows } = await supabase
+      .from('module_reliability')
+      .select('module, horizon, asset_type, hit_rate, reliability_weight');
+
+    const reliabilityMap = new Map<string, number>();
+    for (const r of (reliabilityRows || [])) {
+      const key = `${r.module}:${r.horizon}:${r.asset_type}`;
+      reliabilityMap.set(key, Number(r.reliability_weight ?? 1.0));
+    }
+    console.log(`Loaded ${reliabilityMap.size} module_reliability entries`);
+
+    function getReliabilityWeight(mod: string, horizon: string, assetType: string): number {
+      return reliabilityMap.get(`${mod}:${horizon}:${assetType}`) ?? 1.0;
+    }
+
     // Get active symbols
     const { data: symbols, error: symErr } = await supabase
       .from('symbols')
@@ -334,13 +350,24 @@ Deno.serve(async (req) => {
         }
 
         let symbolInserted = 0;
+        const assetType = (symbol.asset_type || 'stock') as AssetType;
 
         for (const horizon of horizons) {
           // Delete old signals for this symbol+horizon
           await supabase.from('signals').delete().eq('symbol_id', symbol.id).eq('horizon', horizon);
 
+          // Apply reliability weights to signals
+          const weightedSignals = signals.map(s => {
+            const rw = getReliabilityWeight(s.module, horizon, assetType);
+            return {
+              ...s,
+              strength: clamp(Math.round(s.strength * rw)),
+              confidence: clamp(Math.round(s.confidence * rw)),
+            };
+          });
+
           // Insert new signals
-          const inserts = signals.map(s => ({
+          const inserts = weightedSignals.map(s => ({
             symbol_id: symbol.id,
             module: s.module,
             direction: s.direction as 'UP' | 'DOWN' | 'NEUTRAL',
@@ -358,28 +385,41 @@ Deno.serve(async (req) => {
             symbolInserted += inserts.length;
 
             // Save prediction snapshot
-            const bullish = signals.filter(s => s.direction === 'UP');
-            const bearish = signals.filter(s => s.direction === 'DOWN');
+            const bullish = weightedSignals.filter(s => s.direction === 'UP');
+            const bearish = weightedSignals.filter(s => s.direction === 'DOWN');
             const overallDir: Direction = bullish.length > bearish.length ? 'UP' : bearish.length > bullish.length ? 'DOWN' : 'NEUTRAL';
-            const avgConfidence = Math.round(signals.reduce((sum, s) => sum + s.confidence, 0) / signals.length);
-            const totalScore = Math.round(signals.reduce((sum, s) => sum + s.strength, 0) / signals.length);
+            const avgConfidence = Math.round(weightedSignals.reduce((sum, s) => sum + s.confidence, 0) / weightedSignals.length);
+            const totalScore = Math.round(weightedSignals.reduce((sum, s) => sum + s.strength, 0) / weightedSignals.length);
 
-            const assetType = (symbol.asset_type || 'stock') as AssetType;
             const benchmarkTicker = getBenchmarkTicker(assetType, symbol.currency || 'SEK');
-            // Only fetch benchmark once per symbol (not per horizon)
             const benchmarkPrice = horizon === horizons[0] ? await fetchBenchmarkPrice(benchmarkTicker) : null;
 
-            await supabase.from('asset_predictions').insert({
+            const { data: predData } = await supabase.from('asset_predictions').insert({
               symbol_id: symbol.id,
               horizon: horizon as any,
               predicted_direction: overallDir,
-              predicted_prob: overallDir === 'UP' ? (bullish.length / signals.length) : (bearish.length / signals.length),
+              predicted_prob: overallDir === 'UP' ? (bullish.length / weightedSignals.length) : (bearish.length / weightedSignals.length),
               confidence: avgConfidence,
               total_score: totalScore,
               entry_price: currentPrice,
               baseline_ticker: benchmarkTicker,
               baseline_price: benchmarkPrice,
-            });
+            }).select('id').single();
+
+            // ── Save signal_snapshots for self-learning ──
+            if (predData?.id) {
+              const snapshots = signals.map(s => ({
+                prediction_id: predData.id,
+                symbol_id: symbol.id,
+                module: s.module,
+                direction: s.direction,
+                strength: Math.round(s.strength),
+                confidence: Math.round(s.confidence),
+                horizon,
+              }));
+              const { error: snapErr } = await supabase.from('signal_snapshots').insert(snapshots);
+              if (snapErr) console.error(`Snapshot insert error for ${symbol.ticker}:`, snapErr.message);
+            }
           }
         }
 

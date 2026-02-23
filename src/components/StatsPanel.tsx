@@ -1,6 +1,6 @@
 import { HORIZON_LABELS, MODULE_NAMES, Horizon } from '@/types/market';
 import { cn } from '@/lib/utils';
-import { Target, TrendingUp, AlertTriangle, Info, Award } from 'lucide-react';
+import { Target, TrendingUp, AlertTriangle, Info, Award, ArrowDownCircle, ArrowUpCircle, Clock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,6 +11,9 @@ interface ModuleReliability {
   hit_rate: number;
   total_predictions: number;
   correct_predictions: number;
+  reliability_weight: number;
+  last_updated: string;
+  asset_type: string;
 }
 
 interface WatchlistStats {
@@ -51,11 +54,8 @@ const fetchWatchlistStats = async (userId: string | undefined): Promise<Watchlis
   }
 
   const confidenceBuckets: Record<number, { total: number; hits: number }> = {
-    50: { total: 0, hits: 0 },
-    60: { total: 0, hits: 0 },
-    70: { total: 0, hits: 0 },
-    80: { total: 0, hits: 0 },
-    90: { total: 0, hits: 0 },
+    50: { total: 0, hits: 0 }, 60: { total: 0, hits: 0 }, 70: { total: 0, hits: 0 },
+    80: { total: 0, hits: 0 }, 90: { total: 0, hits: 0 },
   };
 
   for (const item of data) {
@@ -80,7 +80,7 @@ const fetchWatchlistStats = async (userId: string | undefined): Promise<Watchlis
 const fetchModuleReliability = async (): Promise<ModuleReliability[]> => {
   const { data } = await supabase
     .from('module_reliability')
-    .select('module, horizon, hit_rate, total_predictions, correct_predictions')
+    .select('module, horizon, hit_rate, total_predictions, correct_predictions, reliability_weight, last_updated, asset_type')
     .order('hit_rate', { ascending: false });
 
   return (data || []).map(d => ({
@@ -89,48 +89,71 @@ const fetchModuleReliability = async (): Promise<ModuleReliability[]> => {
     hit_rate: Number(d.hit_rate || 0),
     total_predictions: d.total_predictions,
     correct_predictions: d.correct_predictions,
+    reliability_weight: Number(d.reliability_weight ?? 1.0),
+    last_updated: d.last_updated,
+    asset_type: d.asset_type,
   }));
 };
 
 const ModuleReliabilityPanel = ({ reliability }: { reliability: ModuleReliability[] }) => {
   const topModules = reliability
-    .filter(r => r.total_predictions >= 5)
+    .filter(r => r.total_predictions >= 3)
     .sort((a, b) => b.hit_rate - a.hit_rate)
-    .slice(0, 8);
+    .slice(0, 12);
 
   if (topModules.length === 0) return null;
 
+  const latestUpdate = reliability.reduce((latest, r) => {
+    const d = new Date(r.last_updated);
+    return d > latest ? d : latest;
+  }, new Date(0));
+
   return (
     <div className="glass-card rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-2">
         <Award className="w-5 h-5 text-primary" />
         <h3 className="font-semibold">Modul-reliabilitet (walk-forward)</h3>
-        <span className="text-xs text-muted-foreground">(baserat på historiska prediktioner)</span>
       </div>
+      <p className="text-xs text-muted-foreground mb-1">
+        Vikter justeras automatiskt: moduler med &gt;60% träff får +20% vikt, under 52% halveras.
+      </p>
+      {latestUpdate.getTime() > 0 && (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-4">
+          <Clock className="w-3 h-3" />
+          <span>Senast uppdaterad: {latestUpdate.toLocaleDateString('sv-SE')} {latestUpdate.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+      )}
 
       <div className="space-y-2">
-        {topModules.map(r => (
-          <div key={`${r.module}:${r.horizon}`} className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground w-28 truncate">{MODULE_NAMES[r.module] || r.module}</span>
-            <span className="text-xs text-muted-foreground w-12">{HORIZON_LABELS[r.horizon as Horizon] || r.horizon}</span>
-            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className={cn(
-                  'h-full rounded-full',
-                  r.hit_rate >= 0.6 ? 'bg-up' : r.hit_rate >= 0.52 ? 'bg-yellow-500' : 'bg-down'
-                )}
-                style={{ width: `${Math.min(100, r.hit_rate * 100)}%` }}
-              />
+        {topModules.map(r => {
+          const isDowngraded = r.reliability_weight < 1.0;
+          const isUpgraded = r.reliability_weight > 1.0;
+          return (
+            <div key={`${r.module}:${r.horizon}:${r.asset_type}`} className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground w-28 truncate">{MODULE_NAMES[r.module] || r.module}</span>
+              <span className="text-xs text-muted-foreground w-12">{HORIZON_LABELS[r.horizon as Horizon] || r.horizon}</span>
+              {isDowngraded && <ArrowDownCircle className="w-3.5 h-3.5 text-down flex-shrink-0" />}
+              {isUpgraded && <ArrowUpCircle className="w-3.5 h-3.5 text-up flex-shrink-0" />}
+              {!isDowngraded && !isUpgraded && <div className="w-3.5 h-3.5 flex-shrink-0" />}
+              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    'h-full rounded-full',
+                    r.hit_rate >= 0.6 ? 'bg-up' : r.hit_rate >= 0.52 ? 'bg-yellow-500' : 'bg-down'
+                  )}
+                  style={{ width: `${Math.min(100, r.hit_rate * 100)}%` }}
+                />
+              </div>
+              <span className={cn(
+                'font-mono text-xs w-10 text-right',
+                r.hit_rate >= 0.6 ? 'text-up' : r.hit_rate >= 0.52 ? 'text-yellow-500' : 'text-down'
+              )}>
+                {(r.hit_rate * 100).toFixed(0)}%
+              </span>
+              <span className="text-xs text-muted-foreground w-14 text-right">n={r.total_predictions}</span>
             </div>
-            <span className={cn(
-              'font-mono text-xs w-10 text-right',
-              r.hit_rate >= 0.6 ? 'text-up' : r.hit_rate >= 0.52 ? 'text-yellow-500' : 'text-down'
-            )}>
-              {(r.hit_rate * 100).toFixed(0)}%
-            </span>
-            <span className="text-xs text-muted-foreground w-14 text-right">n={r.total_predictions}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
