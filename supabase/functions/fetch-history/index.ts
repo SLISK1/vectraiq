@@ -13,6 +13,23 @@ const CRYPTO_IDS: Record<string, string> = {
   'ATOM': 'cosmos', 'NEAR': 'near', 'APT': 'aptos', 'ARB': 'arbitrum', 'OP': 'optimism',
 };
 
+// Metal ticker to Yahoo Finance futures symbol
+const METAL_YAHOO: Record<string, string> = {
+  'XAU': 'GC=F', 'XAG': 'SI=F', 'XPT': 'PL=F', 'XPD': 'PA=F',
+};
+
+// Metal ticker to FMP symbol
+const METAL_FMP: Record<string, string> = {
+  'XAU': 'XAUUSD', 'XAG': 'XAGUSD', 'XPT': 'XPTUSD', 'XPD': 'XPDUSD',
+};
+
+// Fund ticker to proxy ETF for history
+const FUND_PROXY: Record<string, string> = {
+  'SWE-USA': 'SPY', 'SWE-GLOB': 'VT', 'SWE-TECH': 'QQQ',
+  'SWE-ASIA': 'VWO', 'SWE-SMAL': 'XACT-OMXS30.ST',
+  'HB-ENRG': 'XLE', 'SPLT-INV': 'VT',
+};
+
 // Nordic stocks - ticker to exchange symbol mapping
 const NORDIC_STOCKS: Record<string, string> = {
   // Sweden - Large Cap
@@ -130,7 +147,7 @@ async function fetchYahooHistory(yahooSymbol: string, days: number): Promise<{ t
   return { timestamp: result.timestamp, quotes: result.indicators.quote[0] };
 }
 
-function yahooToRecords(symbolId: string, data: { timestamp: number[]; quotes: any }): any[] {
+function yahooToRecords(symbolId: string, data: { timestamp: number[]; quotes: any }, source = 'yahoo_fallback'): any[] {
   const records: any[] = [];
   for (let i = 0; i < data.timestamp.length; i++) {
     if (data.quotes.close?.[i] != null) {
@@ -142,7 +159,7 @@ function yahooToRecords(symbolId: string, data: { timestamp: number[]; quotes: a
         low_price: data.quotes.low?.[i] || data.quotes.close[i],
         close_price: data.quotes.close[i],
         volume: data.quotes.volume?.[i] || null,
-        source: 'yahoo_fallback',
+        source,
       });
     }
   }
@@ -170,6 +187,25 @@ async function upsertAndTrack(
     .upsert(records, { onConflict: 'symbol_id,date,source', ignoreDuplicates: true });
   if (error) { errors.push(`${ticker}: ${error.message}`); }
   else { results.push({ ticker, records: records.length, source }); }
+}
+
+// Helper: retry with exponential backoff
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 6000): Promise<T | null> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await fn();
+      return result;
+    } catch (e) {
+      if (attempt === maxRetries) {
+        console.error(`All ${maxRetries + 1} attempts failed:`, e);
+        return null;
+      }
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.log(`Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -213,7 +249,6 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const FMP_API_KEY = Deno.env.get('FMP_API_KEY');
-    const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
 
     let requestedTickers: string[] | undefined;
     let days = 365;
@@ -237,31 +272,46 @@ Deno.serve(async (req) => {
     const results: { ticker: string; records: number; source: string }[] = [];
     const errors: string[] = [];
 
-    // ========== 1. CRYPTO via CoinGecko (unchanged) ==========
+    // ========== 1. CRYPTO via CoinGecko (with retry + increased delay) ==========
     const cryptoSymbols = symbols.filter(s => CRYPTO_IDS[s.ticker]);
+    const failedCrypto: string[] = [];
     for (const symbol of cryptoSymbols) {
       const coinId = CRYPTO_IDS[symbol.ticker];
       console.log(`Fetching crypto: ${symbol.ticker} (${coinId})`);
-      try {
+
+      const fetchCrypto = async () => {
         const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            const byDate = new Map<string, any>();
-            for (const candle of data) {
-              const dateStr = new Date(candle[0]).toISOString().split('T')[0];
-              byDate.set(dateStr, {
-                symbol_id: symbol.id, date: dateStr,
-                open_price: candle[1], high_price: candle[2],
-                low_price: candle[3], close_price: candle[4],
-                volume: null, source: 'coingecko',
-              });
-            }
-            await upsertAndTrack(supabase, symbol.ticker, Array.from(byDate.values()), 'coingecko', results, errors);
-          }
-        } else { errors.push(`${symbol.ticker}: CoinGecko HTTP ${res.status}`); }
-        await new Promise(r => setTimeout(r, 4000));
-      } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
+        if (res.status === 429) throw new Error('Rate limited');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) return null;
+        const byDate = new Map<string, any>();
+        for (const candle of data) {
+          const dateStr = new Date(candle[0]).toISOString().split('T')[0];
+          byDate.set(dateStr, {
+            symbol_id: symbol.id, date: dateStr,
+            open_price: candle[1], high_price: candle[2],
+            low_price: candle[3], close_price: candle[4],
+            volume: null, source: 'coingecko',
+          });
+        }
+        return Array.from(byDate.values());
+      };
+
+      const records = await withRetry(fetchCrypto, 2, 8000);
+      if (records && records.length > 0) {
+        await upsertAndTrack(supabase, symbol.ticker, records, 'coingecko', results, errors);
+        console.log(`✓ CoinGecko ${symbol.ticker}: ${records.length} days`);
+      } else {
+        failedCrypto.push(symbol.ticker);
+        errors.push(`${symbol.ticker}: CoinGecko failed after retries`);
+      }
+      // 6s delay between calls to respect rate limits
+      await new Promise(r => setTimeout(r, 6000));
+    }
+
+    if (failedCrypto.length > 0) {
+      console.log(`⚠ Failed crypto: ${failedCrypto.join(', ')}`);
     }
 
     // ========== 2. US STOCKS: FMP primary -> Yahoo fallback ==========
@@ -271,7 +321,6 @@ Deno.serve(async (req) => {
     for (const symbol of usStockSymbols) {
       let fetched = false;
 
-      // Try FMP first
       if (FMP_API_KEY) {
         const fmpData = await fetchFmpHistory(symbol.ticker, days, FMP_API_KEY);
         if (fmpData && fmpData.length > 0) {
@@ -283,7 +332,6 @@ Deno.serve(async (req) => {
         await new Promise(r => setTimeout(r, 150));
       }
 
-      // Yahoo fallback
       if (!fetched) {
         console.log(`Yahoo fallback history: ${symbol.ticker}`);
         try {
@@ -308,7 +356,6 @@ Deno.serve(async (req) => {
       const exchangeSymbol = NORDIC_STOCKS[symbol.ticker] || symbol.ticker;
       let fetched = false;
 
-      // Try FMP first
       if (FMP_API_KEY) {
         const fmpData = await fetchFmpHistory(exchangeSymbol, days, FMP_API_KEY);
         if (fmpData && fmpData.length > 0) {
@@ -320,7 +367,6 @@ Deno.serve(async (req) => {
         await new Promise(r => setTimeout(r, 150));
       }
 
-      // Yahoo fallback
       if (!fetched) {
         console.log(`Yahoo fallback history: ${symbol.ticker} -> ${exchangeSymbol}`);
         try {
@@ -334,33 +380,76 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ========== 4. METALS via Alpha Vantage (unchanged) ==========
-    if (ALPHA_VANTAGE_API_KEY) {
-      const metalSymbols = symbols.filter(s => ['XAU', 'XAG', 'XPT', 'XPD'].includes(s.ticker));
-      console.log(`Fetching ${metalSymbols.length} metals from Alpha Vantage`);
-      for (const symbol of metalSymbols) {
+    // ========== 4. METALS via FMP primary -> Yahoo futures fallback ==========
+    const metalSymbols = symbols.filter(s => METAL_YAHOO[s.ticker]);
+    console.log(`Fetching ${metalSymbols.length} metals history — FMP/Yahoo`);
+
+    for (const symbol of metalSymbols) {
+      let fetched = false;
+
+      // Try FMP with commodity ticker (XAUUSD etc.)
+      if (FMP_API_KEY && METAL_FMP[symbol.ticker]) {
+        const fmpData = await fetchFmpHistory(METAL_FMP[symbol.ticker], days, FMP_API_KEY);
+        if (fmpData && fmpData.length > 0) {
+          const records = fmpToRecords(symbol.id, fmpData);
+          await upsertAndTrack(supabase, symbol.ticker, records, 'fmp', results, errors);
+          console.log(`✓ FMP metal ${symbol.ticker}: ${fmpData.length} days`);
+          fetched = true;
+        }
+        await new Promise(r => setTimeout(r, 150));
+      }
+
+      // Yahoo futures fallback (GC=F, SI=F, etc.)
+      if (!fetched && METAL_YAHOO[symbol.ticker]) {
+        const yahooTicker = METAL_YAHOO[symbol.ticker];
+        console.log(`Yahoo fallback metal: ${symbol.ticker} -> ${yahooTicker}`);
         try {
-          const res = await fetch(
-            `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=${symbol.ticker}&to_symbol=USD&outputsize=compact&apikey=${ALPHA_VANTAGE_API_KEY}`
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const timeSeries = data['Time Series FX (Daily)'];
-            if (timeSeries) {
-              const records = Object.entries(timeSeries).slice(0, days).map(([date, values]: [string, any]) => ({
-                symbol_id: symbol.id, date,
-                open_price: parseFloat(values['1. open']),
-                high_price: parseFloat(values['2. high']),
-                low_price: parseFloat(values['3. low']),
-                close_price: parseFloat(values['4. close']),
-                volume: null, source: 'alphavantage',
-              }));
-              await upsertAndTrack(supabase, symbol.ticker, records, 'alphavantage', results, errors);
-            } else if (data.Note || data.Information) {
-              errors.push(`${symbol.ticker}: AV rate limit`);
-            }
+          const data = await fetchYahooHistory(yahooTicker, days);
+          if (data) {
+            const records = yahooToRecords(symbol.id, data, 'yahoo_metal');
+            await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo_metal', results, errors);
+            console.log(`✓ Yahoo metal ${symbol.ticker}: ${records.length} days`);
+          } else {
+            errors.push(`${symbol.ticker}: no metal history from FMP or Yahoo`);
           }
-          await new Promise(r => setTimeout(r, 15000));
+          await new Promise(r => setTimeout(r, 500));
+        } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
+      }
+    }
+
+    // ========== 5. FUNDS via proxy-index (FMP/Yahoo) ==========
+    const fundSymbols = symbols.filter(s => FUND_PROXY[s.ticker]);
+    console.log(`Fetching ${fundSymbols.length} fund proxies`);
+
+    for (const symbol of fundSymbols) {
+      const proxyTicker = FUND_PROXY[symbol.ticker];
+      let fetched = false;
+
+      // Try FMP for proxy ETF
+      if (FMP_API_KEY) {
+        const fmpData = await fetchFmpHistory(proxyTicker, days, FMP_API_KEY);
+        if (fmpData && fmpData.length > 0) {
+          const records = fmpToRecords(symbol.id, fmpData).map(r => ({ ...r, source: 'fmp_proxy' }));
+          await upsertAndTrack(supabase, symbol.ticker, records, 'fmp_proxy', results, errors);
+          console.log(`✓ FMP proxy ${symbol.ticker} (${proxyTicker}): ${fmpData.length} days`);
+          fetched = true;
+        }
+        await new Promise(r => setTimeout(r, 150));
+      }
+
+      // Yahoo fallback for proxy ETF
+      if (!fetched) {
+        console.log(`Yahoo fallback proxy: ${symbol.ticker} -> ${proxyTicker}`);
+        try {
+          const data = await fetchYahooHistory(proxyTicker, days);
+          if (data) {
+            const records = yahooToRecords(symbol.id, data, 'yahoo_proxy');
+            await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo_proxy', results, errors);
+            console.log(`✓ Yahoo proxy ${symbol.ticker}: ${records.length} days`);
+          } else {
+            errors.push(`${symbol.ticker}: no proxy history (${proxyTicker})`);
+          }
+          await new Promise(r => setTimeout(r, 500));
         } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
       }
     }
