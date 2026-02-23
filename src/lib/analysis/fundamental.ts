@@ -317,7 +317,7 @@ export const analyzeFundamental = (
   priceHistory: PriceData[],
   currentPrice: number,
   horizon: Horizon,
-  assetType: 'stock' | 'crypto' | 'metal',
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
   ticker: string,
   fundamentals?: FundamentalMetrics
 ): AnalysisResult => {

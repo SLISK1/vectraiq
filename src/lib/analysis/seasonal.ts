@@ -78,7 +78,7 @@ const METAL_MONTHLY_BIAS: Record<number, number> = {
 };
 
 // Quarter patterns
-const getQuarterlyBias = (quarter: number, assetType: 'stock' | 'crypto' | 'metal'): number => {
+const getQuarterlyBias = (quarter: number, assetType: 'stock' | 'crypto' | 'metal' | 'fund'): number => {
   const quarterBias: Record<string, Record<number, number>> = {
     stock: { 1: 2.5, 2: 1.0, 3: -0.5, 4: 4.0 },
     crypto: { 1: 10, 2: 3, 3: 0, 4: 15 },
@@ -88,7 +88,7 @@ const getQuarterlyBias = (quarter: number, assetType: 'stock' | 'crypto' | 'meta
 };
 
 // Day of week patterns (1 = Monday, 5 = Friday)
-const getDayOfWeekBias = (day: number, assetType: 'stock' | 'crypto' | 'metal'): number => {
+const getDayOfWeekBias = (day: number, assetType: 'stock' | 'crypto' | 'metal' | 'fund'): number => {
   // Monday effect (stocks tend to be weak), Friday tends to be positive
   const dayBias: Record<string, Record<number, number>> = {
     stock: { 1: -0.3, 2: 0.1, 3: 0.2, 4: 0.2, 5: 0.3 },
@@ -103,7 +103,7 @@ export const analyzeSeasonal = (
   priceHistory: PriceData[],
   currentPrice: number,
   horizon: Horizon,
-  assetType: 'stock' | 'crypto' | 'metal'
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund'
 ): AnalysisResult => {
   const evidence: Evidence[] = [];
   const now = new Date();

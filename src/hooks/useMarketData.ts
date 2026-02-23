@@ -113,7 +113,7 @@ const transformToRankedAsset = async (
   const context = createAnalysisContext(
     symbol.ticker,
     symbol.name,
-    symbol.asset_type as 'stock' | 'crypto' | 'metal',
+    symbol.asset_type as 'stock' | 'crypto' | 'metal' | 'fund',
     symbol.currency,
     currentPrice,
     priceHistory,
@@ -140,7 +140,7 @@ const transformToRankedAsset = async (
   return {
     ticker: symbol.ticker,
     name: symbol.name,
-    type: symbol.asset_type as 'stock' | 'crypto' | 'metal',
+    type: symbol.asset_type as 'stock' | 'crypto' | 'metal' | 'fund',
     sector: symbol.sector || undefined,
     exchange: symbol.exchange || undefined,
     currency: symbol.currency,
@@ -272,8 +272,7 @@ export const useRankedAssets = (horizon: Horizon, direction: 'UP' | 'DOWN') => {
       
       return validAssets
         .map(a => ({ ...a, peerZScore: zScores.get(a.ticker) ?? 0 }))
-        .sort((a, b) => b.totalScore - a.totalScore)
-        .slice(0, 10);
+        .sort((a, b) => b.totalScore - a.totalScore);
     },
     enabled: !!symbols && symbols.length > 0,
     staleTime: 1000 * 60 * 2, // 2 minutes

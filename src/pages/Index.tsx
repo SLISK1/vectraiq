@@ -286,7 +286,7 @@ const Index = () => {
       const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
       const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
       return matchesMarketCap && matchesAssetType;
-    });
+    }).slice(0, 10);
   }, [topUp, selectedMarketCap, selectedAssetType]);
 
   const filteredTopDown = useMemo(() => {
@@ -301,7 +301,7 @@ const Index = () => {
       const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
       const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
       return matchesMarketCap && matchesAssetType;
-    });
+    }).slice(0, 10);
   }, [topDown, selectedMarketCap, selectedAssetType]);
 
   return (

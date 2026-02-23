@@ -22,7 +22,7 @@ const SENTIMENT_CACHE_TTL = 5 * 60 * 1000;
 export const fetchAISentiment = async (
   ticker: string,
   name: string,
-  assetType: 'stock' | 'crypto' | 'metal',
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
   horizon: Horizon,
   currentPrice?: number
 ): Promise<SentimentAnalysisResult | null> => {
@@ -76,7 +76,7 @@ export const fetchAISentiment = async (
 export const analyzeSentiment = async (
   ticker: string,
   name: string,
-  assetType: 'stock' | 'crypto' | 'metal',
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
   horizon: Horizon,
   currentPrice?: number
 ): Promise<AnalysisResult> => {
@@ -166,7 +166,7 @@ export const analyzeSentiment = async (
 export const analyzeSentimentSync = (
   ticker: string,
   name: string,
-  assetType: 'stock' | 'crypto' | 'metal',
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
   horizon: Horizon,
   priceHistory?: { price: number; close?: number; timestamp: string }[]
 ): AnalysisResult => {
