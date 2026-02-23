@@ -14,6 +14,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const fmpApiKey = Deno.env.get("FMP_API_KEY") || "";
 
     // === AUTHENTICATION CHECK ===
     const authHeader = req.headers.get("authorization");
@@ -24,12 +25,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Create client with user's auth context
     const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
 
-    // Validate the JWT token
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getUser(token);
     
@@ -42,7 +41,6 @@ Deno.serve(async (req) => {
 
     const userId = claimsData.user.id;
 
-    // Service role client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // === INPUT VALIDATION ===
@@ -58,22 +56,21 @@ Deno.serve(async (req) => {
 
     const cleanTicker = ticker.toUpperCase().trim();
 
-    // Validate ticker format: alphanumeric, hyphens, underscores only, 1-12 chars
-    if (!/^[A-Z0-9_-]{1,12}$/.test(cleanTicker)) {
-      return new Response(JSON.stringify({ error: "Invalid ticker format. Use 1-12 alphanumeric characters, hyphens or underscores." }), {
+    // Allow dots for Nordic stocks (.ST, .OL, .CO, .HE) and longer tickers
+    if (!/^[A-Z0-9._-]{1,20}$/.test(cleanTicker)) {
+      return new Response(JSON.stringify({ error: "Ogiltigt ticker-format. Använd 1-20 tecken: bokstäver, siffror, punkter, bindestreck eller understreck." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // === RATE LIMITING (10 symbols per hour per user) ===
+    // === RATE LIMITING (50 symbols per hour globally) ===
     const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
     const { count: recentCount } = await supabase
       .from("symbols")
       .select("*", { count: "exact", head: true })
       .gte("created_at", oneHourAgo);
 
-    // Global rate limit (not per user since we don't track who added symbols)
     if (recentCount && recentCount > 50) {
       return new Response(JSON.stringify({ error: "Too many symbols added recently. Please try again later." }), {
         status: 429,
@@ -94,21 +91,62 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Detect type
-    const cryptos = ["BTC", "ETH", "SOL", "XRP", "ADA", "AVAX", "DOT", "LINK", "DOGE"];
+    // === SMART TYPE DETECTION ===
+    const cryptos = ["BTC", "ETH", "SOL", "XRP", "ADA", "AVAX", "DOT", "LINK", "DOGE", "MATIC", "SHIB", "UNI", "LTC", "ATOM", "FIL", "APT", "ARB", "OP", "NEAR", "AAVE"];
     const metals = ["XAU", "XAG", "XPT", "XPD"];
+    const nordicSuffixes = [".ST", ".OL", ".CO", ".HE"];
+    const fundKeywords = ["ETF", "FUND", "INDEX"];
+    
     let assetType: "stock" | "crypto" | "metal" | "fund" = "stock";
-    if (cryptos.includes(cleanTicker)) assetType = "crypto";
-    else if (metals.includes(cleanTicker)) assetType = "metal";
+    let currency = "USD";
 
-    const currency = assetType === "crypto" ? "USD" : "USD";
+    if (cryptos.includes(cleanTicker.replace(/-.*$/, ""))) {
+      assetType = "crypto";
+      currency = "USD";
+    } else if (metals.includes(cleanTicker)) {
+      assetType = "metal";
+      currency = "USD";
+    } else if (fundKeywords.some(kw => cleanTicker.includes(kw))) {
+      assetType = "fund";
+      currency = "USD";
+    } else if (nordicSuffixes.some(s => cleanTicker.endsWith(s))) {
+      assetType = "stock";
+      currency = cleanTicker.endsWith(".ST") ? "SEK" 
+        : cleanTicker.endsWith(".OL") ? "NOK"
+        : cleanTicker.endsWith(".CO") ? "DKK"
+        : cleanTicker.endsWith(".HE") ? "EUR"
+        : "USD";
+    }
+
+    // === FMP NAME LOOKUP ===
+    let displayName = cleanTicker;
+    if (fmpApiKey) {
+      try {
+        const profileRes = await fetch(`https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(cleanTicker)}?apikey=${fmpApiKey}`);
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
+          if (Array.isArray(profileData) && profileData.length > 0) {
+            displayName = profileData[0].companyName || cleanTicker;
+            // Also refine type from FMP if available
+            if (profileData[0].isEtf) assetType = "fund";
+            if (profileData[0].isFund) assetType = "fund";
+            if (profileData[0].currency) currency = profileData[0].currency;
+            if (profileData[0].sector) {
+              // Will be stored as metadata below
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("FMP profile lookup failed:", e);
+      }
+    }
 
     // Insert
     const { data: newSymbol, error } = await supabase
       .from("symbols")
       .insert({
         ticker: cleanTicker,
-        name: cleanTicker,
+        name: displayName,
         asset_type: assetType,
         currency,
         is_active: true,
@@ -123,20 +161,45 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Trigger data fetch (fire and forget) using service key
+    // === FIRE-AND-FORGET: fetch-history, fetch-prices, generate-signals ===
+    const internalHeaders = {
+      Authorization: `Bearer ${supabaseServiceKey}`,
+      "Content-Type": "application/json",
+      "X-Internal-Call": "true",
+    };
+
+    // 1. Fetch history (365 days)
     fetch(`${supabaseUrl}/functions/v1/fetch-history`, {
       method: "POST",
-      headers: { 
-        Authorization: `Bearer ${supabaseServiceKey}`, 
-        "Content-Type": "application/json",
-        "X-Internal-Call": "true", // Mark as internal call
-      },
+      headers: internalHeaders,
       body: JSON.stringify({ tickers: [cleanTicker], days: 365 }),
     }).catch(() => {});
 
-    console.log(`User ${userId} added symbol: ${cleanTicker}`);
+    // 2. Fetch live prices
+    fetch(`${supabaseUrl}/functions/v1/fetch-prices`, {
+      method: "POST",
+      headers: internalHeaders,
+      body: JSON.stringify({ tickers: [cleanTicker] }),
+    }).catch(() => {});
 
-    return new Response(JSON.stringify({ success: true, isNew: true, symbol: newSymbol, detectedType: assetType }), {
+    // 3. Generate signals (delayed slightly to allow price data to arrive)
+    setTimeout(() => {
+      fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: JSON.stringify({ tickers: [cleanTicker] }),
+      }).catch(() => {});
+    }, 5000);
+
+    console.log(`User ${userId} added symbol: ${cleanTicker} (${displayName}, ${assetType}, ${currency})`);
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      isNew: true, 
+      symbol: newSymbol, 
+      detectedType: assetType,
+      displayName,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

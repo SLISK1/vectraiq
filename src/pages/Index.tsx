@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Header } from '@/components/Header';
 import { HorizonSelector } from '@/components/HorizonSelector';
 import { TopRankingList } from '@/components/TopRankingList';
@@ -241,15 +242,25 @@ const Index = () => {
   }, [topUp, topDown, symbols, selectedHorizon]);
 
   // Handle adding new symbol
+  const queryClient = useQueryClient();
+
   const handleAddNewSymbol = useCallback(async (ticker: string) => {
     try {
       const result = await addSymbolMutation.mutateAsync(ticker);
+      const name = result.displayName || ticker;
       toast({
         title: result.isNew ? "Tillgång tillagd!" : "Tillgång finns redan",
         description: result.isNew 
-          ? `${ticker} har lagts till som ${result.detectedType}. Prisdata hämtas i bakgrunden.`
+          ? `${name} (${ticker}) har lagts till som ${result.detectedType}. Historik, priser och signaler hämtas i bakgrunden — tillgången dyker upp inom ca 30 sekunder.`
           : `${ticker} finns redan i systemet.`,
       });
+      // Auto-invalidate after 30s so signals/prices appear
+      if (result.isNew) {
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['symbols'] });
+          queryClient.invalidateQueries({ queryKey: ['rankedAssets'] });
+        }, 30000);
+      }
     } catch (error) {
       toast({
         title: "Kunde inte lägga till tillgång",
@@ -257,7 +268,7 @@ const Index = () => {
         variant: "destructive",
       });
     }
-  }, [addSymbolMutation, toast]);
+  }, [addSymbolMutation, toast, queryClient]);
 
   // Filter assets by market cap and asset type
   const filteredTopUp = useMemo(() => {
