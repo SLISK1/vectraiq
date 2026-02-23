@@ -1,219 +1,129 @@
 
+# Fix: Nytillagda aktier far aldrig pris eller analys
 
-# Remaining Implementation: Fas 1-3 Gap Analysis and Completion
+## Rotorsaksanalys
 
-## Current State
+Tre separata buggar forhindrar att nytillagda symboler (via sokningen pa hemsidan) far prisdata och analys:
 
-After reviewing all files, Fas 1 (A-E, G) and Fas 2 (F, H, I, J) are **already implemented in the frontend/engine.ts** from the previous round. However, there are critical gaps where the **server-side edge functions were NOT updated to match**, plus Fas 3 items (K, L, M, N) are untouched.
+### BUG 1: `generate-signals` kraschar vid start (KRITISK)
+Rad 275 i `generate-signals/index.ts` refererar till `reliabilityMap.size` -- men variabeln `reliabilityMap` togs bort i en tidigare refaktor. Funktionen kastar `ReferenceError: reliabilityMap is not defined` vid VARJE anrop, inklusive cron-jobb. Detta forklarar varfor det finns **noll loggar** for funktionen och varfor inga signaler genereras for NAGRA symboler.
 
-## Gap Analysis: What Still Needs Fixing
+### BUG 2: `generate-signals` saknar `tickers`-filter
+Nar `add-symbol` anropar `generate-signals` med `{ tickers: ["BURE.ST"] }` ignoreras parametern helt. Funktionen laster bara `limit`/`offset`-paginering (rad 258-267, 296-302), sa den processar de forsta 20 symbolerna i bokstavsordning istallet for den nyligen tillagda symbolen.
 
-### GAP 1: `generate-signals` scoring is INCONSISTENT with `engine.ts` (Critical)
+### BUG 3: `add-symbol` timeout-problem med `setTimeout`
+Rad 186-192 i `add-symbol` anvander `setTimeout(5000)` for att fordroja `generate-signals`-anropet -- men Deno.serve returnerar response INNAN timeout fires, sa edge function-runtimen kan avsluta processen innan anropet ens skickas.
 
-**Lines 402-407** still use the OLD scoring logic:
+## Bevis fran databasen
+
+Senaste 5 nytillagda symboler:
+- CADELER: 0 priser, 0 historik, 0 signaler
+- AXACTOR: 0 priser, 0 historik, 0 signaler  
+- BLUENORD: 0 priser, 0 historik, 0 signaler
+- CITYCON: 0 priser, 0 historik, 0 signaler
+- ADDLIFE: 0 priser, 0 historik, 0 signaler
+
+## Fix-plan
+
+### Fix 1: Ta bort kraschande kod i `generate-signals`
+**Fil:** `supabase/functions/generate-signals/index.ts`
+- Rad 275: Byt `reliabilityMap.size` till `reliabilityDataMap.size`
+
+### Fix 2: Lagg till `tickers`-filter i `generate-signals`
+**Fil:** `supabase/functions/generate-signals/index.ts`
+- Rad 258-267: Parsa `body.tickers` array fran request body
+- Rad 296-302: Om `tickers` finns, anvand `.in('ticker', tickers)` istallet for `.range(offset, limit)`
+- Sa att `add-symbol` kan trigga signaler for just den nya symbolen
+
+### Fix 3: Ersatt `setTimeout` med `await` i `add-symbol`
+**Fil:** `supabase/functions/add-symbol/index.ts`
+- Rad 164-192: Gor fetch-history och fetch-prices till `await`-anrop (seriellt, inte fire-and-forget) sa att prisdata garanterat finns innan generate-signals anropas
+- Alternativt: gor alla tre till `await` med Promise.allSettled, eller gor fetch-history + fetch-prices parallellt och generate-signals sekventiellt efterat
+- Returnera response efter alla tre ar klara, sa att frontend far korrekt status
+
+### Fix 4: Deploya och testa
+- Deploya bada edge functions
+- Testa med `curl` att `add-symbol` + `fetch-prices` + `generate-signals` ger data for en ny ticker
+- Verifiera att cron-jobb for `generate-signals` fungerar igen (har varit brutet)
+
+## Tekniska detaljer
+
+### `generate-signals/index.ts` andringar:
+
+**Rad 275 (kraschfix):**
 ```
-// OLD (broken): vote-based direction + average strength
-const overallDir = bullish.length > bearish.length ? 'UP' : ...
-const totalScore = Math.round(weightedSignals.reduce(sum + s.strength) / length)
-```
+// Before (kraschar):
+console.log(`Loaded ${reliabilityMap.size} module_reliability entries`);
 
-This means the **server-side predictions** saved to `asset_predictions` use a completely different formula than the frontend engine. The self-learning loop (`score-predictions`) evaluates these server predictions, so the reliability weights being learned are calibrated against the OLD formula -- not the new signed scoring.
-
-**Fix:** Port the signed scoring formula from `engine.ts` into `generate-signals`:
-- `signedStrength = (strength - 50) * 2 * dirMultiplier`
-- `totalSignedScore = sum of weighted signed contributions`
-- `normalizedScore = 50 + totalSignedScore / 2`
-- `direction from totalSignedScore with +/-5 dead-zone`
-- `predicted_prob` based on signed score magnitude, not vote count
-
-### GAP 2: `generate-signals` weight renormalization missing (Critical)
-
-**Lines 374-382** multiply `strength * rw` and `confidence * rw` but do NOT renormalize weights across modules. The total weight sum can drift to 70 or 130 instead of 100, making scores incomparable across symbols.
-
-**Fix:** After applying Bayesian reliability factors, renormalize so weights sum to 100 before computing aggregate score.
-
-### GAP 3: Duplicate/dead reliability code in `generate-signals`
-
-Lines 270-278 build `reliabilityMap` (old, unused). Lines 281-298 build `reliabilityDataMap` with Bayesian logic. The old `reliabilityMap` is dead code.
-
-**Fix:** Remove old `reliabilityMap` block.
-
-### GAP 4: `calculateObjectiveCoverage` (F) defined but never called
-
-The utility exists in `engine.ts` (line 340-386) but no module actually uses it. Modules still self-report their own coverage.
-
-**Fix:** Wire `calculateObjectiveCoverage` into `runAnalysis` by overriding each module result's coverage with the objective calculation.
-
-### GAP 5: Missing unit tests for B and E
-
-- B: No test that `score=50 => returns ~0`
-- E: No test that weights sum to exactly 100 after renormalization
-
-### GAP 6: `ai-analysis` missing 'fund' type, validation, sanitization (N, P)
-
-- Line 12: `assetType: 'stock' | 'crypto' | 'metal'` -- no `'fund'`
-- Lines 457-468: Regex JSON parse with no schema validation
-- Firecrawl content (line 84) is passed raw -- no HTML stripping
-
-### GAP 7: No DB migrations for K and M
-
-- `asset_predictions` needs `p_up`, `weights_version`, `model_version` columns
-- `calibration_stats` table doesn't exist
-- `raw_prices` needs `quality_score`, `market_timestamp` columns
-
----
-
-## Implementation Plan
-
-### PR 1: Server-side scoring alignment + cleanup
-
-**Files changed:**
-
-| File | Change | Why |
-|------|--------|-----|
-| `supabase/functions/generate-signals/index.ts` | Signed scoring in prediction save, weight renormalization, dead code removal | GAP 1, 2, 3 |
-| `src/lib/analysis/engine.ts` | Wire `calculateObjectiveCoverage` into `runAnalysis` | GAP 4 |
-| `src/test/scoring-pipeline.test.ts` | Add tests for B (returns) and E (weight sum) | GAP 5 |
-
-**Details for `generate-signals/index.ts`:**
-
-1. Remove dead `reliabilityMap` (lines 270-278) -- only keep `reliabilityDataMap` and `getReliabilityWeight`
-
-2. Add weight renormalization in the signal processing loop (after line 382):
-```
-// After reliability weighting, renormalize
-const totalRw = weightedSignals.reduce((s, sig) => s + rw_for_sig, 0);
-const normFactor = totalRw > 0 ? signals.length / totalRw : 1;
-// Apply normFactor to each signal's effective weight
+// After:
+console.log(`Loaded ${reliabilityDataMap.size} module_reliability entries`);
 ```
 
-3. Replace lines 402-416 (prediction save) with signed scoring:
-```
-// Signed scoring (matching engine.ts)
-const signedScores = weightedSignals.map(s => {
-  const dir = s.direction === 'UP' ? 1 : s.direction === 'DOWN' ? -1 : 0;
-  return (s.strength - 50) * 2 * dir;
-});
-const totalSignedScore = signedScores.reduce((a, b) => a + b, 0) / weightedSignals.length;
-const normalizedScore = Math.round(50 + totalSignedScore / 2);
-const overallDir = totalSignedScore > 5 ? 'UP' : totalSignedScore < -5 ? 'DOWN' : 'NEUTRAL';
-const p_up = Math.max(0, Math.min(1, 0.5 + totalSignedScore / 200));
-```
-
-4. Include `p_up` in the insert (requires DB migration first, so initially skip or use existing columns)
-
-**Details for `engine.ts` (F integration):**
-
-After each module runs and returns its `AnalysisResult`, override its `coverage` field:
+**Rad 258-267 (tickers-filter):**
 ```typescript
-const results = rawResults.map(r => ({
-  ...r,
-  coverage: calculateObjectiveCoverage(priceHistory, horizon, r.module),
-}));
+let batchLimit = 20, batchOffset = 0;
+let horizons: string[] = ['1d'];
+let tickerFilter: string[] | null = null;  // NY
+try {
+  const body = await req.json();
+  if (body?.tickers && Array.isArray(body.tickers)) {
+    tickerFilter = body.tickers.map((t: string) => t.toUpperCase().trim());
+  }
+  // ... befintlig limit/offset/horizon-logik
+} catch {}
 ```
 
-**New tests:**
+**Rad 296-302 (query-uppdatering):**
 ```typescript
-test('score=50 => predicted returns ~0', () => { ... });
-test('weights sum to ~100 after renormalization', () => { ... });
-```
+let symQuery = supabase
+  .from('symbols')
+  .select('id, ticker, name, asset_type, currency, metadata')
+  .eq('is_active', true)
+  .order('ticker', { ascending: true });
 
-### PR 2: AI analysis hardening (N, P)
-
-**Files changed:**
-
-| File | Change | Why |
-|------|--------|-----|
-| `supabase/functions/ai-analysis/index.ts` | Add 'fund' type, HTML sanitization, basic response validation, logging | GAP 6 |
-
-**Details:**
-
-1. Line 12: Add `'fund'` to assetType union
-2. Add HTML strip function for Firecrawl content:
-```typescript
-function stripHtml(text: string): string {
-  return text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+if (tickerFilter && tickerFilter.length > 0) {
+  symQuery = symQuery.in('ticker', tickerFilter);
+} else {
+  symQuery = symQuery.range(batchOffset, batchOffset + batchLimit - 1);
 }
+const { data: symbols, error: symErr } = await symQuery;
 ```
-3. Apply to Firecrawl snippets (line 84): `const content = stripHtml((r.markdown || r.description || '')).substring(0, 800);`
-4. Add basic response validation after JSON parse (line 461):
+
+### `add-symbol/index.ts` andringar:
+
+**Rad 164-192 (sequential await istallet for fire-and-forget):**
 ```typescript
-// Validate required fields
-if (!analysisResult.direction || !['UP','DOWN','NEUTRAL'].includes(analysisResult.direction)) {
-  analysisResult.direction = 'NEUTRAL';
-}
-analysisResult.strength = Math.max(0, Math.min(100, Number(analysisResult.strength) || 50));
-analysisResult.confidence = Math.max(0, Math.min(100, Number(analysisResult.confidence) || 40));
-```
-5. Add logging after AI call:
-```typescript
-console.log(`ai-analysis: model=${model}, type=${type}, ticker=${ticker}, tokens=${aiResponse.usage?.total_tokens || 'N/A'}`);
-```
-6. Low confidence cap when no news/data (already partially there in sentiment prompt, but enforce programmatically):
-```typescript
-if (type === 'sentiment' && !hasRealNews && !hasFirecrawl) {
-  analysisResult.confidence = Math.min(analysisResult.confidence, 45);
-  analysisResult.evidence = [...(analysisResult.evidence || []), 
-    { type: 'warning', description: 'Inga nyheter/analyser tillgangliga', value: 'low_data', source: 'System' }];
+// 1. Fetch history + prices in parallel (both must complete before signals)
+const [histRes, priceRes] = await Promise.allSettled([
+  fetch(`${supabaseUrl}/functions/v1/fetch-history`, {
+    method: "POST",
+    headers: internalHeaders,
+    body: JSON.stringify({ tickers: [cleanTicker], days: 365 }),
+  }),
+  fetch(`${supabaseUrl}/functions/v1/fetch-prices`, {
+    method: "POST",
+    headers: internalHeaders,
+    body: JSON.stringify({ tickers: [cleanTicker] }),
+  }),
+]);
+
+console.log(`History: ${histRes.status}, Prices: ${priceRes.status}`);
+
+// 2. Generate signals AFTER price data is available
+try {
+  await fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
+    method: "POST",
+    headers: internalHeaders,
+    body: JSON.stringify({ tickers: [cleanTicker], allHorizons: true }),
+  });
+} catch (e) {
+  console.warn('generate-signals trigger failed:', e);
 }
 ```
 
-### PR 3: DB migrations + calibration infrastructure (K, M)
+## Filer som andras
 
-**DB Migration 1 (K):**
-```sql
-ALTER TABLE asset_predictions 
-  ADD COLUMN IF NOT EXISTS p_up numeric,
-  ADD COLUMN IF NOT EXISTS weights_version text DEFAULT '1.0',
-  ADD COLUMN IF NOT EXISTS model_version text DEFAULT '1.0';
-
-CREATE TABLE IF NOT EXISTS calibration_stats (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  horizon text NOT NULL,
-  asset_type text NOT NULL,
-  bucket_center numeric NOT NULL,
-  predicted_count integer DEFAULT 0,
-  actual_up_count integer DEFAULT 0,
-  brier_score numeric,
-  updated_at timestamptz DEFAULT now(),
-  UNIQUE(horizon, asset_type, bucket_center)
-);
-ALTER TABLE calibration_stats ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "calibration_stats_select_all" ON calibration_stats
-  FOR SELECT USING (true);
-CREATE POLICY "calibration_stats_deny_insert" ON calibration_stats
-  FOR INSERT WITH CHECK (false);
-CREATE POLICY "calibration_stats_deny_update" ON calibration_stats
-  FOR UPDATE USING (false);
-CREATE POLICY "calibration_stats_deny_delete" ON calibration_stats
-  FOR DELETE USING (false);
-```
-
-**DB Migration 2 (M):**
-```sql
-ALTER TABLE raw_prices 
-  ADD COLUMN IF NOT EXISTS quality_score smallint DEFAULT 100,
-  ADD COLUMN IF NOT EXISTS market_timestamp timestamptz;
-```
-
-**After migrations:** Update `generate-signals` to include `p_up`, `weights_version`, and `model_version` in the `asset_predictions` insert.
-
----
-
-## Implementation Order
-
-1. **DB migrations first** (K, M) -- needed before code changes can use new columns
-2. **PR 1** (generate-signals alignment, F integration, tests)
-3. **PR 2** (ai-analysis hardening)
-4. Deploy `generate-signals` and run for 5 symbols to verify score spread
-
-## Files Summary
-
-| File | PRs | Changes |
-|------|-----|---------|
-| `supabase/functions/generate-signals/index.ts` | PR 1, 3 | Signed scoring, weight renorm, dead code cleanup, p_up/version columns |
-| `src/lib/analysis/engine.ts` | PR 1 | Wire calculateObjectiveCoverage into runAnalysis |
-| `src/test/scoring-pipeline.test.ts` | PR 1 | Tests for B (returns at score=50) and E (weight sum) |
-| `supabase/functions/ai-analysis/index.ts` | PR 2 | Fund type, HTML strip, validation, logging, low-data confidence cap |
-| DB migration | PR 3 | calibration_stats table, p_up/versions on asset_predictions, quality on raw_prices |
-
+| Fil | Andring |
+|-----|---------|
+| `supabase/functions/generate-signals/index.ts` | Fix krasch (rad 275), lagg till tickers-filter |
+| `supabase/functions/add-symbol/index.ts` | Byt fire-and-forget till await, ta bort setTimeout |
