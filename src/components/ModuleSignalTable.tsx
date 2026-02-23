@@ -1,7 +1,7 @@
 import { ModuleSignal, MODULE_NAMES } from '@/types/market';
 import { DirectionBadge } from './DirectionBadge';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { ChevronDown, ChevronUp, Info, Newspaper, Globe, Bot, BarChart } from 'lucide-react';
 import { useState } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -9,6 +9,27 @@ interface ModuleSignalTableProps {
   signals: ModuleSignal[];
   className?: string;
 }
+
+// Detect data sources used for a sentiment signal based on evidence
+const detectDataSources = (signal: ModuleSignal) => {
+  if (signal.module !== 'sentiment') return [];
+  const sources: { label: string; icon: typeof Newspaper; color: string }[] = [];
+  const evidenceText = signal.evidence.map(e => `${e.source} ${e.description} ${e.type}`).join(' ').toLowerCase();
+  
+  if (evidenceText.includes('gnews') || signal.evidence.some(e => e.type === 'sentiment' && e.source && !['System', 'Momentum Proxy', 'Price Momentum Proxy', 'Asset Analysis', 'ML Model'].includes(e.source))) {
+    sources.push({ label: 'GNews', icon: Newspaper, color: 'text-blue-400 bg-blue-400/10 border-blue-400/30' });
+  }
+  if (evidenceText.includes('firecrawl') || evidenceText.includes('extern marknadsanalys')) {
+    sources.push({ label: 'Firecrawl', icon: Globe, color: 'text-orange-400 bg-orange-400/10 border-orange-400/30' });
+  }
+  if (evidenceText.includes('ai sentiment') || signal.evidence.some(e => e.source === 'AI Sentiment Analysis')) {
+    sources.push({ label: 'AI', icon: Bot, color: 'text-purple-400 bg-purple-400/10 border-purple-400/30' });
+  }
+  if (sources.length === 0 && (evidenceText.includes('momentum') || evidenceText.includes('basestimering'))) {
+    sources.push({ label: 'Fallback', icon: BarChart, color: 'text-muted-foreground bg-muted/30 border-border' });
+  }
+  return sources;
+};
 
 export const ModuleSignalTable = ({ signals, className }: ModuleSignalTableProps) => {
   const [expandedModule, setExpandedModule] = useState<string | null>(null);
@@ -30,7 +51,9 @@ export const ModuleSignalTable = ({ signals, className }: ModuleSignalTableProps
           </tr>
         </thead>
         <tbody>
-          {sortedSignals.map((signal) => (
+          {sortedSignals.map((signal) => {
+            const dataSources = detectDataSources(signal);
+            return (
             <Collapsible
               key={signal.module}
               open={expandedModule === signal.module}
@@ -40,7 +63,26 @@ export const ModuleSignalTable = ({ signals, className }: ModuleSignalTableProps
               <>
                 <CollapsibleTrigger asChild>
                   <tr className="cursor-pointer">
-                    <td className="font-medium">{MODULE_NAMES[signal.module]}</td>
+                    <td className="font-medium">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>{MODULE_NAMES[signal.module]}</span>
+                        {dataSources.map((src) => {
+                          const SrcIcon = src.icon;
+                          return (
+                            <span
+                              key={src.label}
+                              className={cn(
+                                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border",
+                                src.color
+                              )}
+                            >
+                              <SrcIcon className="w-3 h-3" />
+                              {src.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
                     <td>
                       <DirectionBadge direction={signal.direction} size="sm" />
                     </td>
@@ -115,7 +157,8 @@ export const ModuleSignalTable = ({ signals, className }: ModuleSignalTableProps
                 </CollapsibleContent>
               </>
             </Collapsible>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
