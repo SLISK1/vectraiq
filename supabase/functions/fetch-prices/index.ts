@@ -232,8 +232,20 @@ Deno.serve(async (req) => {
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
 
-    const { data: symbols, error: symError } = await supabase
-      .from('symbols').select('id, ticker, asset_type, metadata').eq('is_active', true);
+    // Parse optional tickers filter from request body
+    let tickerFilter: string[] | null = null;
+    try {
+      const body = await req.json();
+      if (body?.tickers && Array.isArray(body.tickers) && body.tickers.length > 0) {
+        tickerFilter = body.tickers.map((t: string) => t.toUpperCase().trim());
+      }
+    } catch { /* no body = fetch all */ }
+
+    let query = supabase.from('symbols').select('id, ticker, asset_type, metadata').eq('is_active', true);
+    if (tickerFilter) {
+      query = query.in('ticker', tickerFilter);
+    }
+    const { data: symbols, error: symError } = await query;
 
     if (symError) {
       return new Response(JSON.stringify({ error: symError.message }), {
@@ -241,7 +253,7 @@ Deno.serve(async (req) => {
       });
     }
     if (!symbols?.length) {
-      return new Response(JSON.stringify({ updated: 0, reason: 'no symbols' }), {
+      return new Response(JSON.stringify({ updated: 0, reason: tickerFilter ? `tickers not found: ${tickerFilter.join(',')}` : 'no symbols' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -614,9 +626,70 @@ Deno.serve(async (req) => {
       console.log('Cross-validation: all prices within 3% tolerance ✓');
     }
 
-    // Log missing
+    // ========== 7. CATCH-ALL: symbols not handled by any category ==========
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
-    const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id));
+    const handledByCategory = new Set([
+      ...cryptoTickers.map(s => s.id),
+      ...usStockSymbols.map(s => s.id),
+      ...nordicStockSymbols.map(s => s.id),
+      ...metalSymbols.map(s => s.id),
+      ...fundSymbols.map(s => s.id),
+    ]);
+    const unmatchedSymbols = symbols.filter(s => !handledByCategory.has(s.id) && !fetchedSymbolIds.has(s.id));
+    
+    if (unmatchedSymbols.length > 0) {
+      console.log(`Catch-all: fetching ${unmatchedSymbols.length} unmatched symbols via FMP/Yahoo`);
+      for (const s of unmatchedSymbols) {
+        let fetched = false;
+        const tickerForQuery = s.ticker; // Already has .ST/.OL suffix if Nordic
+        
+        // Try FMP first
+        if (FMP_API_KEY && !fetched) {
+          try {
+            const q = await fetchFmpSingleQuote(tickerForQuery, FMP_API_KEY);
+            if (q && q.price > 0) {
+              priceRecords.push({
+                symbol_id: s.id, price: q.price,
+                change_24h: q.change, change_percent_24h: q.changePercent,
+                high_price: q.high, low_price: q.low, open_price: q.open,
+                volume: q.volume, market_cap: q.marketCap,
+                source: 'fmp_catchall',
+              });
+              console.log(`✓ Catch-all FMP ${s.ticker}: ${q.price}`);
+              fetched = true;
+            }
+            await new Promise(r => setTimeout(r, 150));
+          } catch (e) { console.error(`Catch-all FMP error ${s.ticker}:`, e); }
+        }
+        
+        // Yahoo fallback
+        if (!fetched) {
+          try {
+            const q = await fetchYahooQuote(tickerForQuery);
+            if (q && q.price > 0) {
+              priceRecords.push({
+                symbol_id: s.id, price: q.price,
+                change_24h: q.change, change_percent_24h: q.changePercent,
+                high_price: q.high, low_price: q.low, open_price: q.open,
+                volume: q.volume, market_cap: q.marketCap,
+                source: 'yahoo_catchall',
+              });
+              console.log(`✓ Catch-all Yahoo ${s.ticker}: ${q.price}`);
+              fetched = true;
+            }
+            await new Promise(r => setTimeout(r, 200));
+          } catch (e) { errors.push(`Catch-all Yahoo ${s.ticker}: ${e}`); }
+        }
+        
+        if (!fetched) {
+          errors.push(`${s.ticker}: no price from any source`);
+        }
+      }
+    }
+
+    // Log final missing
+    const finalFetchedIds = new Set(priceRecords.map(p => p.symbol_id));
+    const missingSymbols = symbols.filter(s => !finalFetchedIds.has(s.id));
     if (missingSymbols.length > 0) {
       console.log(`⚠ Missing prices for ${missingSymbols.length} symbols: ${missingSymbols.map(s => s.ticker).join(', ')}`);
     }
