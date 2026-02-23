@@ -45,6 +45,10 @@ function getSearchQuery(ticker: string, symbolName?: string): string {
   return ticker.replace(/\.(ST|OL|HE|CO)$/, '');
 }
 
+function isNordicTicker(ticker: string): boolean {
+  return /\.(ST|OL|HE|CO)$/.test(ticker);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -153,21 +157,34 @@ Deno.serve(async (req) => {
         }
 
         const query = getSearchQuery(ticker, nameMap.get(ticker));
+        const nordic = isNordicTicker(ticker);
 
-        // GNews API: https://gnews.io/api/v4/search
-        const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=5&sortby=relevance&apikey=${gnewsApiKey}`;
-        const res = await fetch(url);
+        // For Nordic tickers: search Swedish first, then English. For others: English only.
+        const searchLangs = nordic ? ['sv', 'en'] : ['en'];
+        let articles: any[] = [];
 
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error(`GNews error for ${ticker}:`, res.status, errText);
-          results.push({ ticker, articles: 0, error: `HTTP ${res.status}` });
-          await new Promise(r => setTimeout(r, 1000));
-          continue;
+        for (const lang of searchLangs) {
+          const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=${lang}&max=5&sortby=relevance&apikey=${gnewsApiKey}`;
+          const res = await fetch(url);
+
+          if (!res.ok) {
+            const errText = await res.text();
+            console.error(`GNews error for ${ticker} (${lang}):`, res.status, errText);
+            if (lang === searchLangs[searchLangs.length - 1]) {
+              results.push({ ticker, articles: 0, error: `HTTP ${res.status}` });
+            }
+            await new Promise(r => setTimeout(r, 1000));
+            continue;
+          }
+
+          const data = await res.json();
+          const langArticles = data.articles || [];
+          articles.push(...langArticles);
+
+          // If we got enough from first language, skip the second
+          if (articles.length >= 3) break;
+          await new Promise(r => setTimeout(r, 600));
         }
-
-        const data = await res.json();
-        const articles = data.articles || [];
 
         if (articles.length === 0) {
           results.push({ ticker, articles: 0 });
@@ -178,9 +195,17 @@ Deno.serve(async (req) => {
         // Delete old news for this ticker before inserting new
         await supabase.from('news_cache').delete().eq('ticker', ticker);
 
-        // Insert new articles (GNews format differs from NewsAPI)
+        // Insert new articles — deduplicate by title across languages
+        const seenTitles = new Set<string>();
         const rows = articles
-          .filter((a: any) => a.title)
+          .filter((a: any) => {
+            if (!a.title) return false;
+            const key = a.title.toLowerCase().substring(0, 100);
+            if (seenTitles.has(key)) return false;
+            seenTitles.add(key);
+            return true;
+          })
+          .slice(0, 8) // Max 8 articles per ticker
           .map((a: any) => ({
             ticker,
             title: (a.title || '').substring(0, 500),
