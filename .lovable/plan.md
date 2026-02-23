@@ -1,129 +1,83 @@
 
-# Fix: Nytillagda aktier far aldrig pris eller analys
 
-## Rotorsaksanalys
+# Fix: Tillat bara riktiga aktier/tillgangar att laggas till
 
-Tre separata buggar forhindrar att nytillagda symboler (via sokningen pa hemsidan) far prisdata och analys:
+## Problem
 
-### BUG 1: `generate-signals` kraschar vid start (KRITISK)
-Rad 275 i `generate-signals/index.ts` refererar till `reliabilityMap.size` -- men variabeln `reliabilityMap` togs bort i en tidigare refaktor. Funktionen kastar `ReferenceError: reliabilityMap is not defined` vid VARJE anrop, inklusive cron-jobb. Detta forklarar varfor det finns **noll loggar** for funktionen och varfor inga signaler genereras for NAGRA symboler.
+`add-symbol` edge function gor en FMP-lookup (rad 121-142) men anvander resultatet **bara for att hamta namn** -- den stoppar aldrig tillagget om tickern inte finns pa FMP. "BAJS" gar rakt igenom med `displayName = "BAJS"` och laggs in i databasen.
 
-### BUG 2: `generate-signals` saknar `tickers`-filter
-Nar `add-symbol` anropar `generate-signals` med `{ tickers: ["BURE.ST"] }` ignoreras parametern helt. Funktionen laster bara `limit`/`offset`-paginering (rad 258-267, 296-302), sa den processar de forsta 20 symbolerna i bokstavsordning istallet for den nyligen tillagda symbolen.
+## Losning
 
-### BUG 3: `add-symbol` timeout-problem med `setTimeout`
-Rad 186-192 i `add-symbol` anvander `setTimeout(5000)` for att fordroja `generate-signals`-anropet -- men Deno.serve returnerar response INNAN timeout fires, sa edge function-runtimen kan avsluta processen innan anropet ens skickas.
+Gor FMP-profil-lookup till en **gate** istallet for bara en name-enrichment. Om FMP returnerar tom array (tickern finns inte), avvisa med 404.
 
-## Bevis fran databasen
+### Andring 1: `supabase/functions/add-symbol/index.ts`
 
-Senaste 5 nytillagda symboler:
-- CADELER: 0 priser, 0 historik, 0 signaler
-- AXACTOR: 0 priser, 0 historik, 0 signaler  
-- BLUENORD: 0 priser, 0 historik, 0 signaler
-- CITYCON: 0 priser, 0 historik, 0 signaler
-- ADDLIFE: 0 priser, 0 historik, 0 signaler
+**Flytta FMP-lookup FORE insert och avvisa okanda tickers:**
 
-## Fix-plan
-
-### Fix 1: Ta bort kraschande kod i `generate-signals`
-**Fil:** `supabase/functions/generate-signals/index.ts`
-- Rad 275: Byt `reliabilityMap.size` till `reliabilityDataMap.size`
-
-### Fix 2: Lagg till `tickers`-filter i `generate-signals`
-**Fil:** `supabase/functions/generate-signals/index.ts`
-- Rad 258-267: Parsa `body.tickers` array fran request body
-- Rad 296-302: Om `tickers` finns, anvand `.in('ticker', tickers)` istallet for `.range(offset, limit)`
-- Sa att `add-symbol` kan trigga signaler for just den nya symbolen
-
-### Fix 3: Ersatt `setTimeout` med `await` i `add-symbol`
-**Fil:** `supabase/functions/add-symbol/index.ts`
-- Rad 164-192: Gor fetch-history och fetch-prices till `await`-anrop (seriellt, inte fire-and-forget) sa att prisdata garanterat finns innan generate-signals anropas
-- Alternativt: gor alla tre till `await` med Promise.allSettled, eller gor fetch-history + fetch-prices parallellt och generate-signals sekventiellt efterat
-- Returnera response efter alla tre ar klara, sa att frontend far korrekt status
-
-### Fix 4: Deploya och testa
-- Deploya bada edge functions
-- Testa med `curl` att `add-symbol` + `fetch-prices` + `generate-signals` ger data for en ny ticker
-- Verifiera att cron-jobb for `generate-signals` fungerar igen (har varit brutet)
-
-## Tekniska detaljer
-
-### `generate-signals/index.ts` andringar:
-
-**Rad 275 (kraschfix):**
 ```
-// Before (kraschar):
-console.log(`Loaded ${reliabilityMap.size} module_reliability entries`);
+// FMP lookup (GATE -- inte bara enrichment)
+let displayName = cleanTicker;
+let verified = false;
 
-// After:
-console.log(`Loaded ${reliabilityDataMap.size} module_reliability entries`);
-```
-
-**Rad 258-267 (tickers-filter):**
-```typescript
-let batchLimit = 20, batchOffset = 0;
-let horizons: string[] = ['1d'];
-let tickerFilter: string[] | null = null;  // NY
-try {
-  const body = await req.json();
-  if (body?.tickers && Array.isArray(body.tickers)) {
-    tickerFilter = body.tickers.map((t: string) => t.toUpperCase().trim());
+if (fmpApiKey) {
+  const profileRes = await fetch(
+    `https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(cleanTicker)}?apikey=${fmpApiKey}`
+  );
+  if (profileRes.ok) {
+    const profileData = await profileRes.json();
+    if (Array.isArray(profileData) && profileData.length > 0 && profileData[0].companyName) {
+      verified = true;
+      displayName = profileData[0].companyName;
+      // ... enrichment (isEtf, currency, sector) som idag
+    }
   }
-  // ... befintlig limit/offset/horizon-logik
-} catch {}
-```
-
-**Rad 296-302 (query-uppdatering):**
-```typescript
-let symQuery = supabase
-  .from('symbols')
-  .select('id, ticker, name, asset_type, currency, metadata')
-  .eq('is_active', true)
-  .order('ticker', { ascending: true });
-
-if (tickerFilter && tickerFilter.length > 0) {
-  symQuery = symQuery.in('ticker', tickerFilter);
-} else {
-  symQuery = symQuery.range(batchOffset, batchOffset + batchLimit - 1);
 }
-const { data: symbols, error: symErr } = await symQuery;
-```
 
-### `add-symbol/index.ts` andringar:
+// Fallback for kanda krypto/metaller som FMP kanske inte har profil for
+if (!verified) {
+  if (cryptos.includes(cleanTicker.replace(/-.*$/, ""))) {
+    verified = true; // BTC, ETH etc. ar kanda
+  } else if (metals.includes(cleanTicker)) {
+    verified = true;
+  }
+}
 
-**Rad 164-192 (sequential await istallet for fire-and-forget):**
-```typescript
-// 1. Fetch history + prices in parallel (both must complete before signals)
-const [histRes, priceRes] = await Promise.allSettled([
-  fetch(`${supabaseUrl}/functions/v1/fetch-history`, {
-    method: "POST",
-    headers: internalHeaders,
-    body: JSON.stringify({ tickers: [cleanTicker], days: 365 }),
-  }),
-  fetch(`${supabaseUrl}/functions/v1/fetch-prices`, {
-    method: "POST",
-    headers: internalHeaders,
-    body: JSON.stringify({ tickers: [cleanTicker] }),
-  }),
-]);
-
-console.log(`History: ${histRes.status}, Prices: ${priceRes.status}`);
-
-// 2. Generate signals AFTER price data is available
-try {
-  await fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
-    method: "POST",
-    headers: internalHeaders,
-    body: JSON.stringify({ tickers: [cleanTicker], allHorizons: true }),
-  });
-} catch (e) {
-  console.warn('generate-signals trigger failed:', e);
+if (!verified) {
+  return Response(JSON.stringify({ 
+    error: `Kunde inte hitta "${cleanTicker}". Kontrollera att tickern ar korrekt.` 
+  }), { status: 404 });
 }
 ```
+
+**Logik:**
+- FMP har profil -> godkand (stock, ETF, fund)
+- Kand krypto (BTC, ETH, etc.) -> godkand utan FMP
+- Kand metall (XAU, XAG, etc.) -> godkand utan FMP  
+- Inget av ovanstaende -> **avvisad med 404**
+
+### Andring 2: `src/components/SearchAssets.tsx`
+
+Uppdatera frontend for att visa felmeddelandet fran backend:
+
+- Fanga 404-svaret i `onAddNew`-callbacken
+- Visa ett tydligt felmeddelande: "Kunde inte hitta BAJS. Kontrollera att tickern ar korrekt."
+- Istallet for att bara svalja felet, visa det i soksresultat-panelen
+
+### Andring 3: Hitta var `onAddNew` anropas
+
+Behover hitta komponenten som kopplar SearchAssets till `add-symbol` edge function for att lagga till error-handling dar.
 
 ## Filer som andras
 
 | Fil | Andring |
 |-----|---------|
-| `supabase/functions/generate-signals/index.ts` | Fix krasch (rad 275), lagg till tickers-filter |
-| `supabase/functions/add-symbol/index.ts` | Byt fire-and-forget till await, ta bort setTimeout |
+| `supabase/functions/add-symbol/index.ts` | FMP-lookup som gate + 404 vid okand ticker |
+| `src/components/SearchAssets.tsx` | Visa felmeddelande vid avvisning |
+| Foralder-komponent (Index.tsx eller liknande) | Error-handling i onAddNew callback |
+
+## Edge cases
+
+- **FMP API nere**: Om FMP-anropet failar (naterksfel) -> tillat INTE tillagg (fail closed, inte fail open). Visa "Kunde inte verifiera ticker, forsok igen."
+- **FMP saknar API-nyckel**: Om `FMP_API_KEY` ar tom -> avvisa alla nya tillagg med "Verifiering ej tillganglig"
+- **Krypto med suffix** (t.ex. BTC-USD): Hanteras redan via `cleanTicker.replace(/-.*$/, "")` matchning
+
