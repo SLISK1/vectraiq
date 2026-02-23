@@ -261,10 +261,10 @@ const Index = () => {
           queryClient.invalidateQueries({ queryKey: ['rankedAssets'] });
         }, 30000);
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Kunde inte lägga till tillgång",
-        description: `Det gick inte att lägga till ${ticker}. Kontrollera att tickern är korrekt.`,
+        description: error?.message || `Det gick inte att lägga till ${ticker}. Kontrollera att tickern är korrekt.`,
         variant: "destructive",
       });
     }
