@@ -350,7 +350,7 @@ const Index = () => {
             )}
 
             {/* Search */}
-            <div className="glass-card rounded-xl p-4">
+            <div className="glass-card rounded-xl p-4 overflow-visible relative z-20">
               <h2 className="text-sm font-medium text-muted-foreground mb-3">Sök tillgång</h2>
               <SearchAssets 
                 assets={searchableAssets} 
