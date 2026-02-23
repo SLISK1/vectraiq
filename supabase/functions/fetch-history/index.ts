@@ -23,7 +23,7 @@ const METAL_FMP: Record<string, string> = {
   'XAU': 'XAUUSD', 'XAG': 'XAGUSD', 'XPT': 'XPTUSD', 'XPD': 'XPDUSD',
 };
 
-// Fund ticker to proxy ETF for history
+// Fund ticker to proxy ETF for history (base mapping, extended dynamically from metadata)
 const FUND_PROXY: Record<string, string> = {
   'SWE-USA': 'SPY', 'SWE-GLOB': 'VT', 'SWE-TECH': 'QQQ',
   'SWE-ASIA': 'VWO', 'SWE-SMAL': 'XACT-OMXS30.ST',
@@ -447,6 +447,13 @@ Deno.serve(async (req) => {
     }
 
     // ========== 5. FUNDS via proxy-index (FMP/Yahoo) ==========
+    // Extend FUND_PROXY with metadata-based proxies
+    for (const s of symbols) {
+      if (s.asset_type === 'fund' && !FUND_PROXY[s.ticker]) {
+        const proxy = (s.metadata as any)?.proxy_etf;
+        if (proxy) FUND_PROXY[s.ticker] = proxy;
+      }
+    }
     const fundSymbols = symbols.filter(s => FUND_PROXY[s.ticker]);
     console.log(`Fetching ${fundSymbols.length} fund proxies`);
 

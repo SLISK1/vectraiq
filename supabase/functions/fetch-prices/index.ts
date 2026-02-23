@@ -440,12 +440,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ========== 5. SWEDISH FUNDS via proxy ETF ==========
+    // ========== 5. SWEDISH FUNDS via proxy ETF (read from metadata) ==========
     const FUND_PROXY_PRICES: Record<string, string> = {
       'SWE-USA': 'SPY', 'SWE-GLOB': 'VT', 'SWE-TECH': 'QQQ',
       'SWE-ASIA': 'VWO', 'SWE-SMAL': 'XACT-OMXS30.ST',
       'HB-ENRG': 'XLE', 'SPLT-INV': 'VT',
     };
+    // Also read proxy_etf from metadata for dynamically added funds
+    for (const s of symbols) {
+      if (s.asset_type === 'fund' && !FUND_PROXY_PRICES[s.ticker]) {
+        const proxy = (s.metadata as any)?.proxy_etf;
+        if (proxy) FUND_PROXY_PRICES[s.ticker] = proxy;
+      }
+    }
     const fundSymbols = symbols.filter(s => FUND_PROXY_PRICES[s.ticker]);
     console.log(`Fetching ${fundSymbols.length} fund proxy prices`);
     for (const s of fundSymbols) {
