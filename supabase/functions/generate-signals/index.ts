@@ -257,8 +257,12 @@ Deno.serve(async (req) => {
 
     let batchLimit = 20, batchOffset = 0;
     let horizons: string[] = ['1d'];
+    let tickerFilter: string[] | null = null;
     try {
       const body = await req.json();
+      if (body?.tickers && Array.isArray(body.tickers)) {
+        tickerFilter = body.tickers.map((t: string) => t.toUpperCase().trim());
+      }
       if (body?.limit) batchLimit = Math.min(Number(body.limit), 50);
       if (body?.offset) batchOffset = Number(body.offset);
       if (body?.horizon) horizons = [body.horizon];
@@ -271,8 +275,7 @@ Deno.serve(async (req) => {
       .from('module_reliability')
       .select('module, horizon, asset_type, hit_rate, reliability_weight');
 
-    // (Dead code removed — reliabilityDataMap with Bayesian logic is used instead)
-    console.log(`Loaded ${reliabilityMap.size} module_reliability entries`);
+    // Bayesian reliability data map
 
     // Load correct_predictions for Bayesian shrinkage
     const reliabilityDataMap = new Map<string, { rw: number; correct: number; total: number }>();
@@ -293,13 +296,19 @@ Deno.serve(async (req) => {
       return Math.max(0.7, Math.min(1.3, 1 + (posteriorMean - 0.5) * 2));
     }
 
-    // Get active symbols
-    const { data: symbols, error: symErr } = await supabase
+    // Get active symbols — support ticker filter from add-symbol
+    let symQuery = supabase
       .from('symbols')
       .select('id, ticker, name, asset_type, currency, metadata')
       .eq('is_active', true)
-      .order('ticker', { ascending: true })
-      .range(batchOffset, batchOffset + batchLimit - 1);
+      .order('ticker', { ascending: true });
+
+    if (tickerFilter && tickerFilter.length > 0) {
+      symQuery = symQuery.in('ticker', tickerFilter);
+    } else {
+      symQuery = symQuery.range(batchOffset, batchOffset + batchLimit - 1);
+    }
+    const { data: symbols, error: symErr } = await symQuery;
 
     if (symErr || !symbols?.length) {
       return new Response(JSON.stringify({ error: symErr?.message || 'No symbols', updated: 0 }), {
