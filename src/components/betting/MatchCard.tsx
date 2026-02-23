@@ -1,11 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScoreRing } from '@/components/ScoreRing';
 import { MatchDetailModal } from './MatchDetailModal';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
-import { Loader2, Bookmark, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, Database, DollarSign, Flame, Globe, Newspaper, Users, type LucideIcon } from 'lucide-react';
+import { PredictionSection } from './PredictionSection';
+import { Loader2, Bookmark } from 'lucide-react';
 
 interface Match {
   id: string;
@@ -50,51 +48,9 @@ interface MatchCardProps {
 export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, isLoggedIn }: MatchCardProps) => {
   const [showDetail, setShowDetail] = useState(false);
 
-  const detectedSources = useMemo(() => {
-    if (!prediction) return [];
-    const sources: { key: string; label: string; Icon: LucideIcon; colorClass: string; tooltip: string }[] = [];
-    const seen = new Set<string>();
-    const add = (key: string, label: string, Icon: LucideIcon, colorClass: string, tooltip: string) => {
-      if (!seen.has(key)) { seen.add(key); sources.push({ key, label, Icon, colorClass, tooltip }); }
-    };
-
-    const items = Array.isArray(prediction.sources_used) ? prediction.sources_used as any[] : [];
-    for (const s of items) {
-      const url = (s?.url || '').toLowerCase();
-      const title = (s?.title || '').toLowerCase();
-      const type = (s?.type || '').toLowerCase();
-      if (url.includes('football-data.org')) { add('h2h', 'H2H', Database, 'bg-blue-500/15 text-blue-400 border-blue-500/30', 'Football-Data.org (H2H & tabell)'); continue; }
-      if (url.includes('forzafootball.com')) { add('forza', 'Forza', Flame, 'bg-orange-500/15 text-orange-400 border-orange-500/30', 'Forza Football'); continue; }
-      if (type === 'news' || title.includes('[newsapi]')) { add('news', 'News', Newspaper, 'bg-purple-500/15 text-purple-400 border-purple-500/30', 'Nyheter (GNews / NewsAPI)'); continue; }
-      if (title.includes('pool_tips') || title.includes('pool tips')) { add('pool', 'Pool', Users, 'bg-teal-500/15 text-teal-400 border-teal-500/30', 'Pool Tips'); continue; }
-      if (url) { add('web', 'Web', Globe, 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', 'Firecrawl (skrapade artiklar)'); }
-    }
-    if (prediction.market_odds_home !== null && prediction.market_odds_home !== undefined) {
-      add('odds', 'Odds', DollarSign, 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30', 'The Odds API (marknadsodds)');
-    }
-    return sources;
-  }, [prediction]);
-
   const matchDate = new Date(match.match_date);
   const dateStr = matchDate.toLocaleDateString('sv-SE', { weekday: 'short', month: 'short', day: 'numeric' });
   const timeStr = matchDate.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-
-  const getWinnerLabel = () => {
-    if (!prediction) return null;
-    if (prediction.predicted_winner === 'home') return match.home_team;
-    if (prediction.predicted_winner === 'away') return match.away_team;
-    return 'Oavgjort';
-  };
-
-  const getWinnerColor = () => {
-    if (!prediction) return '';
-    if (prediction.predicted_winner === 'home') return 'bg-primary/20 text-primary border-primary/30';
-    if (prediction.predicted_winner === 'away') return 'bg-destructive/20 text-destructive border-destructive/30';
-    return 'bg-muted text-muted-foreground border-border';
-  };
-
-  const edge = prediction?.model_edge;
-  const isCapped = prediction && prediction.confidence_capped < prediction.confidence_raw;
 
   const getStatusBadge = () => {
     if (match.status === 'live') return <Badge className="bg-destructive/20 text-destructive border-destructive/30 animate-pulse">● LIVE</Badge>;
@@ -133,174 +89,30 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
         </div>
 
         {/* Prediction section */}
-        {prediction ? (
-          <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <ScoreRing
-                  score={prediction.confidence_capped}
-                  direction={prediction.predicted_winner === 'home' ? 'UP' : prediction.predicted_winner === 'away' ? 'DOWN' : 'NEUTRAL'}
-                  size="sm"
-                />
-                <div>
-                  <Badge className={`text-xs border ${getWinnerColor()}`}>
-                    {getWinnerLabel()}
-                  </Badge>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {Math.round(prediction.predicted_prob * 100)}% sannolikhet
-                  </p>
-                </div>
-              </div>
-
-              {/* Market Edge */}
-              {edge !== null && edge !== undefined && (
-                <div className={`text-right ${edge > 0 ? 'text-primary' : 'text-destructive'}`}>
-                  <div className="flex items-center gap-1 justify-end">
-                    {edge > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                    <span className="text-sm font-bold">{edge > 0 ? '+' : ''}{Math.round(edge * 100)}%</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">edge vs marknad</p>
-                </div>
-              )}
-            </div>
-
-            {/* Market odds row */}
-            {prediction.market_odds_home && (
-              <div className="flex gap-2 text-xs text-muted-foreground">
-                <span>1: {prediction.market_odds_home.toFixed(2)}</span>
-                {prediction.market_odds_draw && <span>X: {prediction.market_odds_draw.toFixed(2)}</span>}
-                <span>2: {prediction.market_odds_away?.toFixed(2)}</span>
-                {prediction.market_implied_prob && (
-                  <span className="ml-auto">Marknad: {Math.round(prediction.market_implied_prob * 100)}%</span>
-                )}
-              </div>
-            )}
-
-            {/* Cap warning */}
-            {isCapped && prediction.cap_reason && (
-              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                <span>Begränsad data: {prediction.cap_reason}</span>
-              </div>
-            )}
-
-            {/* Side prediction badges with edge */}
-            {(() => {
-              const kf = prediction.key_factors as any;
-              const sp = kf?.side_predictions || (kf && !Array.isArray(kf) ? kf : null)?.side_predictions;
-              const se = kf?.side_edges as Record<string, number> | null;
-              if (!sp) return null;
-
-              const EdgeTag = ({ marketKey }: { marketKey: string }) => {
-                const e = se?.[marketKey];
-                if (e === undefined || e === null) return null;
-                const pct = Math.round(e * 100);
-                return (
-                  <span className={`font-bold ${e > 0 ? 'text-primary' : 'text-destructive'}`}>
-                    {e > 0 ? '+' : ''}{pct}%
-                  </span>
-                );
-              };
-
-              return (
-                <div className="flex flex-wrap gap-1.5">
-                  {sp.total_goals && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground flex items-center gap-1">
-                      ⚽ {sp.total_goals.prediction === 'over' ? 'Ö' : 'U'}{sp.total_goals.line} {Math.round(sp.total_goals.prob * 100)}%
-                      <EdgeTag marketKey="total_goals" />
-                    </span>
-                  )}
-                  {sp.btts && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground flex items-center gap-1">
-                      🎯 BTTS {sp.btts.prediction === 'yes' ? 'Ja' : 'Nej'} {Math.round(sp.btts.prob * 100)}%
-                      <EdgeTag marketKey="btts" />
-                    </span>
-                  )}
-                  {sp.first_half_goals && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
-                      ⏱️ 1H {sp.first_half_goals.prediction === 'over' ? 'Ö' : 'U'}{sp.first_half_goals.line} {Math.round(sp.first_half_goals.prob * 100)}%
-                    </span>
-                  )}
-                  {sp.exact_score && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
-                      📊 {sp.exact_score.home}–{sp.exact_score.away} {Math.round(sp.exact_score.prob * 100)}%
-                    </span>
-                  )}
-                  {sp.corners && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
-                      🚩 Hörnor {sp.corners.prediction === 'over' ? 'Ö' : 'U'}{sp.corners.line} {Math.round(sp.corners.prob * 100)}%
-                    </span>
-                  )}
-                  {sp.cards && (
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-muted/50 border border-border/50 text-muted-foreground">
-                      🟨 Kort {sp.cards.prediction === 'over' ? 'Ö' : 'U'}{sp.cards.line} {Math.round(sp.cards.prob * 100)}%
-                    </span>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Source indicators */}
-            {detectedSources.length > 0 && (
-              <TooltipProvider delayDuration={200}>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground mr-0.5">{detectedSources.length} källor:</span>
-                  {detectedSources.map(src => (
-                    <Tooltip key={src.key}>
-                      <TooltipTrigger asChild>
-                        <span className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-default", src.colorClass)}>
-                          <src.Icon className="w-3 h-3" />
-                          {src.label}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">{src.tooltip}</TooltipContent>
-                    </Tooltip>
-                  ))}
-                </div>
-              </TooltipProvider>
-            )}
-
-            <button
-              onClick={() => setShowDetail(true)}
-              className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
-            >
-              Se fullständig analys <ChevronRight className="w-3 h-3" />
-            </button>
-          </div>
-        ) : null}
+        {prediction && (
+          <PredictionSection
+            prediction={prediction}
+            homeTeam={match.home_team}
+            awayTeam={match.away_team}
+            onShowDetail={() => setShowDetail(true)}
+          />
+        )}
 
         {/* Actions */}
         <div className="flex gap-2 mt-auto">
           {!prediction && (
-            <Button
-              onClick={onAnalyze}
-              disabled={isAnalyzing}
-              size="sm"
-              className="flex-1 gap-2"
-            >
+            <Button onClick={onAnalyze} disabled={isAnalyzing} size="sm" className="flex-1 gap-2">
               {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               {isAnalyzing ? 'Analyserar...' : 'Analysera'}
             </Button>
           )}
-
           {prediction && (
-            <Button
-              onClick={() => setShowDetail(true)}
-              size="sm"
-              variant="outline"
-              className="flex-1"
-            >
+            <Button onClick={() => setShowDetail(true)} size="sm" variant="outline" className="flex-1">
               Detaljer
             </Button>
           )}
-
           {isLoggedIn && (
-            <Button
-              onClick={onSave}
-              size="sm"
-              variant="ghost"
-              className="gap-1.5"
-            >
+            <Button onClick={onSave} size="sm" variant="ghost" className="gap-1.5">
               <Bookmark className="w-4 h-4" />
             </Button>
           )}
@@ -308,11 +120,7 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
       </div>
 
       {showDetail && prediction && (
-        <MatchDetailModal
-          match={match}
-          prediction={prediction}
-          onClose={() => setShowDetail(false)}
-        />
+        <MatchDetailModal match={match} prediction={prediction} onClose={() => setShowDetail(false)} />
       )}
     </>
   );
