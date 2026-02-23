@@ -295,7 +295,9 @@ Deno.serve(async (req) => {
           .order('date', { ascending: true })
           .limit(200);
 
-        if (!prices || prices.length < 10) {
+        const isLimitedData = !prices || prices.length < 30;
+
+        if (!prices || prices.length < 5) {
           results.push({ ticker: symbol.ticker, success: false, error: `Only ${prices?.length || 0} price points` });
           continue;
         }
@@ -306,14 +308,30 @@ Deno.serve(async (req) => {
         const currentPrice = closes[closes.length - 1];
 
         // Run all analysis modules
-        const signals: SignalResult[] = [
-          analyzeTechnical(closes, highs, lows, currentPrice),
-          analyzeVolatility(closes, highs, lows),
-          analyzeQuant(closes),
-          analyzeSeasonal(),
-          analyzeSentiment(closes),
-          analyzeMacro(),
-        ];
+        let signals: SignalResult[];
+
+        if (isLimitedData) {
+          // Limited data: only run modules that work with sparse data
+          const limitedConfidenceCap = 35;
+          signals = [
+            analyzeSentiment(closes),
+            analyzeSeasonal(),
+            analyzeMacro(),
+          ].map(s => ({
+            ...s,
+            confidence: Math.min(s.confidence, limitedConfidenceCap),
+            evidence: [...s.evidence, { type: 'warning', description: 'Begränsad data – låg tillförlitlighet', source: 'DataQuality' }],
+          }));
+        } else {
+          signals = [
+            analyzeTechnical(closes, highs, lows, currentPrice),
+            analyzeVolatility(closes, highs, lows),
+            analyzeQuant(closes),
+            analyzeSeasonal(),
+            analyzeSentiment(closes),
+            analyzeMacro(),
+          ];
+        }
 
         let symbolInserted = 0;
 

@@ -72,10 +72,7 @@ const NORDIC_STOCKS: Record<string, string> = {
 const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ', 'AMD', 'SPOT'];
 const METALS = ['XAU', 'XAG', 'XPT', 'XPD'];
 
-const SWEDISH_FUNDS: Record<string, number> = {
-  'SWE-ASIA': 145.20, 'SWE-USA': 234.50, 'SWE-GLOB': 189.30,
-  'SWE-TECH': 78.40, 'SWE-SMAL': 112.60, 'HB-ENRG': 95.80, 'SPLT-INV': 298.40,
-};
+// Fund proxy tickers are defined inline in section 5
 
 // ===== FMP HELPERS (PRIMARY SOURCE) =====
 
@@ -391,45 +388,109 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ========== 4. METALS via Alpha Vantage (unchanged) ==========
-    if (ALPHA_VANTAGE_API_KEY) {
-      const metalSymbols = symbols.filter(s => METALS.includes(s.ticker));
-      console.log(`Fetching ${metalSymbols.length} metals from Alpha Vantage`);
-      for (const s of metalSymbols) {
+    // ========== 4. METALS via FMP primary -> Yahoo futures fallback ==========
+    const METAL_YAHOO_PRICES: Record<string, string> = {
+      'XAU': 'GC=F', 'XAG': 'SI=F', 'XPT': 'PL=F', 'XPD': 'PA=F',
+    };
+    const metalSymbols = symbols.filter(s => METALS.includes(s.ticker));
+    console.log(`Fetching ${metalSymbols.length} metals — FMP/Yahoo`);
+
+    for (const s of metalSymbols) {
+      let metalFetched = false;
+
+      // Try FMP commodity quote
+      if (FMP_API_KEY) {
+        const fmpTicker = `${s.ticker}USD`;
         try {
-          const res = await fetch(
-            `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${s.ticker}&to_currency=USD&apikey=${ALPHA_VANTAGE_API_KEY}`
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const rate = data['Realtime Currency Exchange Rate'];
-            if (rate?.['5. Exchange Rate']) {
-              const price = parseFloat(rate['5. Exchange Rate']);
-              priceRecords.push({
-                symbol_id: s.id, price, change_24h: 0, change_percent_24h: 0,
-                volume: 0, source: 'alphavantage',
-              });
-              console.log(`✓ ${s.ticker}: $${price}`);
-            }
+          const q = await fetchFmpSingleQuote(fmpTicker, FMP_API_KEY);
+          if (q && q.price > 0) {
+            priceRecords.push({
+              symbol_id: s.id, price: q.price,
+              change_24h: q.change, change_percent_24h: q.changePercent,
+              high_price: q.high, low_price: q.low, open_price: q.open,
+              volume: q.volume, source: 'fmp',
+            });
+            console.log(`✓ FMP metal ${s.ticker}: $${q.price} (${q.changePercent.toFixed(2)}%)`);
+            metalFetched = true;
           }
-          await new Promise(r => setTimeout(r, 12000));
-        } catch (e) { errors.push(`AlphaVantage ${s.ticker}: ${e}`); }
+          await new Promise(r => setTimeout(r, 150));
+        } catch (e) { console.error(`FMP metal error ${s.ticker}:`, e); }
+      }
+
+      // Yahoo futures fallback
+      if (!metalFetched && METAL_YAHOO_PRICES[s.ticker]) {
+        try {
+          const q = await fetchYahooQuote(METAL_YAHOO_PRICES[s.ticker]);
+          if (q && q.price > 0) {
+            priceRecords.push({
+              symbol_id: s.id, price: q.price,
+              change_24h: q.change, change_percent_24h: q.changePercent,
+              high_price: q.high, low_price: q.low, open_price: q.open,
+              volume: q.volume, source: 'yahoo_metal',
+            });
+            console.log(`✓ Yahoo metal ${s.ticker}: $${q.price} (${q.changePercent.toFixed(2)}%)`);
+            metalFetched = true;
+          }
+          await new Promise(r => setTimeout(r, 300));
+        } catch (e) { errors.push(`Yahoo metal ${s.ticker}: ${e}`); }
+      }
+
+      if (!metalFetched) {
+        errors.push(`${s.ticker}: no metal price from FMP or Yahoo`);
       }
     }
 
-    // ========== 5. SWEDISH FUNDS (unchanged) ==========
-    const fundSymbols = symbols.filter(s => SWEDISH_FUNDS[s.ticker]);
+    // ========== 5. SWEDISH FUNDS via proxy ETF ==========
+    const FUND_PROXY_PRICES: Record<string, string> = {
+      'SWE-USA': 'SPY', 'SWE-GLOB': 'VT', 'SWE-TECH': 'QQQ',
+      'SWE-ASIA': 'VWO', 'SWE-SMAL': 'XACT-OMXS30.ST',
+      'HB-ENRG': 'XLE', 'SPLT-INV': 'VT',
+    };
+    const fundSymbols = symbols.filter(s => FUND_PROXY_PRICES[s.ticker]);
+    console.log(`Fetching ${fundSymbols.length} fund proxy prices`);
     for (const s of fundSymbols) {
-      const baseNAV = SWEDISH_FUNDS[s.ticker];
-      const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
-      const variation = Math.sin(dayOfYear * 0.1) * 0.02;
-      const nav = baseNAV * (1 + variation);
-      priceRecords.push({
-        symbol_id: s.id, price: parseFloat(nav.toFixed(2)),
-        change_24h: parseFloat((baseNAV * variation).toFixed(2)),
-        change_percent_24h: parseFloat((variation * 100).toFixed(2)),
-        volume: 0, source: 'nav_estimate',
-      });
+      const proxyTicker = FUND_PROXY_PRICES[s.ticker];
+      let fundFetched = false;
+
+      // Try FMP for proxy ETF quote
+      if (FMP_API_KEY) {
+        try {
+          const q = await fetchFmpSingleQuote(proxyTicker, FMP_API_KEY);
+          if (q && q.price > 0) {
+            priceRecords.push({
+              symbol_id: s.id, price: q.price,
+              change_24h: q.change, change_percent_24h: q.changePercent,
+              high_price: q.high, low_price: q.low, open_price: q.open,
+              volume: q.volume, source: 'fmp_proxy',
+            });
+            console.log(`✓ FMP proxy fund ${s.ticker} (${proxyTicker}): $${q.price}`);
+            fundFetched = true;
+          }
+          await new Promise(r => setTimeout(r, 150));
+        } catch (e) { console.error(`FMP fund proxy error ${s.ticker}:`, e); }
+      }
+
+      // Yahoo fallback
+      if (!fundFetched) {
+        try {
+          const q = await fetchYahooQuote(proxyTicker);
+          if (q && q.price > 0) {
+            priceRecords.push({
+              symbol_id: s.id, price: q.price,
+              change_24h: q.change, change_percent_24h: q.changePercent,
+              high_price: q.high, low_price: q.low, open_price: q.open,
+              volume: q.volume, source: 'yahoo_proxy',
+            });
+            console.log(`✓ Yahoo proxy fund ${s.ticker} (${proxyTicker}): $${q.price}`);
+            fundFetched = true;
+          }
+          await new Promise(r => setTimeout(r, 300));
+        } catch (e) { errors.push(`Yahoo fund proxy ${s.ticker}: ${e}`); }
+      }
+
+      if (!fundFetched) {
+        errors.push(`${s.ticker}: no fund proxy price`);
+      }
     }
 
     // ========== 6. CROSS-VALIDATION: Yahoo validates FMP prices ==========
@@ -548,7 +609,7 @@ Deno.serve(async (req) => {
 
     // Log missing
     const fetchedSymbolIds = new Set(priceRecords.map(p => p.symbol_id));
-    const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id) && !SWEDISH_FUNDS[s.ticker]);
+    const missingSymbols = symbols.filter(s => !fetchedSymbolIds.has(s.id));
     if (missingSymbols.length > 0) {
       console.log(`⚠ Missing prices for ${missingSymbols.length} symbols: ${missingSymbols.map(s => s.ticker).join(', ')}`);
     }
