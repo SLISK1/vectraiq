@@ -17,6 +17,7 @@ import { calculateTrendPrediction } from './trendPrediction';
 export interface PredictedReturns {
   day1: number;
   week1: number;
+  month1: number;
   year1: number;
   year5: number;
 }
@@ -367,6 +368,7 @@ export const runAnalysis = (
   const predictedReturns: PredictedReturns = {
     day1: Math.round(baseReturn * 2 * (1 + volatilityFactor) * 100) / 100,
     week1: Math.round(baseReturn * 5 * (1 + volatilityFactor * 0.8) * 100) / 100,
+    month1: Math.round(baseReturn * 12 * (1 + volatilityFactor * 0.65) * 100) / 100,
     year1: Math.round(baseReturn * 25 * (1 + volatilityFactor * 0.5) * 100) / 100,
     year5: Math.round(baseReturn * 80 * (1 + volatilityFactor * 0.3) * 100) / 100,
   };
