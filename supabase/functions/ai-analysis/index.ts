@@ -9,10 +9,25 @@ interface AnalysisRequest {
   type: 'sentiment' | 'ml_prediction' | 'pattern_recognition' | 'deep_analysis';
   ticker: string;
   name: string;
-  assetType: 'stock' | 'crypto' | 'metal';
+  assetType: 'stock' | 'crypto' | 'metal' | 'fund';
   horizon: string;
   priceHistory?: { price: number; timestamp: string }[];
   currentPrice?: number;
+}
+
+// Strip HTML tags and normalize whitespace to prevent prompt injection
+function stripHtml(text: string): string {
+  return text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// Validate and clamp AI response fields
+function validateAnalysisResult(result: any, type: string): any {
+  if (!result || typeof result !== 'object') return { direction: 'NEUTRAL', strength: 50, confidence: 40, evidence: [] };
+  if (!result.direction || !['UP', 'DOWN', 'NEUTRAL'].includes(result.direction)) result.direction = 'NEUTRAL';
+  result.strength = Math.max(0, Math.min(100, Number(result.strength) || 50));
+  result.confidence = Math.max(0, Math.min(100, Number(result.confidence) || 40));
+  if (!Array.isArray(result.evidence)) result.evidence = [];
+  return result;
 }
 
 // Fetch financial analyses via Firecrawl Search
@@ -81,7 +96,7 @@ async function fetchFirecrawlAnalyses(ticker: string, companyName: string, asset
       .filter((r: any) => r.markdown || r.description)
       .slice(0, useCount)
       .map((r: any, i: number) => {
-        const content = (r.markdown || r.description || '').substring(0, 800);
+        const content = stripHtml((r.markdown || r.description || '')).substring(0, 800);
         const source = r.url ? new URL(r.url).hostname : 'unknown';
         const title = r.title || 'Untitled';
         return `[${i + 1}. ${title} — ${source}]\n${content}`;
@@ -449,6 +464,9 @@ ${hasFirecrawlDeep ? '6. Referera till externa analyser och rapporter i din bed�
     const aiResponse = await response.json();
     const content = aiResponse.choices?.[0]?.message?.content;
 
+    // N: Logging
+    console.log(`ai-analysis: model=${model}, type=${type}, ticker=${ticker}, tokens=${aiResponse.usage?.total_tokens || 'N/A'}, prompt_version=2.0`);
+
     if (!content) {
       throw new Error("Empty response from AI");
     }
@@ -465,6 +483,20 @@ ${hasFirecrawlDeep ? '6. Referera till externa analyser och rapporter i din bed�
     } catch (parseError) {
       console.error("Failed to parse AI response:", content);
       throw new Error("Failed to parse AI response as JSON");
+    }
+
+    // N: Validate and clamp response fields
+    analysisResult = validateAnalysisResult(analysisResult, type);
+
+    // N: Low-data confidence cap for sentiment
+    if (type === 'sentiment') {
+      const hasRealNews = userPrompt.includes('SENASTE NYHETER');
+      const hasFirecrawl = userPrompt.includes('EXTERN MARKNADSANALYS');
+      if (!hasRealNews && !hasFirecrawl) {
+        analysisResult.confidence = Math.min(analysisResult.confidence, 45);
+        analysisResult.evidence = [...(analysisResult.evidence || []),
+          { type: 'warning', description: 'Inga nyheter/analyser tillgängliga — sänkt konfidens', value: 'low_data', source: 'System' }];
+      }
     }
 
     return new Response(JSON.stringify({

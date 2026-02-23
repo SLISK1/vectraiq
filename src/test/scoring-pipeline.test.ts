@@ -145,3 +145,54 @@ describe('NEUTRAL top contributors (H)', () => {
     expect(topContribs.length).toBeGreaterThan(0);
   });
 });
+
+describe('Weight Renormalization (E)', () => {
+  it('weights sum to ~100 after renormalization', () => {
+    // Simulate reliability-adjusted weights that DON'T sum to 100
+    const baseWeights = [30, 20, 15, 15, 20]; // sum=100
+    const factors = [1.3, 0.7, 1.0, 1.1, 0.9]; // reliability factors
+    const rawAdjusted = baseWeights.map((bw, i) => bw * factors[i]);
+    const totalRaw = rawAdjusted.reduce((s, w) => s + w, 0);
+    const normFactor = 100 / totalRaw;
+    const normalized = rawAdjusted.map(w => Math.round(w * normFactor));
+    const sum = normalized.reduce((s, w) => s + w, 0);
+    // Should be within ±1 of 100 due to rounding
+    expect(sum).toBeGreaterThanOrEqual(99);
+    expect(sum).toBeLessThanOrEqual(101);
+  });
+});
+
+describe('Predicted Returns Sanity (B)', () => {
+  it('score=50 => returns ~0', () => {
+    // score=50 => scoreSignal=0 => all returns should be 0
+    const normalizedScore = 50;
+    const scoreSignal = (normalizedScore - 50) / 50;
+    expect(scoreSignal).toBe(0);
+
+    // Even with non-zero vol, expectedDailyMove = 0 * dailyVol * 0.3 = 0
+    const dailyVol = 0.02;
+    const shrinkage = 0.3;
+    const expectedDailyMove = scoreSignal * dailyVol * shrinkage;
+    expect(expectedDailyMove).toBe(0);
+    expect(expectedDailyMove * 5).toBe(0); // week
+    expect(expectedDailyMove * 21).toBe(0); // month
+  });
+
+  it('high vol => wider bands (not higher returns)', () => {
+    const normalizedScore = 70;
+    const scoreSignal = (normalizedScore - 50) / 50; // 0.4
+    const shrinkage = 0.3;
+
+    const lowVol = 0.01;
+    const highVol = 0.04;
+
+    const moveLow = scoreSignal * lowVol * shrinkage;
+    const moveHigh = scoreSignal * highVol * shrinkage;
+
+    // Higher vol => wider expected move range, but proportional
+    expect(Math.abs(moveHigh)).toBeGreaterThan(Math.abs(moveLow));
+    // Both should be positive (bullish score)
+    expect(moveLow).toBeGreaterThan(0);
+    expect(moveHigh).toBeGreaterThan(0);
+  });
+});

@@ -88,7 +88,9 @@ export type Database = {
           hit: boolean | null
           horizon: Database["public"]["Enums"]["horizon_type"]
           id: string
+          model_version: string | null
           outcome: Database["public"]["Enums"]["signal_direction"] | null
+          p_up: number | null
           predicted_direction: Database["public"]["Enums"]["signal_direction"]
           predicted_prob: number | null
           rank_run_id: string | null
@@ -96,6 +98,7 @@ export type Database = {
           scored_at: string | null
           symbol_id: string
           total_score: number
+          weights_version: string | null
         }
         Insert: {
           baseline_price?: number | null
@@ -108,7 +111,9 @@ export type Database = {
           hit?: boolean | null
           horizon: Database["public"]["Enums"]["horizon_type"]
           id?: string
+          model_version?: string | null
           outcome?: Database["public"]["Enums"]["signal_direction"] | null
+          p_up?: number | null
           predicted_direction: Database["public"]["Enums"]["signal_direction"]
           predicted_prob?: number | null
           rank_run_id?: string | null
@@ -116,6 +121,7 @@ export type Database = {
           scored_at?: string | null
           symbol_id: string
           total_score: number
+          weights_version?: string | null
         }
         Update: {
           baseline_price?: number | null
@@ -128,7 +134,9 @@ export type Database = {
           hit?: boolean | null
           horizon?: Database["public"]["Enums"]["horizon_type"]
           id?: string
+          model_version?: string | null
           outcome?: Database["public"]["Enums"]["signal_direction"] | null
+          p_up?: number | null
           predicted_direction?: Database["public"]["Enums"]["signal_direction"]
           predicted_prob?: number | null
           rank_run_id?: string | null
@@ -136,6 +144,7 @@ export type Database = {
           scored_at?: string | null
           symbol_id?: string
           total_score?: number
+          weights_version?: string | null
         }
         Relationships: [
           {
@@ -320,6 +329,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      calibration_stats: {
+        Row: {
+          actual_up_count: number | null
+          asset_type: string
+          brier_score: number | null
+          bucket_center: number
+          horizon: string
+          id: string
+          predicted_count: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          actual_up_count?: number | null
+          asset_type: string
+          brier_score?: number | null
+          bucket_center: number
+          horizon: string
+          id?: string
+          predicted_count?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          actual_up_count?: number | null
+          asset_type?: string
+          brier_score?: number | null
+          bucket_center?: number
+          horizon?: string
+          id?: string
+          predicted_count?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       macro_cache: {
         Row: {
@@ -816,8 +858,10 @@ export type Database = {
           id: string
           low_price: number | null
           market_cap: number | null
+          market_timestamp: string | null
           open_price: number | null
           price: number
+          quality_score: number | null
           recorded_at: string
           source: string
           symbol_id: string
@@ -831,8 +875,10 @@ export type Database = {
           id?: string
           low_price?: number | null
           market_cap?: number | null
+          market_timestamp?: string | null
           open_price?: number | null
           price: number
+          quality_score?: number | null
           recorded_at?: string
           source: string
           symbol_id: string
@@ -846,8 +892,10 @@ export type Database = {
           id?: string
           low_price?: number | null
           market_cap?: number | null
+          market_timestamp?: string | null
           open_price?: number | null
           price?: number
+          quality_score?: number | null
           recorded_at?: string
           source?: string
           symbol_id?: string

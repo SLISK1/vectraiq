@@ -127,6 +127,8 @@ export const fetchSymbolsWithPrices = async (): Promise<SymbolWithPrice[]> => {
         source: historyPrice.source,
         recorded_at: historyPrice.date,
         created_at: historyPrice.date,
+        quality_score: 100,
+        market_timestamp: null,
       };
     }
     

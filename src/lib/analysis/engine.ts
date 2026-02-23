@@ -431,8 +431,14 @@ export const runAnalysis = (
     results.push(analyzeMLSync(priceHistory, currentPrice, horizon));
   }
   
+  // === F: Override self-reported coverage with objective calculation ===
+  const objectiveResults = results.map(r => ({
+    ...r,
+    coverage: calculateObjectiveCoverage(priceHistory, horizon, r.module),
+  }));
+
   // === E: Apply reliability factors + RENORMALIZE weights ===
-  const rawAdjusted = results.map(r => {
+  const rawAdjusted = objectiveResults.map(r => {
     const bw = baseWeights[r.module as keyof HorizonWeights] || 0;
     let factor = 1.0;
     

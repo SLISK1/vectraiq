@@ -271,11 +271,7 @@ Deno.serve(async (req) => {
       .from('module_reliability')
       .select('module, horizon, asset_type, hit_rate, reliability_weight');
 
-    const reliabilityMap = new Map<string, number>();
-    for (const r of (reliabilityRows || [])) {
-      const key = `${r.module}:${r.horizon}:${r.asset_type}`;
-      reliabilityMap.set(key, Number(r.reliability_weight ?? 1.0));
-    }
+    // (Dead code removed — reliabilityDataMap with Bayesian logic is used instead)
     console.log(`Loaded ${reliabilityMap.size} module_reliability entries`);
 
     // Load correct_predictions for Bayesian shrinkage
@@ -371,15 +367,22 @@ Deno.serve(async (req) => {
           // Delete old signals for this symbol+horizon
           await supabase.from('signals').delete().eq('symbol_id', symbol.id).eq('horizon', horizon);
 
-          // Apply reliability weights to signals
-          const weightedSignals = signals.map(s => {
+          // === E: Apply reliability weights + RENORMALIZE to sum=100 ===
+          const moduleWeights: Record<string, number> = {
+            technical: 25, volatility: 15, quant: 20, seasonal: 5, sentiment: 15, macro: 20,
+          };
+          const rawAdjusted = signals.map(s => {
+            const baseWeight = moduleWeights[s.module] || 15;
             const rw = getReliabilityWeight(s.module, horizon, assetType);
-            return {
-              ...s,
-              strength: clamp(Math.round(s.strength * rw)),
-              confidence: clamp(Math.round(s.confidence * rw)),
-            };
+            return { signal: s, adjustedWeight: baseWeight * rw };
           });
+          const totalRawWeight = rawAdjusted.reduce((s, x) => s + x.adjustedWeight, 0);
+          const normFactor = totalRawWeight > 0 ? 100 / totalRawWeight : 1;
+
+          const weightedSignals = rawAdjusted.map(({ signal: s, adjustedWeight }) => ({
+            ...s,
+            effectiveWeight: Math.round(adjustedWeight * normFactor),
+          }));
 
           // Insert new signals
           const inserts = weightedSignals.map(s => ({
@@ -399,12 +402,18 @@ Deno.serve(async (req) => {
           } else {
             symbolInserted += inserts.length;
 
-            // Save prediction snapshot
-            const bullish = weightedSignals.filter(s => s.direction === 'UP');
-            const bearish = weightedSignals.filter(s => s.direction === 'DOWN');
-            const overallDir: Direction = bullish.length > bearish.length ? 'UP' : bearish.length > bullish.length ? 'DOWN' : 'NEUTRAL';
+            // === A+G: Signed scoring — matching engine.ts ===
+            const totalWeight = weightedSignals.reduce((sum, s) => sum + s.effectiveWeight, 0);
+            const signedScores = weightedSignals.map(s => {
+              const dirMult = s.direction === 'UP' ? 1 : s.direction === 'DOWN' ? -1 : 0;
+              const signedStrength = (s.strength - 50) * 2 * dirMult;
+              return totalWeight > 0 ? signedStrength * (s.effectiveWeight / totalWeight) : 0;
+            });
+            const totalSignedScore = signedScores.reduce((a, b) => a + b, 0);
+            const normalizedScore = Math.round(50 + totalSignedScore / 2);
+            const overallDir: Direction = totalSignedScore > 5 ? 'UP' : totalSignedScore < -5 ? 'DOWN' : 'NEUTRAL';
+            const p_up = Math.max(0, Math.min(1, 0.5 + totalSignedScore / 200));
             const avgConfidence = Math.round(weightedSignals.reduce((sum, s) => sum + s.confidence, 0) / weightedSignals.length);
-            const totalScore = Math.round(weightedSignals.reduce((sum, s) => sum + s.strength, 0) / weightedSignals.length);
 
             const benchmarkTicker = getBenchmarkTicker(assetType, symbol.currency || 'SEK');
             const benchmarkPrice = horizon === horizons[0] ? await fetchBenchmarkPrice(benchmarkTicker) : null;
@@ -413,17 +422,20 @@ Deno.serve(async (req) => {
               symbol_id: symbol.id,
               horizon: horizon as any,
               predicted_direction: overallDir,
-              predicted_prob: overallDir === 'UP' ? (bullish.length / weightedSignals.length) : (bearish.length / weightedSignals.length),
+              predicted_prob: overallDir === 'NEUTRAL' ? 0.5 : p_up,
               confidence: avgConfidence,
-              total_score: totalScore,
+              total_score: Math.max(0, Math.min(100, normalizedScore)),
               entry_price: currentPrice,
               baseline_ticker: benchmarkTicker,
               baseline_price: benchmarkPrice,
+              p_up: Math.round(p_up * 1000) / 1000,
+              weights_version: '2.0',
+              model_version: '2.0-signed',
             }).select('id').single();
 
             // ── Save signal_snapshots for self-learning ──
             if (predData?.id) {
-              const snapshots = signals.map(s => ({
+              const snapshots = weightedSignals.map(s => ({
                 prediction_id: predData.id,
                 symbol_id: symbol.id,
                 module: s.module,
