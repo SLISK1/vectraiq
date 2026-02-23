@@ -1,53 +1,75 @@
 
 
-# Problem: Krypto, metaller och fonder syns inte i dashboarden
+# Fullautomatisk tillaggning av nya tillgangar fran sokningen
 
-## Orsaker
+## Nuvarande lage
 
-### 1. `fund` exkluderas i type-definitionen (huvudproblemet)
-I `useMarketData.ts` rad 116 och 143 castas `asset_type` till `'stock' | 'crypto' | 'metal'` -- **`fund` saknas**. Samma sak i `createAnalysisContext` (engine.ts rad 416) och `AnalysisContext`-typen. Fonder passerar troligen igenom men med fel typ.
+Funktionaliteten ar **redan delvis implementerad**:
+- `SearchAssets.tsx` visar en "Lagg till"-knapp nar ingen traffas i sokningen
+- `add-symbol` edge-funktionen skapar symbolen i databasen och triggar `fetch-history`
+- `useAddSymbol` hooken anropar edge-funktionen och invaldierar cachen
 
-### 2. Bara top 10 visas -- krypto/metaller drunknar bland 260 aktier
-`useRankedAssets` (rad 276) gör `.slice(0, 10)` INNAN filtreringen per tillgangstyp. Sa nar man valjer "Krypto" i filtret filtreras en lista som redan bara innehaller de 10 hogst rankade (nastan alltid aktier). Krypto, metaller och fonder syns aldrig.
+## Vad som saknas
 
-### 3. Fonder saknar live-priser i `raw_prices`
-43 av 50 fonder har `price = null` i `raw_prices`. `fetch-prices` hanterar fondernas proxy-system men det har inte korts efter den senaste deploy:en dar `metadata` lades till i SELECT.
+1. **Ticker-validering ar for strikt** -- regex `^[A-Z0-9_-]{1,12}$` tillater inte punkter (`.`), men svenska aktier anvander ofta `.ST` (t.ex. `VOLV-B.ST`). Langden 12 ar ocksa for kort for langre fondnamn.
+
+2. **Automatisk `fetch-prices` triggas inte** -- den nya symbolen far historikdata men inget live-pris forran nasta cron-korning (varje timme).
+
+3. **Automatisk `generate-signals` triggas inte** -- inga analyser/prediktioner skapas for den nya symbolen forran nasta cron-korning.
+
+4. **Smart typ-detektion saknas for nordiska aktier** -- funktionen gissar "stock" for allt som inte ar krypto/metall, men har ingen kunskap om att t.ex. ticker med `.ST`-suffix ar svenska aktier som behover `NORDIC_STOCKS`-mappningen.
+
+5. **Inget `name`-uppslag** -- den nya symbolen far sitt ticker som namn (`name: cleanTicker`) istallet for bolagets riktiga namn.
 
 ## Losning
 
-### Steg 1: Utoka typdefinitionen till att inkludera `fund`
-- `src/lib/analysis/engine.ts`: Andra `assetType`-parametern i `createAnalysisContext` fran `'stock' | 'crypto' | 'metal'` till `'stock' | 'crypto' | 'metal' | 'fund'`
-- `src/lib/analysis/types.ts`: Uppdatera `AnalysisContext.assetType` till att inkludera `'fund'`
-- `src/hooks/useMarketData.ts`: Andra typcasten pa rad 116 och 143 till `'stock' | 'crypto' | 'metal' | 'fund'`
+### Steg 1: Utoka `add-symbol` edge-funktionen
 
-### Steg 2: Flytta `.slice()` EFTER filtrering, och oka grans per tillgangstyp
-- I `useRankedAssets`: Ta bort `.slice(0, 10)` fran queryFn
-- Returnera ALLA validAssets istallet
-- Lat filtreringen i `Index.tsx` (`filteredTopUp`, `filteredTopDown`) hantera begransningen -- lagg till `.slice(0, 10)` EFTER typfiltret
+Forbattra edge-funktionen att:
+- **Tillat punkter i ticker-formatet**: Andra regex till `^[A-Z0-9._-]{1,20}$`
+- **Sla upp riktigt bolagsnamn** via FMP API (`/v3/profile/{ticker}`) och spara i `name`-faltet
+- **Trigga `fetch-prices`** i bakgrunden (fire-and-forget) for den nya tickern
+- **Trigga `generate-signals`** i bakgrunden (fire-and-forget) for den nya tickern
+- **Battre typ-detektion**: Om tickern slutar pa `.ST` -- kategorisera som stock med SEK som valuta. Om den innehaller ETF-nyckelord, kategorisera som fond.
 
-### Steg 3: Kora `fetch-prices` for att fylla fondernas live-priser
-- Redan deployad med `metadata` i SELECT -- behover bara koras via cron eller manuellt
+### Steg 2: Forbattra frontend-feedbacken
+
+Uppdatera `handleAddNewSymbol` i `Index.tsx` att:
+- Visa en toast med "laddar data i bakgrunden..." efter lyckad tillaggning
+- Automatiskt invaldera `rankedAssets` efter en kort fordrojning (30s) sa att signalerna dyker upp
 
 ## Tekniska detaljer
 
-### Filer som andras
+### Filandringar
 
-**`src/lib/analysis/types.ts`** -- Uppdatera AnalysisContext-typen:
-```typescript
-assetType: 'stock' | 'crypto' | 'metal' | 'fund';
+**`supabase/functions/add-symbol/index.ts`**:
 ```
-
-**`src/lib/analysis/engine.ts`** (rad 416):
-```typescript
-assetType: 'stock' | 'crypto' | 'metal' | 'fund',
+- Andra ticker-regex fran /^[A-Z0-9_-]{1,12}$/ till /^[A-Z0-9._-]{1,20}$/
+- Lagg till FMP API-uppslag for bolagsnamn (profile endpoint)
+- Lagg till fire-and-forget anrop till fetch-prices for den nya tickern
+- Lagg till fire-and-forget anrop till generate-signals for den nya tickern
+- Forbattra typ-detektion: .ST-suffix -> stock/SEK, fond-nyckelord -> fund
 ```
-
-**`src/hooks/useMarketData.ts`**:
-- Rad 116, 143: Andra cast till `as 'stock' | 'crypto' | 'metal' | 'fund'`
-- Rad 273-276: Ta bort `.slice(0, 10)`, returnera alla validAssets
 
 **`src/pages/Index.tsx`**:
-- `filteredTopUp` och `filteredTopDown`: Lagg till `.slice(0, 10)` i slutet av varje filter
+```
+- Uppdatera handleAddNewSymbol med battre feedback-meddelanden
+- Lagg till en setTimeout som invaliderar rankedAssets efter 30 sekunder
+  sa att signalerna dyker upp utan manuell omladdning
+```
 
-Inga forandringar i backend, edge functions, eller det sjalvlarande systemet.
+### Flode efter implementering
+
+1. Anvandaren soker pa t.ex. "VOLV-B.ST" i sokfaltet
+2. Inga lokala resultat hittas -- knappen "Lagg till VOLV-B.ST" visas
+3. Anvandaren klickar knappen
+4. `add-symbol` edge-funktionen:
+   a. Validerar och rengorer tickern
+   b. Slar upp bolagsnamn via FMP
+   c. Skapar symbolen i `symbols`-tabellen
+   d. Triggar `fetch-history` (365 dagars historik)
+   e. Triggar `fetch-prices` (live-pris)
+   f. Triggar `generate-signals` (analyser och prediktioner)
+5. Anvandaren far en toast: "VOLV-B.ST (Volvo) tillagd! Data hamtas i bakgrunden."
+6. Efter ~30 sekunder invalideras cachen och tillgangen dyker upp i dashboarden med priser och signaler
 
