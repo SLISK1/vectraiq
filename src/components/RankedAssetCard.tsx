@@ -3,17 +3,18 @@ import { ScoreRing } from './ScoreRing';
 import { DirectionBadge } from './DirectionBadge';
 import { AssetTypeBadge } from './AssetTypeBadge';
 import { cn } from '@/lib/utils';
-import { ChevronRight, Star, AlertTriangle } from 'lucide-react';
+import { ChevronRight, Star, AlertTriangle, ShoppingCart } from 'lucide-react';
 
 interface RankedAssetCardProps {
   asset: RankedAsset;
   rank: number;
   onAddToWatchlist?: (asset: RankedAsset) => void;
   onClick?: (asset: RankedAsset) => void;
+  onSimulateTrade?: (asset: RankedAsset) => void;
   className?: string;
 }
 
-export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, className }: RankedAssetCardProps) => {
+export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, onSimulateTrade, className }: RankedAssetCardProps) => {
   const formatPrice = (price: number, currency: string) => {
     return new Intl.NumberFormat('sv-SE', {
       style: 'currency',
@@ -130,6 +131,16 @@ export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, classN
             title="Lägg till i watchlist"
           >
             <Star className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSimulateTrade?.(asset);
+            }}
+            className="p-2 rounded-lg bg-muted hover:bg-accent transition-colors"
+            title="Simulera trade"
+          >
+            <ShoppingCart className="w-4 h-4" />
           </button>
           <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
         </div>
