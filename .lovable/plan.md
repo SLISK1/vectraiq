@@ -1,57 +1,64 @@
 
+# Datakällsindikatorer pa MatchCard
 
-## Fix: Aktivera nyhetsdata och Firecrawl for aktieanalys
+## Oversikt
+Lagg till en rad med kompakta ikoner/badges pa varje MatchCard som visar vilka datakallor som anvandes i analysen. Informationen finns redan i `prediction.sources_used` -- den behovs bara parsas och visas visuellt.
 
-### Problem
-- **Ingen automatisk nyhetshämtning**: `fetch-news` saknar cron-jobb, sa `news_cache` ar gammal/tom
-- **Firecrawl avstängt**: Medvetet borttaget fran sentiment-analysen for att spara API-budget
-- **Resultat**: Sentimentmodulen ger nastan alltid "neutral basestimering" istallet for faktiska nyhetsbaserade signaler
+## Kallor att detektera
 
-### Losning (3 delar)
+Foljande kallor identifieras fran `sources_used`-arrayen baserat pa URL och type:
 
-#### 1. Cron-jobb: Hamta nyheter automatiskt
-Lagg till ett dagligt cron-jobb som kor `fetch-news` tva ganger per dag (morgon + kvall):
-- **08:00 UTC** och **18:00 UTC**
-- Hamtar GNews-artiklar for alla aktiva symboler
-- Haller `news_cache` farskt (max 6 timmar gammalt)
+| Kalla | Ikon | Villkor (URL/title innehaller) |
+|---|---|---|
+| Football-Data (H2H, tabell) | `Database` | `football-data.org` |
+| Odds (The Odds API) | `DollarSign` | `market_odds_home !== null` |
+| Forza Football | `Flame` | `forzafootball.com` |
+| Firecrawl (skrapade artiklar) | `Globe` | URL inte fran ovanstaende + type=`stats` fran skrapning |
+| Nyheter (GNews/NewsAPI) | `Newspaper` | type=`news` eller `[NewsAPI]` i title |
+| Pool Tips | `Users` | `pool_tips` i title |
 
-SQL:
-```text
-SELECT cron.schedule('fetch-news-morning', '0 8 * * *', $$ ... fetch-news ... $$);
-SELECT cron.schedule('fetch-news-evening', '0 18 * * *', $$ ... fetch-news ... $$);
+## UI-design
+
+En rad med sma fargade ikoncirklar (16x16px) placerade under prediction-sektionen, ovanfor action-knapparna. Varje ikon har en tooltip som visar kallan. Exempelrad:
+
+```
+[DB] [$$] [F] [Globe] [News]  -- 6 kallor
 ```
 
-#### 2. Aktivera Firecrawl for sentiment (budgetsakert)
-Uppdatera `ai-analysis` edge function:
-- Ateraktivera Firecrawl-sokning i `sentiment`-typen, men med begransning:
-  - Max 1 sokning per sentiment-anrop (istallet for 5 i deep_analysis)
-  - Begransat till `limit: 2` resultat
-  - Enbart for aktier och krypto (inte metaller, dar det ger lite)
-- Uppdatera system-prompten sa AI:n far bade nyheter fran `news_cache` OCH Firecrawl-snippets
+Anvander befintliga lucide-react-ikoner och Tooltip-komponenten.
 
-Uppskattad budget-paverkan: ca 10-15 extra Firecrawl-sokningar/dag (inom gratis-nivaens 30/dag).
+## Teknisk plan
 
-#### 3. Forbattra sentiment-prompten
-Uppdatera prompten i `ai-analysis` for sentiment-typen:
-- Ge AI:n tydligare instruktioner att vikta faktiska nyheter tungt
-- Inkludera Firecrawl-resultaten som "extern marknadsanalys"
-- Krav pa att referera till specifika kallor i evidence-arrayen
+### 1. Skapa hjalp-funktion i MatchCard.tsx
 
-### Tekniska detaljer
+En funktion `detectSources(prediction)` som:
+- Loopar igenom `prediction.sources_used` (array av `{url, title, date, type}`)
+- Kollar `prediction.market_odds_home` for odds
+- Returnerar en lista av `{ key, label, icon, colorClass }`
+- Deduplicerar per key (t.ex. bara en "H2H"-badge oavsett antal football-data-kallor)
 
-**Filer som andras:**
-- `supabase/functions/ai-analysis/index.ts` -- ateraktivera Firecrawl i sentiment-caset, uppdatera prompt
+### 2. Rendera ikoner i MatchCard
 
-**Databasandringar:**
-- 2 nya cron-jobb via SQL-migrering (fetch-news morgon + kvall)
+Inuti prediction-sektionen (raden under cap-warning, ovanfor "Se fullstandig analys"-lanken), lagg till:
 
-**Ingen andringar i:**
-- Frontend (sentimentmodulen laser redan AI-resultatet korrekt)
-- `fetch-news` edge function (fungerar redan, bara saknar cron-trigger)
+```tsx
+<div className="flex flex-wrap items-center gap-1.5">
+  {detectedSources.map(src => (
+    <Tooltip key={src.key}>
+      <TooltipTrigger>
+        <span className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border", src.colorClass)}>
+          <src.icon className="w-3 h-3" />
+          {src.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{src.tooltip}</TooltipContent>
+    </Tooltip>
+  ))}
+</div>
+```
 
-### Implementationsordning
-1. SQL-migrering: skapa 2 cron-jobb for `fetch-news`
-2. Uppdatera `ai-analysis`: ateraktivera Firecrawl i sentiment med budgetgrans
-3. Deploya `ai-analysis`
-4. Verifiera att nyheter borjar floda in i `news_cache`
+### 3. Filer att andra
 
+- **`src/components/betting/MatchCard.tsx`**: Lagg till `detectSources`-funktion, importera ikoner och Tooltip, rendera badges i prediction-sektionen.
+
+Inga nya filer, inga backend-andringar, ingen databasmigrering. All data finns redan tillganglig i `prediction.sources_used` och `prediction.market_odds_*`.
