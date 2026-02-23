@@ -380,7 +380,21 @@ export const useAddSymbol = () => {
 
       if (error) {
         console.error('Error adding symbol:', error);
-        throw error;
+        // Parse error message from edge function response
+        let errorMessage = `Kunde inte lägga till ${ticker}.`;
+        try {
+          const parsed = JSON.parse(error.message || '{}');
+          if (parsed.error) errorMessage = parsed.error;
+        } catch {
+          // Check if the context has the error
+          if (data?.error) errorMessage = data.error;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Edge function returns error in data when status >= 400
+      if (data?.error) {
+        throw new Error(data.error);
       }
 
       return data;

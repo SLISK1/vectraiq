@@ -99,45 +99,66 @@ Deno.serve(async (req) => {
     
     let assetType: "stock" | "crypto" | "metal" | "fund" = "stock";
     let currency = "USD";
+    let verified = false;
+    let displayName = cleanTicker;
 
-    if (cryptos.includes(cleanTicker.replace(/-.*$/, ""))) {
-      assetType = "crypto";
-      currency = "USD";
-    } else if (metals.includes(cleanTicker)) {
-      assetType = "metal";
-      currency = "USD";
-    } else if (fundKeywords.some(kw => cleanTicker.includes(kw))) {
-      assetType = "fund";
-      currency = "USD";
-    } else if (nordicSuffixes.some(s => cleanTicker.endsWith(s))) {
-      assetType = "stock";
-      currency = cleanTicker.endsWith(".ST") ? "SEK" 
-        : cleanTicker.endsWith(".OL") ? "NOK"
-        : cleanTicker.endsWith(".CO") ? "DKK"
-        : cleanTicker.endsWith(".HE") ? "EUR"
-        : "USD";
+    // === FMP VERIFICATION GATE ===
+    if (!fmpApiKey) {
+      return new Response(JSON.stringify({ error: "Verifiering ej tillgänglig. Kontakta administratör." }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    // === FMP NAME LOOKUP ===
-    let displayName = cleanTicker;
-    if (fmpApiKey) {
-      try {
-        const profileRes = await fetch(`https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(cleanTicker)}?apikey=${fmpApiKey}`);
-        if (profileRes.ok) {
-          const profileData = await profileRes.json();
-          if (Array.isArray(profileData) && profileData.length > 0) {
-            displayName = profileData[0].companyName || cleanTicker;
-            // Also refine type from FMP if available
-            if (profileData[0].isEtf) assetType = "fund";
-            if (profileData[0].isFund) assetType = "fund";
-            if (profileData[0].currency) currency = profileData[0].currency;
-            if (profileData[0].sector) {
-              // Will be stored as metadata below
-            }
-          }
+    try {
+      const profileRes = await fetch(`https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(cleanTicker)}?apikey=${fmpApiKey}`);
+      if (profileRes.ok) {
+        const profileData = await profileRes.json();
+        if (Array.isArray(profileData) && profileData.length > 0 && profileData[0].companyName) {
+          verified = true;
+          displayName = profileData[0].companyName;
+          if (profileData[0].isEtf) assetType = "fund";
+          if (profileData[0].isFund) assetType = "fund";
+          if (profileData[0].currency) currency = profileData[0].currency;
         }
-      } catch (e) {
-        console.warn("FMP profile lookup failed:", e);
+      }
+    } catch (e) {
+      console.warn("FMP profile lookup failed:", e);
+      return new Response(JSON.stringify({ error: "Kunde inte verifiera ticker just nu. Försök igen." }), {
+        status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Fallback: known crypto/metals don't need FMP verification
+    if (!verified) {
+      const cryptoBase = cleanTicker.replace(/-.*$/, "");
+      if (cryptos.includes(cryptoBase)) {
+        verified = true;
+        assetType = "crypto";
+      } else if (metals.includes(cleanTicker)) {
+        verified = true;
+        assetType = "metal";
+      }
+    }
+
+    if (!verified) {
+      return new Response(JSON.stringify({ error: `Kunde inte hitta "${cleanTicker}". Kontrollera att tickern är korrekt.` }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Refine type/currency for non-FMP verified assets
+    if (assetType === "stock") {
+      if (fundKeywords.some(kw => cleanTicker.includes(kw))) {
+        assetType = "fund";
+      } else if (nordicSuffixes.some(s => cleanTicker.endsWith(s))) {
+        currency = cleanTicker.endsWith(".ST") ? "SEK" 
+          : cleanTicker.endsWith(".OL") ? "NOK"
+          : cleanTicker.endsWith(".CO") ? "DKK"
+          : cleanTicker.endsWith(".HE") ? "EUR"
+          : "USD";
       }
     }
 
