@@ -127,7 +127,7 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
 
           {/* Predicted Returns Grid */}
           {asset.predictedReturns && (
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-5 gap-3">
               <div className="p-3 rounded-lg bg-muted/30 text-center">
                 <div className="text-xs text-muted-foreground mb-1">1 dag</div>
                 <div className={cn(
@@ -144,6 +144,15 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
                   asset.predictedReturns.week1 >= 0 ? "text-up" : "text-down"
                 )}>
                   {asset.predictedReturns.week1 >= 0 ? '+' : ''}{asset.predictedReturns.week1}%
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/30 text-center">
+                <div className="text-xs text-muted-foreground mb-1">1 månad</div>
+                <div className={cn(
+                  "font-mono font-bold text-lg",
+                  asset.predictedReturns.month1 >= 0 ? "text-up" : "text-down"
+                )}>
+                  {asset.predictedReturns.month1 >= 0 ? '+' : ''}{asset.predictedReturns.month1}%
                 </div>
               </div>
               <div className="p-3 rounded-lg bg-muted/30 text-center">

@@ -48,6 +48,7 @@ export interface Asset {
 export interface PredictedReturns {
   day1: number;
   week1: number;
+  month1: number;
   year1: number;
   year5: number;
 }
