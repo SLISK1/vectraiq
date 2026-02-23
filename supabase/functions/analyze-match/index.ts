@@ -364,7 +364,7 @@ Deno.serve(async (req) => {
           },
           body: JSON.stringify({
             query: searchQuery,
-            limit: 2, // Reduced from 3 to save budget
+            limit: 2,
             scrapeOptions: { formats: ["markdown"] },
           }),
         });
@@ -384,7 +384,52 @@ Deno.serve(async (req) => {
         console.warn("Live Firecrawl search failed:", e);
       }
     } else if (!isHighImpact && !isFreshEnrichment) {
-      console.log(`Skipping Firecrawl for non-high-impact league: ${match.league}`);
+      console.log(`Skipping general Firecrawl for non-high-impact league: ${match.league}`);
+    }
+
+    // === FORZA FOOTBALL: Scrape match data for ALL leagues (great Nordic coverage) ===
+    let forzaData: any = sourceData.forza_football || null;
+    if (!isFreshEnrichment && firecrawlApiKey) {
+      try {
+        const forzaQuery = `site:forzafootball.com ${match.home_team} ${match.away_team}`;
+        const forzaRes = await fetch("https://api.firecrawl.dev/v1/search", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${firecrawlApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: forzaQuery,
+            limit: 1,
+            scrapeOptions: { formats: ["markdown"], onlyMainContent: true },
+          }),
+        });
+        if (forzaRes.ok) {
+          const forzaJson = await forzaRes.json();
+          if (forzaJson.success && forzaJson.data?.length > 0) {
+            const page = forzaJson.data[0];
+            forzaData = {
+              url: page.url,
+              title: page.title || page.metadata?.title || "",
+              markdown: page.markdown ? page.markdown.substring(0, 3000) : "",
+              source: "forza_football",
+            };
+            // Also add to scraped articles for the AI prompt
+            liveScrapedArticles.push({
+              url: page.url,
+              title: `[Forza Football] ${page.title || page.metadata?.title || ""}`,
+              description: page.description || page.metadata?.description || "",
+              markdown: page.markdown ? page.markdown.substring(0, 3000) : "",
+              source: "forza_football",
+            });
+            console.log(`Forza Football data found for ${match.home_team} vs ${match.away_team}`);
+          } else {
+            console.log(`No Forza Football results for ${match.home_team} vs ${match.away_team}`);
+          }
+        }
+      } catch (e) {
+        console.warn("Forza Football scrape failed:", e);
+      }
     }
 
     // Cache enrichment data back to source_data for reuse
@@ -395,6 +440,7 @@ Deno.serve(async (req) => {
         standings: liveStandings,
         news: liveNewsArticles,
         scraped_articles: liveScrapedArticles,
+        forza_football: forzaData,
         _enriched_at: new Date().toISOString(),
       };
       await supabaseService
