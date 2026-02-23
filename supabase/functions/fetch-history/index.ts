@@ -272,13 +272,21 @@ Deno.serve(async (req) => {
     const results: { ticker: string; records: number; source: string }[] = [];
     const errors: string[] = [];
 
-    // ========== 1. CRYPTO via CoinGecko (with retry + increased delay) ==========
+    // ========== 1. CRYPTO via CoinGecko (with Yahoo fallback) ==========
     const cryptoSymbols = symbols.filter(s => CRYPTO_IDS[s.ticker]);
-    const failedCrypto: string[] = [];
+    const CRYPTO_YAHOO: Record<string, string> = {
+      'BTC': 'BTC-USD', 'ETH': 'ETH-USD', 'SOL': 'SOL-USD', 'XRP': 'XRP-USD',
+      'ADA': 'ADA-USD', 'AVAX': 'AVAX-USD', 'DOT': 'DOT-USD', 'LINK': 'LINK-USD',
+      'DOGE': 'DOGE-USD', 'MATIC': 'MATIC-USD', 'LTC': 'LTC-USD', 'UNI': 'UNI-USD',
+      'ATOM': 'ATOM-USD', 'NEAR': 'NEAR-USD', 'APT': 'APT-USD', 'ARB': 'ARB-USD', 'OP': 'OP-USD',
+    };
+
     for (const symbol of cryptoSymbols) {
       const coinId = CRYPTO_IDS[symbol.ticker];
       console.log(`Fetching crypto: ${symbol.ticker} (${coinId})`);
+      let fetched = false;
 
+      // Try CoinGecko first
       const fetchCrypto = async () => {
         const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`);
         if (res.status === 429) throw new Error('Rate limited');
@@ -298,20 +306,34 @@ Deno.serve(async (req) => {
         return Array.from(byDate.values());
       };
 
-      const records = await withRetry(fetchCrypto, 2, 8000);
+      const records = await withRetry(fetchCrypto, 1, 8000);
       if (records && records.length > 0) {
         await upsertAndTrack(supabase, symbol.ticker, records, 'coingecko', results, errors);
         console.log(`✓ CoinGecko ${symbol.ticker}: ${records.length} days`);
-      } else {
-        failedCrypto.push(symbol.ticker);
-        errors.push(`${symbol.ticker}: CoinGecko failed after retries`);
+        fetched = true;
       }
-      // 6s delay between calls to respect rate limits
-      await new Promise(r => setTimeout(r, 6000));
-    }
 
-    if (failedCrypto.length > 0) {
-      console.log(`⚠ Failed crypto: ${failedCrypto.join(', ')}`);
+      // Yahoo Finance fallback for crypto
+      if (!fetched && CRYPTO_YAHOO[symbol.ticker]) {
+        console.log(`Yahoo fallback crypto: ${symbol.ticker} -> ${CRYPTO_YAHOO[symbol.ticker]}`);
+        try {
+          const data = await fetchYahooHistory(CRYPTO_YAHOO[symbol.ticker], days);
+          if (data) {
+            const yahooRecords = yahooToRecords(symbol.id, data, 'yahoo_crypto');
+            await upsertAndTrack(supabase, symbol.ticker, yahooRecords, 'yahoo_crypto', results, errors);
+            console.log(`✓ Yahoo crypto ${symbol.ticker}: ${yahooRecords.length} days`);
+            fetched = true;
+          }
+          await new Promise(r => setTimeout(r, 500));
+        } catch (e) { console.error(`Yahoo crypto fallback failed ${symbol.ticker}:`, e); }
+      }
+
+      if (!fetched) {
+        errors.push(`${symbol.ticker}: CoinGecko + Yahoo both failed`);
+      }
+
+      // 6s delay between CoinGecko calls
+      await new Promise(r => setTimeout(r, 6000));
     }
 
     // ========== 2. US STOCKS: FMP primary -> Yahoo fallback ==========
@@ -395,6 +417,8 @@ Deno.serve(async (req) => {
           await upsertAndTrack(supabase, symbol.ticker, records, 'fmp', results, errors);
           console.log(`✓ FMP metal ${symbol.ticker}: ${fmpData.length} days`);
           fetched = true;
+        } else {
+          console.log(`FMP metal returned no data for ${METAL_FMP[symbol.ticker]}`);
         }
         await new Promise(r => setTimeout(r, 150));
       }
@@ -409,11 +433,16 @@ Deno.serve(async (req) => {
             const records = yahooToRecords(symbol.id, data, 'yahoo_metal');
             await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo_metal', results, errors);
             console.log(`✓ Yahoo metal ${symbol.ticker}: ${records.length} days`);
+            fetched = true;
           } else {
-            errors.push(`${symbol.ticker}: no metal history from FMP or Yahoo`);
+            console.log(`Yahoo metal returned no data for ${yahooTicker}`);
           }
           await new Promise(r => setTimeout(r, 500));
         } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
+      }
+
+      if (!fetched) {
+        errors.push(`${symbol.ticker}: no metal history from FMP or Yahoo`);
       }
     }
 
