@@ -62,20 +62,38 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Amount must be positive" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Get latest price
+    // Get latest price — try raw_prices first, fallback to price_history
+    let price: number | null = null;
+
     const { data: priceData } = await supabase
       .from("raw_prices")
       .select("price")
       .eq("symbol_id", symbol_id)
       .order("recorded_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (!priceData) {
-      return new Response(JSON.stringify({ error: "No price available for this symbol" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (priceData) {
+      price = Number(priceData.price);
+    } else {
+      // Fallback to price_history (close_price)
+      const { data: histData } = await supabase
+        .from("price_history")
+        .select("close_price")
+        .eq("symbol_id", symbol_id)
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (histData) {
+        price = Number(histData.close_price);
+        console.log(`Using price_history fallback for ${ticker}: ${price}`);
+      }
     }
 
-    const price = Number(priceData.price);
+    if (!price) {
+      return new Response(JSON.stringify({ error: "No price available for this symbol" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // Get or create portfolio
     let { data: portfolio } = await supabase
