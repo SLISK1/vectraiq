@@ -1,27 +1,53 @@
 
-# Plan — Senast uppdaterad 2026-02-23
 
-## ✅ Genomförda uppgifter
+# Problem: Krypto, metaller och fonder syns inte i dashboarden
 
-### Firecrawl-budgetmätare (klart)
-- Ny tabell `api_usage_tracker` för daglig spårning per kategori
-- `ai-analysis`: budget-check före Firecrawl (15/dag aktier)
-- `fetch-matches`: migrerad till `api_usage_tracker` (15/dag betting)
-- Visuell mätare på Dashboard + BettingPage
+## Orsaker
 
-### Självlärande system (klart)
-- `signal_snapshots`-tabell bevarar modulprediktioner
-- `generate-signals` läser `module_reliability` och justerar vikter
-- `score-predictions` fyller `module_reliability` med hit_rate per modul
+### 1. `fund` exkluderas i type-definitionen (huvudproblemet)
+I `useMarketData.ts` rad 116 och 143 castas `asset_type` till `'stock' | 'crypto' | 'metal'` -- **`fund` saknas**. Samma sak i `createAnalysisContext` (engine.ts rad 416) och `AnalysisContext`-typen. Fonder passerar troligen igenom men med fel typ.
 
-### Krypto, metaller & fonder (klart)
-- **Krypto historik**: Yahoo Finance fallback (BTC-USD etc.) när CoinGecko rate-limitar
-- **Metall historik**: Förbättrad loggning, Yahoo futures (GC=F etc.) fungerar som fallback
-- **Fonder**: 7 svenska proxy-fonder aktiverade (SWE-USA, SWE-GLOB, SWE-TECH, SWE-ASIA, SWE-SMAL, HB-ENRG, SPLT-INV)
-- Alla tillgångstyper har nu 60+ dagars historik + live-priser
+### 2. Bara top 10 visas -- krypto/metaller drunknar bland 260 aktier
+`useRankedAssets` (rad 276) gör `.slice(0, 10)` INNAN filtreringen per tillgangstyp. Sa nar man valjer "Krypto" i filtret filtreras en lista som redan bara innehaller de 10 hogst rankade (nastan alltid aktier). Krypto, metaller och fonder syns aldrig.
 
-## Möjliga nästa steg
+### 3. Fonder saknar live-priser i `raw_prices`
+43 av 50 fonder har `price = null` i `raw_prices`. `fetch-prices` hanterar fondernas proxy-system men det har inte korts efter den senaste deploy:en dar `metadata` lades till i SELECT.
 
-- Utöka fond-utbudet med fler svenska fonder
-- Koppla fonder till `generate-signals` för analys
-- Lägga till CoinGecko Pro-nyckel för bättre krypto-historik
+## Losning
+
+### Steg 1: Utoka typdefinitionen till att inkludera `fund`
+- `src/lib/analysis/engine.ts`: Andra `assetType`-parametern i `createAnalysisContext` fran `'stock' | 'crypto' | 'metal'` till `'stock' | 'crypto' | 'metal' | 'fund'`
+- `src/lib/analysis/types.ts`: Uppdatera `AnalysisContext.assetType` till att inkludera `'fund'`
+- `src/hooks/useMarketData.ts`: Andra typcasten pa rad 116 och 143 till `'stock' | 'crypto' | 'metal' | 'fund'`
+
+### Steg 2: Flytta `.slice()` EFTER filtrering, och oka grans per tillgangstyp
+- I `useRankedAssets`: Ta bort `.slice(0, 10)` fran queryFn
+- Returnera ALLA validAssets istallet
+- Lat filtreringen i `Index.tsx` (`filteredTopUp`, `filteredTopDown`) hantera begransningen -- lagg till `.slice(0, 10)` EFTER typfiltret
+
+### Steg 3: Kora `fetch-prices` for att fylla fondernas live-priser
+- Redan deployad med `metadata` i SELECT -- behover bara koras via cron eller manuellt
+
+## Tekniska detaljer
+
+### Filer som andras
+
+**`src/lib/analysis/types.ts`** -- Uppdatera AnalysisContext-typen:
+```typescript
+assetType: 'stock' | 'crypto' | 'metal' | 'fund';
+```
+
+**`src/lib/analysis/engine.ts`** (rad 416):
+```typescript
+assetType: 'stock' | 'crypto' | 'metal' | 'fund',
+```
+
+**`src/hooks/useMarketData.ts`**:
+- Rad 116, 143: Andra cast till `as 'stock' | 'crypto' | 'metal' | 'fund'`
+- Rad 273-276: Ta bort `.slice(0, 10)`, returnera alla validAssets
+
+**`src/pages/Index.tsx`**:
+- `filteredTopUp` och `filteredTopDown`: Lagg till `.slice(0, 10)` i slutet av varje filter
+
+Inga forandringar i backend, edge functions, eller det sjalvlarande systemet.
+
