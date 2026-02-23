@@ -405,6 +405,197 @@ export type Database = {
         }
         Relationships: []
       }
+      paper_holdings: {
+        Row: {
+          avg_cost: number
+          id: string
+          portfolio_id: string
+          qty: number
+          symbol_id: string
+          ticker: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avg_cost?: number
+          id?: string
+          portfolio_id: string
+          qty?: number
+          symbol_id: string
+          ticker: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avg_cost?: number
+          id?: string
+          portfolio_id?: string
+          qty?: number
+          symbol_id?: string
+          ticker?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_holdings_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "paper_portfolios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paper_holdings_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paper_portfolio_snapshots: {
+        Row: {
+          benchmark_return_pct: number | null
+          benchmark_value: number | null
+          cash_balance: number
+          holdings_value: number
+          id: string
+          pnl_pct: number
+          pnl_total: number
+          portfolio_id: string
+          snapshot_at: string
+          total_value: number
+          user_id: string
+        }
+        Insert: {
+          benchmark_return_pct?: number | null
+          benchmark_value?: number | null
+          cash_balance: number
+          holdings_value?: number
+          id?: string
+          pnl_pct?: number
+          pnl_total?: number
+          portfolio_id: string
+          snapshot_at?: string
+          total_value: number
+          user_id: string
+        }
+        Update: {
+          benchmark_return_pct?: number | null
+          benchmark_value?: number | null
+          cash_balance?: number
+          holdings_value?: number
+          id?: string
+          pnl_pct?: number
+          pnl_total?: number
+          portfolio_id?: string
+          snapshot_at?: string
+          total_value?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_portfolio_snapshots_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "paper_portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paper_portfolios: {
+        Row: {
+          base_currency: string
+          cash_balance: number
+          created_at: string
+          id: string
+          starting_cash: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          base_currency?: string
+          cash_balance?: number
+          created_at?: string
+          id?: string
+          starting_cash?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          base_currency?: string
+          cash_balance?: number
+          created_at?: string
+          id?: string
+          starting_cash?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      paper_trades: {
+        Row: {
+          asset_type: string
+          executed_at: string
+          fee: number
+          id: string
+          notes: string | null
+          notional: number
+          portfolio_id: string
+          price: number
+          qty: number
+          side: string
+          symbol_id: string
+          ticker: string
+          user_id: string
+        }
+        Insert: {
+          asset_type: string
+          executed_at?: string
+          fee?: number
+          id?: string
+          notes?: string | null
+          notional: number
+          portfolio_id: string
+          price: number
+          qty: number
+          side: string
+          symbol_id: string
+          ticker: string
+          user_id: string
+        }
+        Update: {
+          asset_type?: string
+          executed_at?: string
+          fee?: number
+          id?: string
+          notes?: string | null
+          notional?: number
+          portfolio_id?: string
+          price?: number
+          qty?: number
+          side?: string
+          symbol_id?: string
+          ticker?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_trades_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "paper_portfolios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paper_trades_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pool_tickets: {
         Row: {
           budget_sek: number | null

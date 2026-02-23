@@ -17,3 +17,9 @@ verify_jwt = false
 
 [functions.fetch-alpha-indicators]
 verify_jwt = false
+
+[functions.paper-trade]
+verify_jwt = false
+
+[functions.paper-snapshot]
+verify_jwt = false

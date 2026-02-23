@@ -15,6 +15,8 @@ import { SearchAssets } from '@/components/SearchAssets';
 import { PortfolioView } from '@/components/PortfolioView';
 import { ScreenerPage } from '@/pages/ScreenerPage';
 import { BettingPage } from '@/pages/BettingPage';
+import { PaperPortfolioPage } from '@/components/paper/PaperPortfolioPage';
+import { PaperTradeModal } from '@/components/paper/PaperTradeModal';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
 import type { TabId } from '@/components/Header';
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,7 +24,7 @@ import { useRankedAssets, useWatchlist, useAddToWatchlist, useRefreshPrices, use
 import { usePriceRealtime } from '@/hooks/usePriceRealtime';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Star, History, BarChart3, Loader2, Briefcase } from 'lucide-react';
+import { Star, History, BarChart3, Loader2, Briefcase, Wallet } from 'lucide-react';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
@@ -32,6 +34,7 @@ const Index = () => {
   const [selectedAsset, setSelectedAsset] = useState<RankedAsset | null>(null);
   const [assetForWatchlist, setAssetForWatchlist] = useState<RankedAsset | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [paperTradeAsset, setPaperTradeAsset] = useState<{ symbolId: string; ticker: string; name: string; lastPrice: number; assetType: string } | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
   
@@ -124,6 +127,22 @@ const Index = () => {
       });
     }
   }, [refreshPricesMutation, toast]);
+
+  const handleSimulateTrade = useCallback((asset: RankedAsset) => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+    const symbol = symbols?.find(s => s.ticker === asset.ticker);
+    if (!symbol) return;
+    setPaperTradeAsset({
+      symbolId: symbol.id,
+      ticker: asset.ticker,
+      name: asset.name,
+      lastPrice: asset.lastPrice,
+      assetType: asset.type,
+    });
+  }, [user, symbols]);
 
   const handleAddToWatchlist = (asset: RankedAsset) => {
     if (!user) {
@@ -318,6 +337,7 @@ const Index = () => {
                 lastUpdated={new Date().toISOString()}
                 onAddToWatchlist={handleAddToWatchlist}
                 onAssetClick={setSelectedAsset}
+                onSimulateTrade={handleSimulateTrade}
                 onRefresh={handleRefresh}
               />
               {selectedMarketCap !== 'rocket' && (
@@ -329,7 +349,7 @@ const Index = () => {
                   lastUpdated={new Date().toISOString()}
                   onAddToWatchlist={handleAddToWatchlist}
                   onAssetClick={setSelectedAsset}
-                  onRefresh={handleRefresh}
+                  onSimulateTrade={handleSimulateTrade}
                 />
               )}
             </div>
@@ -422,6 +442,22 @@ const Index = () => {
         {/* Betting */}
         {activeTab === 'betting' && <BettingPage />}
 
+        {/* Paper Portfolio */}
+        {activeTab === 'paper' && (
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-primary/20">
+                <Wallet className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Paper Portfolio</h2>
+                <p className="text-sm text-muted-foreground">Simulerad handel med låtsaspengar</p>
+              </div>
+            </div>
+            <PaperPortfolioPage />
+          </div>
+        )}
+
         {/* Stats */}
         {activeTab === 'stats' && (
           <div className="max-w-4xl mx-auto">
@@ -455,6 +491,10 @@ const Index = () => {
           setSelectedAsset(null);
           handleAddToWatchlist(asset);
         }}
+        onSimulateTrade={(asset) => {
+          setSelectedAsset(null);
+          handleSimulateTrade(asset);
+        }}
       />
 
       <AddToWatchlistModal
@@ -465,6 +505,20 @@ const Index = () => {
       />
 
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
+      {/* Paper Trade Modal */}
+      {paperTradeAsset && (
+        <PaperTradeModal
+          isOpen={!!paperTradeAsset}
+          onClose={() => setPaperTradeAsset(null)}
+          symbolId={paperTradeAsset.symbolId}
+          ticker={paperTradeAsset.ticker}
+          name={paperTradeAsset.name}
+          lastPrice={paperTradeAsset.lastPrice}
+          currency="SEK"
+          assetType={paperTradeAsset.assetType}
+        />
+      )}
     </div>
   );
 };

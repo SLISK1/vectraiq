@@ -11,6 +11,7 @@ interface TopRankingListProps {
   lastUpdated?: string;
   onAddToWatchlist?: (asset: RankedAsset) => void;
   onAssetClick?: (asset: RankedAsset) => void;
+  onSimulateTrade?: (asset: RankedAsset) => void;
   onRefresh?: () => void;
   className?: string;
 }
@@ -23,6 +24,7 @@ export const TopRankingList = ({
   lastUpdated,
   onAddToWatchlist,
   onAssetClick,
+  onSimulateTrade,
   onRefresh,
   className,
 }: TopRankingListProps) => {
@@ -87,6 +89,7 @@ export const TopRankingList = ({
               rank={index + 1}
               onAddToWatchlist={onAddToWatchlist}
               onClick={onAssetClick}
+              onSimulateTrade={onSimulateTrade}
             />
           ))
         )}

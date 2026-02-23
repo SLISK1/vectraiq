@@ -8,7 +8,7 @@ import { ModuleSignalTable } from './ModuleSignalTable';
 import { TrendPredictionCard } from './TrendPredictionCard';
 import { SignalFlipCard } from './SignalFlipCard';
 import { cn } from '@/lib/utils';
-import { Star, ExternalLink, TrendingUp, BarChart2 } from 'lucide-react';
+import { Star, ExternalLink, TrendingUp, BarChart2, ShoppingCart } from 'lucide-react';
 import { Button } from './ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -18,9 +18,10 @@ interface AssetDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddToWatchlist?: (asset: RankedAsset) => void;
+  onSimulateTrade?: (asset: RankedAsset) => void;
 }
 
-export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist }: AssetDetailModalProps) => {
+export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onSimulateTrade }: AssetDetailModalProps) => {
   if (!asset) return null;
 
   // Fetch historical predictions for this asset (excess return data)
@@ -244,6 +245,14 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist }: A
             >
               <Star className="w-4 h-4" />
               Lägg till i Watchlist
+            </Button>
+            <Button
+              onClick={() => onSimulateTrade?.(asset)}
+              variant="secondary"
+              className="flex-1 gap-2"
+            >
+              <ShoppingCart className="w-4 h-4" />
+              Simulera trade
             </Button>
             <Button variant="outline" className="flex-1 gap-2">
               <ExternalLink className="w-4 h-4" />
