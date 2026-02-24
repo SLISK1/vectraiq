@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-internal-call",
+    "authorization, x-client-info, apikey, content-type",
 };
 
 // Same league → sport key mapping as analyze-match
@@ -43,9 +43,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const isInternal = req.headers.get("x-internal-call") === "true";
     const authHeader = req.headers.get("authorization");
-    if (!isInternal && !authHeader?.startsWith("Bearer ")) {
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    if (!authHeader?.startsWith("Bearer ") || authHeader !== `Bearer ${supabaseServiceKey}`) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

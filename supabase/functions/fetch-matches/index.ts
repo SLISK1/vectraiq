@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-call",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 // Football-data.org competition IDs
@@ -27,18 +27,33 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const internalHeader = req.headers.get("x-internal-call");
     const authHeader = req.headers.get("authorization");
-    if (!internalHeader && !authHeader?.startsWith("Bearer ")) {
+    if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
+
+    if (!isServiceRole) {
+      const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { error: authError } = await supabaseAuth.auth.getUser(authHeader.replace("Bearer ", ""));
+      if (authError) {
+        return new Response(JSON.stringify({ error: "Invalid token" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      supabaseUrl,
+      supabaseServiceKey
     );
 
     const footballApiKey = Deno.env.get("FOOTBALL_DATA_API_KEY");

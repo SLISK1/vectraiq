@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 // Alpha Vantage budget: 25 req/day free tier
@@ -173,7 +173,6 @@ Deno.serve(async (req) => {
     }
 
     // Auth check
-    const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -181,7 +180,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!isInternalCall) {
+    const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
+    if (!isServiceRole) {
       const supabaseAuth = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
         global: { headers: { Authorization: authHeader } },
       });

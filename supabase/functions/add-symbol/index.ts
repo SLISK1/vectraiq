@@ -222,7 +222,6 @@ Deno.serve(async (req) => {
     const internalHeaders = {
       Authorization: `Bearer ${supabaseServiceKey}`,
       "Content-Type": "application/json",
-      "X-Internal-Call": "true",
     };
 
     // 1. Fetch history + prices in parallel (both must complete before signals)
