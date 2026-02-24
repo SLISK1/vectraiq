@@ -1077,11 +1077,15 @@ export type Database = {
       }
       strategy_automation_jobs: {
         Row: {
+          analysis_rows_fetched: number | null
           candidates_found: number | null
+          candidates_upserted_count: number | null
           completed_at: string | null
           config_id: string
           errors: Json
           id: string
+          matched_regime_count: number | null
+          passed_gate_count: number | null
           positions_closed: number | null
           positions_opened: number | null
           started_at: string
@@ -1090,11 +1094,15 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          analysis_rows_fetched?: number | null
           candidates_found?: number | null
+          candidates_upserted_count?: number | null
           completed_at?: string | null
           config_id: string
           errors?: Json
           id?: string
+          matched_regime_count?: number | null
+          passed_gate_count?: number | null
           positions_closed?: number | null
           positions_opened?: number | null
           started_at?: string
@@ -1103,11 +1111,15 @@ export type Database = {
           user_id: string
         }
         Update: {
+          analysis_rows_fetched?: number | null
           candidates_found?: number | null
+          candidates_upserted_count?: number | null
           completed_at?: string | null
           config_id?: string
           errors?: Json
           id?: string
+          matched_regime_count?: number | null
+          passed_gate_count?: number | null
           positions_closed?: number | null
           positions_opened?: number | null
           started_at?: string
@@ -1227,6 +1239,7 @@ export type Database = {
           commission_per_trade: number
           coverage_min: number
           created_at: string
+          debug_force_one_candidate: boolean
           execution_policy: string
           id: string
           max_open_pos: number
@@ -1252,6 +1265,7 @@ export type Database = {
           commission_per_trade?: number
           coverage_min?: number
           created_at?: string
+          debug_force_one_candidate?: boolean
           execution_policy?: string
           id?: string
           max_open_pos?: number
@@ -1277,6 +1291,7 @@ export type Database = {
           commission_per_trade?: number
           coverage_min?: number
           created_at?: string
+          debug_force_one_candidate?: boolean
           execution_policy?: string
           id?: string
           max_open_pos?: number
