@@ -1075,6 +1075,355 @@ export type Database = {
           },
         ]
       }
+      strategy_automation_jobs: {
+        Row: {
+          candidates_found: number | null
+          completed_at: string | null
+          config_id: string
+          errors: Json
+          id: string
+          positions_closed: number | null
+          positions_opened: number | null
+          started_at: string
+          status: string
+          universe_size: number | null
+          user_id: string
+        }
+        Insert: {
+          candidates_found?: number | null
+          completed_at?: string | null
+          config_id: string
+          errors?: Json
+          id?: string
+          positions_closed?: number | null
+          positions_opened?: number | null
+          started_at?: string
+          status?: string
+          universe_size?: number | null
+          user_id: string
+        }
+        Update: {
+          candidates_found?: number | null
+          completed_at?: string | null
+          config_id?: string
+          errors?: Json
+          id?: string
+          positions_closed?: number | null
+          positions_opened?: number | null
+          started_at?: string
+          status?: string
+          universe_size?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_automation_jobs_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      strategy_candidates: {
+        Row: {
+          analysis_data: Json
+          block_reasons: Json
+          confidence: number | null
+          config_id: string
+          created_at: string
+          entry_price: number | null
+          evaluated_at: string
+          fundamental_exit_available: boolean
+          id: string
+          position_size: number | null
+          regime: string | null
+          rr_ratio: number | null
+          signal_price: number | null
+          source: string
+          status: string
+          stop_loss_pct: number | null
+          stop_loss_price: number | null
+          symbol_id: string
+          target_pct: number | null
+          target_price: number | null
+          ticker: string
+          total_score: number | null
+          trend_duration: number | null
+          trend_strength: number | null
+          user_id: string
+        }
+        Insert: {
+          analysis_data?: Json
+          block_reasons?: Json
+          confidence?: number | null
+          config_id: string
+          created_at?: string
+          entry_price?: number | null
+          evaluated_at?: string
+          fundamental_exit_available?: boolean
+          id?: string
+          position_size?: number | null
+          regime?: string | null
+          rr_ratio?: number | null
+          signal_price?: number | null
+          source: string
+          status?: string
+          stop_loss_pct?: number | null
+          stop_loss_price?: number | null
+          symbol_id: string
+          target_pct?: number | null
+          target_price?: number | null
+          ticker: string
+          total_score?: number | null
+          trend_duration?: number | null
+          trend_strength?: number | null
+          user_id: string
+        }
+        Update: {
+          analysis_data?: Json
+          block_reasons?: Json
+          confidence?: number | null
+          config_id?: string
+          created_at?: string
+          entry_price?: number | null
+          evaluated_at?: string
+          fundamental_exit_available?: boolean
+          id?: string
+          position_size?: number | null
+          regime?: string | null
+          rr_ratio?: number | null
+          signal_price?: number | null
+          source?: string
+          status?: string
+          stop_loss_pct?: number | null
+          stop_loss_price?: number | null
+          symbol_id?: string
+          target_pct?: number | null
+          target_price?: number | null
+          ticker?: string
+          total_score?: number | null
+          trend_duration?: number | null
+          trend_strength?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_candidates_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      strategy_configs: {
+        Row: {
+          agreement_min: number
+          automation_mode: string
+          candidate_limit: number
+          combine_mode: string
+          commission_bps: number
+          commission_per_trade: number
+          coverage_min: number
+          created_at: string
+          execution_policy: string
+          id: string
+          max_open_pos: number
+          max_risk_pct: number
+          max_sector_pct: number
+          max_staleness_h: number
+          mean_reversion_enabled: boolean
+          portfolio_value: number
+          schedule: string
+          slippage_bps: number
+          total_score_min: number
+          universe_sources: Json
+          updated_at: string
+          user_id: string
+          vol_risk_max: number
+        }
+        Insert: {
+          agreement_min?: number
+          automation_mode?: string
+          candidate_limit?: number
+          combine_mode?: string
+          commission_bps?: number
+          commission_per_trade?: number
+          coverage_min?: number
+          created_at?: string
+          execution_policy?: string
+          id?: string
+          max_open_pos?: number
+          max_risk_pct?: number
+          max_sector_pct?: number
+          max_staleness_h?: number
+          mean_reversion_enabled?: boolean
+          portfolio_value?: number
+          schedule?: string
+          slippage_bps?: number
+          total_score_min?: number
+          universe_sources?: Json
+          updated_at?: string
+          user_id: string
+          vol_risk_max?: number
+        }
+        Update: {
+          agreement_min?: number
+          automation_mode?: string
+          candidate_limit?: number
+          combine_mode?: string
+          commission_bps?: number
+          commission_per_trade?: number
+          coverage_min?: number
+          created_at?: string
+          execution_policy?: string
+          id?: string
+          max_open_pos?: number
+          max_risk_pct?: number
+          max_sector_pct?: number
+          max_staleness_h?: number
+          mean_reversion_enabled?: boolean
+          portfolio_value?: number
+          schedule?: string
+          slippage_bps?: number
+          total_score_min?: number
+          universe_sources?: Json
+          updated_at?: string
+          user_id?: string
+          vol_risk_max?: number
+        }
+        Relationships: []
+      }
+      strategy_positions: {
+        Row: {
+          candidate_id: string | null
+          close_reason: string | null
+          closed_at: string | null
+          commission_cost: number | null
+          config_id: string
+          effective_entry: number | null
+          effective_exit: number | null
+          entry_price: number
+          exit_price: number | null
+          gross_pnl: number | null
+          id: string
+          net_pnl: number | null
+          opened_at: string
+          pnl_pct: number | null
+          qty: number
+          regime: string
+          side: string
+          slippage_cost: number | null
+          status: string
+          stop_loss: number | null
+          symbol_id: string
+          take_profit: number | null
+          ticker: string
+          user_id: string
+        }
+        Insert: {
+          candidate_id?: string | null
+          close_reason?: string | null
+          closed_at?: string | null
+          commission_cost?: number | null
+          config_id: string
+          effective_entry?: number | null
+          effective_exit?: number | null
+          entry_price: number
+          exit_price?: number | null
+          gross_pnl?: number | null
+          id?: string
+          net_pnl?: number | null
+          opened_at?: string
+          pnl_pct?: number | null
+          qty: number
+          regime: string
+          side?: string
+          slippage_cost?: number | null
+          status?: string
+          stop_loss?: number | null
+          symbol_id: string
+          take_profit?: number | null
+          ticker: string
+          user_id: string
+        }
+        Update: {
+          candidate_id?: string | null
+          close_reason?: string | null
+          closed_at?: string | null
+          commission_cost?: number | null
+          config_id?: string
+          effective_entry?: number | null
+          effective_exit?: number | null
+          entry_price?: number
+          exit_price?: number | null
+          gross_pnl?: number | null
+          id?: string
+          net_pnl?: number | null
+          opened_at?: string
+          pnl_pct?: number | null
+          qty?: number
+          regime?: string
+          side?: string
+          slippage_cost?: number | null
+          status?: string
+          stop_loss?: number | null
+          symbol_id?: string
+          take_profit?: number | null
+          ticker?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_positions_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "strategy_positions_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      strategy_trade_log: {
+        Row: {
+          action: string
+          config_id: string | null
+          created_at: string
+          details: Json
+          id: string
+          run_id: string | null
+          ticker: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          config_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          run_id?: string | null
+          ticker?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          config_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          run_id?: string | null
+          ticker?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       symbols: {
         Row: {
           asset_type: Database["public"]["Enums"]["asset_type"]
@@ -1113,6 +1462,36 @@ export type Database = {
           name?: string
           sector?: string | null
           ticker?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      universe_cache: {
+        Row: {
+          cache_key: string
+          expires_at: string | null
+          id: string
+          is_stale: boolean
+          payload: Json
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          cache_key: string
+          expires_at?: string | null
+          id?: string
+          is_stale?: boolean
+          payload: Json
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cache_key?: string
+          expires_at?: string | null
+          id?: string
+          is_stale?: boolean
+          payload?: Json
+          source?: string | null
           updated_at?: string
         }
         Relationships: []
