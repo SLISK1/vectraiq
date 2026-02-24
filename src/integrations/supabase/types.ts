@@ -662,6 +662,36 @@ export type Database = {
           },
         ]
       }
+      pipeline_runs: {
+        Row: {
+          completed_at: string | null
+          coverage: Json | null
+          errors: Json | null
+          id: string
+          started_at: string
+          status: string
+          step_results: Json | null
+        }
+        Insert: {
+          completed_at?: string | null
+          coverage?: Json | null
+          errors?: Json | null
+          id?: string
+          started_at?: string
+          status?: string
+          step_results?: Json | null
+        }
+        Update: {
+          completed_at?: string | null
+          coverage?: Json | null
+          errors?: Json | null
+          id?: string
+          started_at?: string
+          status?: string
+          step_results?: Json | null
+        }
+        Relationships: []
+      }
       pool_tickets: {
         Row: {
           budget_sek: number | null
