@@ -162,6 +162,41 @@ Deno.serve(async (req) => {
       }
     }
 
+    // === FUND PROXY: auto-identify proxy ETF ===
+    let proxyEtf: string | null = null;
+    if (assetType === 'fund' && fmpApiKey) {
+      // Common fund-to-ETF proxy mappings
+      const knownProxies: Record<string, string> = {
+        'SPY': 'SPY', 'VOO': 'VOO', 'QQQ': 'QQQ', 'IWM': 'IWM',
+        'VTI': 'VTI', 'VXUS': 'VXUS', 'BND': 'BND', 'VEA': 'VEA',
+      };
+      // If the fund ticker itself is a known ETF, skip proxy
+      if (!knownProxies[cleanTicker]) {
+        // Try to find an ETF proxy via FMP ETF search
+        try {
+          const etfRes = await fetch(
+            `https://financialmodelingprep.com/api/v3/etf/list?apikey=${fmpApiKey}`
+          );
+          // Simplified: use sector/name matching for Nordic funds
+          // For now, use broad market proxies based on detected characteristics
+          if (cleanTicker.endsWith('.ST') || currency === 'SEK') {
+            proxyEtf = 'EWD'; // iShares MSCI Sweden ETF
+          } else if (currency === 'EUR') {
+            proxyEtf = 'VGK'; // Vanguard FTSE Europe ETF
+          } else {
+            proxyEtf = 'SPY'; // Default to S&P 500
+          }
+          console.log(`Fund proxy for ${cleanTicker}: ${proxyEtf}`);
+        } catch (e) {
+          console.warn('Fund proxy lookup failed:', e);
+        }
+      }
+    }
+
+    // Build metadata
+    const metadata: Record<string, unknown> = {};
+    if (proxyEtf) metadata.proxy_etf = proxyEtf;
+
     // Insert
     const { data: newSymbol, error } = await supabase
       .from("symbols")
@@ -171,6 +206,7 @@ Deno.serve(async (req) => {
         asset_type: assetType,
         currency,
         is_active: true,
+        metadata: Object.keys(metadata).length > 0 ? metadata : null,
       })
       .select()
       .single();

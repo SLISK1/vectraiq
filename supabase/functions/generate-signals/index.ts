@@ -212,8 +212,97 @@ function analyzeSeasonal(): SignalResult {
   };
 }
 
+// Sentiment with health flag - uses news_cache when available
+async function analyzeSentimentWithNews(
+  supabase: any, ticker: string, closes: number[]
+): Promise<SignalResult> {
+  const evidence: any[] = [];
+  let sentimentSource: 'cached_news' | 'none' = 'none';
+  let articleCount = 0;
+  let direction: Direction = 'NEUTRAL';
+  let strength = 50;
+  let confidence = 30;
+  let coverage = 40;
+
+  // Try news_cache first (articles < 24h old)
+  try {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: newsArticles } = await supabase
+      .from('news_cache')
+      .select('title, description, sentiment_score')
+      .eq('ticker', ticker)
+      .gte('fetched_at', oneDayAgo)
+      .limit(30);
+
+    if (newsArticles && newsArticles.length > 0) {
+      sentimentSource = 'cached_news';
+      articleCount = newsArticles.length;
+
+      // Calculate sentiment from articles with existing sentiment_score
+      const withScore = newsArticles.filter((a: any) => a.sentiment_score != null);
+      let avgSentiment = 0;
+      if (withScore.length > 0) {
+        avgSentiment = withScore.reduce((s: number, a: any) => s + Number(a.sentiment_score), 0) / withScore.length;
+      } else {
+        // Simple keyword-based sentiment from titles
+        let pos = 0, neg = 0;
+        const posWords = ['surge', 'rally', 'gain', 'rise', 'up', 'bull', 'strong', 'growth', 'beat', 'höj', 'stiger', 'stark'];
+        const negWords = ['fall', 'drop', 'crash', 'bear', 'loss', 'decline', 'weak', 'miss', 'sänk', 'sjunker', 'svag'];
+        for (const a of newsArticles) {
+          const text = ((a.title || '') + ' ' + (a.description || '')).toLowerCase();
+          for (const w of posWords) if (text.includes(w)) pos++;
+          for (const w of negWords) if (text.includes(w)) neg++;
+        }
+        if (pos + neg > 0) avgSentiment = (pos - neg) / (pos + neg);
+      }
+
+      // Article count weight multiplier
+      const countMultiplier = articleCount <= 3 ? 0.3 : articleCount <= 10 ? 0.7 : 1.0;
+      // Source weight (cached_news = 0.5x)
+      const sourceMultiplier = 0.5;
+      const effectiveWeight = countMultiplier * sourceMultiplier;
+
+      direction = avgSentiment > 0.15 ? 'UP' : avgSentiment < -0.15 ? 'DOWN' : 'NEUTRAL';
+      strength = clamp(Math.round(50 + avgSentiment * 40 * effectiveWeight));
+      confidence = clamp(Math.round(40 + effectiveWeight * 25));
+      coverage = clamp(Math.round(50 + articleCount * 2));
+
+      evidence.push({
+        type: 'news_sentiment', source: 'News Cache',
+        description: `${articleCount} nyhetsartiklar (sentiment: ${avgSentiment > 0 ? '+' : ''}${(avgSentiment * 100).toFixed(0)}%)`,
+      });
+      evidence.push({
+        type: 'sentiment_health', source: 'System',
+        description: `Källa: cached_news | Artiklar: ${articleCount} | Vikt: ${(effectiveWeight * 100).toFixed(0)}%`,
+      });
+    }
+  } catch (e) {
+    console.warn(`News sentiment lookup failed for ${ticker}:`, e);
+  }
+
+  // Fallback: momentum proxy with weight = 0 if no news
+  if (sentimentSource === 'none') {
+    if (closes.length >= 5) {
+      const recent5d = (closes[closes.length - 1] / closes[closes.length - 5] - 1) * 100;
+      // Weight = 0 for momentum proxy per plan (not real sentiment)
+      direction = 'NEUTRAL';
+      strength = 50;
+      confidence = 20;
+      coverage = 30;
+      evidence.push({
+        type: 'sentiment_health', source: 'System',
+        description: `Ingen nyhetsdata – sentiment-vikt = 0 (momentum: ${recent5d > 0 ? '+' : ''}${recent5d.toFixed(1)}%)`,
+      });
+    }
+  }
+
+  return {
+    module: 'sentiment', direction, strength, confidence, coverage, evidence,
+  };
+}
+
+// Sync fallback (kept for backward compat)
 function analyzeSentiment(closes: number[]): SignalResult {
-  // Proxy: price momentum as sentiment proxy
   if (closes.length < 5) return { module: 'sentiment', direction: 'NEUTRAL', strength: 50, confidence: 30, coverage: 40, evidence: [] };
   const recent5d = (closes[closes.length - 1] / closes[closes.length - 5] - 1) * 100;
   const direction: Direction = recent5d > 2 ? 'UP' : recent5d < -2 ? 'DOWN' : 'NEUTRAL';
@@ -346,11 +435,48 @@ Deno.serve(async (req) => {
         // Run all analysis modules
         let signals: SignalResult[];
 
-        if (isLimitedData) {
+        // Check for fund proxy
+        let effectiveCloses = closes;
+        let effectiveHighs = highs;
+        let effectiveLows = lows;
+        let effectiveCurrentPrice = currentPrice;
+        let proxyUsed = false;
+        let proxyConfidenceReduction = 0;
+
+        if (assetType === 'fund') {
+          const proxyEtf = (symbol.metadata as any)?.proxy_etf;
+          if (proxyEtf) {
+            // Find proxy symbol and use its price data
+            const { data: proxySym } = await supabase
+              .from('symbols')
+              .select('id')
+              .eq('ticker', proxyEtf)
+              .single();
+            if (proxySym) {
+              const { data: proxyPrices } = await supabase
+                .from('price_history')
+                .select('close_price, high_price, low_price')
+                .eq('symbol_id', proxySym.id)
+                .order('date', { ascending: true })
+                .limit(200);
+              if (proxyPrices && proxyPrices.length >= 30) {
+                effectiveCloses = proxyPrices.map(p => Number(p.close_price));
+                effectiveHighs = proxyPrices.map(p => Number(p.high_price));
+                effectiveLows = proxyPrices.map(p => Number(p.low_price));
+                effectiveCurrentPrice = effectiveCloses[effectiveCloses.length - 1];
+                proxyUsed = true;
+                proxyConfidenceReduction = 15; // tracking error penalty
+              }
+            }
+          }
+        }
+
+        if (isLimitedData && !proxyUsed) {
           // Limited data: only run modules that work with sparse data
           const limitedConfidenceCap = 35;
+          const sentimentResult = await analyzeSentimentWithNews(supabase, symbol.ticker, closes);
           signals = [
-            analyzeSentiment(closes),
+            sentimentResult,
             analyzeSeasonal(),
             analyzeMacro(),
           ].map(s => ({
@@ -359,14 +485,23 @@ Deno.serve(async (req) => {
             evidence: [...s.evidence, { type: 'warning', description: 'Begränsad data – låg tillförlitlighet', source: 'DataQuality' }],
           }));
         } else {
+          const sentimentResult = await analyzeSentimentWithNews(supabase, symbol.ticker, effectiveCloses);
           signals = [
-            analyzeTechnical(closes, highs, lows, currentPrice),
-            analyzeVolatility(closes, highs, lows),
-            analyzeQuant(closes),
+            analyzeTechnical(effectiveCloses, effectiveHighs, effectiveLows, effectiveCurrentPrice),
+            analyzeVolatility(effectiveCloses, effectiveHighs, effectiveLows),
+            analyzeQuant(effectiveCloses),
             analyzeSeasonal(),
-            analyzeSentiment(closes),
+            sentimentResult,
             analyzeMacro(),
           ];
+          // Apply proxy confidence reduction
+          if (proxyUsed && proxyConfidenceReduction > 0) {
+            signals = signals.map(s => ({
+              ...s,
+              confidence: Math.max(20, s.confidence - proxyConfidenceReduction),
+              evidence: [...s.evidence, { type: 'proxy', description: `Fond-proxy använd – konfidens reducerad ${proxyConfidenceReduction}%`, source: 'FundProxy' }],
+            }));
+          }
         }
 
         let symbolInserted = 0;

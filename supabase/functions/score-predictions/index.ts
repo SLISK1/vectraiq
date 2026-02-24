@@ -409,6 +409,106 @@ Deno.serve(async (req) => {
       }
     }
     
+    // ==============================
+    // 6. Calibration stats (5-bucket, Brier, ECE, Log Loss)
+    // ==============================
+    let calibrationUpdated = 0;
+    const calibrationVersion = 'v1-5bucket-2026-02';
+    
+    try {
+      // Get all scored asset_predictions from last 90 days
+      const { data: calPreds } = await supabase
+        .from('asset_predictions')
+        .select('predicted_prob, p_up, hit, horizon, symbol_id')
+        .not('hit', 'is', null)
+        .gte('scored_at', windowStart.toISOString())
+        .limit(2000);
+
+      if (calPreds && calPreds.length > 0) {
+        // Get symbol asset types
+        const calSymIds = [...new Set(calPreds.map((p: any) => p.symbol_id))];
+        const { data: calSyms } = await supabase
+          .from('symbols')
+          .select('id, asset_type')
+          .in('id', calSymIds);
+        const calSymMap = new Map((calSyms || []).map((s: any) => [s.id, s.asset_type]));
+
+        // Bucket definitions: 5 buckets
+        const buckets = [
+          { center: 0.1, min: 0, max: 0.2 },
+          { center: 0.3, min: 0.2, max: 0.4 },
+          { center: 0.5, min: 0.4, max: 0.6 },
+          { center: 0.7, min: 0.6, max: 0.8 },
+          { center: 0.9, min: 0.8, max: 1.0 },
+        ];
+
+        // Group by horizon + asset_type
+        const groups = new Map<string, typeof calPreds>();
+        for (const p of calPreds) {
+          const at = calSymMap.get(p.symbol_id) || 'stock';
+          const key = `${p.horizon}:${at}`;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(p);
+        }
+
+        for (const [groupKey, preds] of groups.entries()) {
+          const [horizon, assetType] = groupKey.split(':');
+
+          for (const bucket of buckets) {
+            const inBucket = preds.filter((p: any) => {
+              const prob = Number(p.p_up ?? p.predicted_prob ?? 0.5);
+              return prob >= bucket.min && prob < bucket.max;
+            });
+
+            if (inBucket.length < 5) continue; // need minimum data
+
+            const actualUp = inBucket.filter((p: any) => p.hit === true).length;
+            const n = inBucket.length;
+            const actualRate = actualUp / n;
+            const predictedRate = bucket.center;
+
+            // Brier score for this bucket
+            const brier = inBucket.reduce((sum: number, p: any) => {
+              const prob = Number(p.p_up ?? p.predicted_prob ?? 0.5);
+              const outcome = p.hit ? 1 : 0;
+              return sum + Math.pow(prob - outcome, 2);
+            }, 0) / n;
+
+            // ECE contribution
+            const ece = Math.abs(actualRate - predictedRate);
+
+            // Log loss
+            const logLoss = inBucket.reduce((sum: number, p: any) => {
+              const prob = Math.max(0.01, Math.min(0.99, Number(p.p_up ?? p.predicted_prob ?? 0.5)));
+              const outcome = p.hit ? 1 : 0;
+              return sum - (outcome * Math.log(prob) + (1 - outcome) * Math.log(1 - prob));
+            }, 0) / n;
+
+            const { error: calErr } = await supabase
+              .from('calibration_stats')
+              .upsert({
+                bucket_center: bucket.center,
+                horizon,
+                asset_type: assetType,
+                predicted_count: n,
+                actual_up_count: actualUp,
+                brier_score: Math.round(brier * 10000) / 10000,
+                ece: Math.round(ece * 10000) / 10000,
+                log_loss: Math.round(logLoss * 10000) / 10000,
+                calibration_version: calibrationVersion,
+                sample_count: n,
+                updated_at: now.toISOString(),
+              }, { onConflict: 'bucket_center,horizon,asset_type' });
+
+            if (!calErr) calibrationUpdated++;
+          }
+        }
+        console.log(`Calibration stats: updated ${calibrationUpdated} bucket entries from ${calPreds.length} predictions`);
+      }
+    } catch (calError) {
+      console.error('Calibration stats error:', calError);
+    }
+
     return new Response(JSON.stringify({
       success: true,
       scored_predictions: scoredCount,
@@ -417,6 +517,7 @@ Deno.serve(async (req) => {
       scored_betting: bettingScored,
       clv_calculated: clvCalculated,
       module_reliability_updated: reliabilityUpdated,
+      calibration_updated: calibrationUpdated,
       timestamp: now.toISOString(),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

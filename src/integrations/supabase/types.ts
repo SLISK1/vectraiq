@@ -357,9 +357,13 @@ export type Database = {
           asset_type: string
           brier_score: number | null
           bucket_center: number
+          calibration_version: string | null
+          ece: number | null
           horizon: string
           id: string
+          log_loss: number | null
           predicted_count: number | null
+          sample_count: number | null
           updated_at: string | null
         }
         Insert: {
@@ -367,9 +371,13 @@ export type Database = {
           asset_type: string
           brier_score?: number | null
           bucket_center: number
+          calibration_version?: string | null
+          ece?: number | null
           horizon: string
           id?: string
+          log_loss?: number | null
           predicted_count?: number | null
+          sample_count?: number | null
           updated_at?: string | null
         }
         Update: {
@@ -377,9 +385,13 @@ export type Database = {
           asset_type?: string
           brier_score?: number | null
           bucket_center?: number
+          calibration_version?: string | null
+          ece?: number | null
           horizon?: string
           id?: string
+          log_loss?: number | null
           predicted_count?: number | null
+          sample_count?: number | null
           updated_at?: string | null
         }
         Relationships: []
