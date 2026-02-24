@@ -434,6 +434,7 @@ Deno.serve(async (req) => {
 
         // Run all analysis modules
         let signals: SignalResult[];
+        const assetType = (symbol.asset_type || 'stock') as AssetType;
 
         // Check for fund proxy
         let effectiveCloses = closes;
@@ -505,7 +506,6 @@ Deno.serve(async (req) => {
         }
 
         let symbolInserted = 0;
-        const assetType = (symbol.asset_type || 'stock') as AssetType;
 
         for (const horizon of horizons) {
           // Delete old signals for this symbol+horizon
