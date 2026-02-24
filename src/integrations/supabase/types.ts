@@ -167,6 +167,10 @@ export type Database = {
         Row: {
           away_score: number | null
           away_team: string
+          closing_odds_away: number | null
+          closing_odds_draw: number | null
+          closing_odds_fetched_at: string | null
+          closing_odds_home: number | null
           created_at: string
           external_id: string | null
           home_score: number | null
@@ -182,6 +186,10 @@ export type Database = {
         Insert: {
           away_score?: number | null
           away_team: string
+          closing_odds_away?: number | null
+          closing_odds_draw?: number | null
+          closing_odds_fetched_at?: string | null
+          closing_odds_home?: number | null
           created_at?: string
           external_id?: string | null
           home_score?: number | null
@@ -197,6 +205,10 @@ export type Database = {
         Update: {
           away_score?: number | null
           away_team?: string
+          closing_odds_away?: number | null
+          closing_odds_draw?: number | null
+          closing_odds_fetched_at?: string | null
+          closing_odds_home?: number | null
           created_at?: string
           external_id?: string | null
           home_score?: number | null
@@ -215,6 +227,7 @@ export type Database = {
         Row: {
           ai_reasoning: string | null
           cap_reason: string | null
+          clv: number | null
           confidence_capped: number
           confidence_raw: number
           created_at: string
@@ -239,6 +252,7 @@ export type Database = {
         Insert: {
           ai_reasoning?: string | null
           cap_reason?: string | null
+          clv?: number | null
           confidence_capped: number
           confidence_raw: number
           created_at?: string
@@ -263,6 +277,7 @@ export type Database = {
         Update: {
           ai_reasoning?: string | null
           cap_reason?: string | null
+          clv?: number | null
           confidence_capped?: number
           confidence_raw?: number
           created_at?: string
