@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { MatchDetailModal } from './MatchDetailModal';
 import { PredictionSection } from './PredictionSection';
-import { Loader2, Bookmark } from 'lucide-react';
+import { Loader2, Bookmark, TrendingUp } from 'lucide-react';
 
 interface Match {
   id: string;
@@ -33,6 +33,8 @@ interface Prediction {
   market_odds_away: number | null;
   market_implied_prob: number | null;
   model_edge: number | null;
+  is_value_bet: boolean | null;
+  suggested_stake_pct: number | null;
   created_at: string;
 }
 
@@ -47,6 +49,8 @@ interface MatchCardProps {
 
 export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, isLoggedIn }: MatchCardProps) => {
   const [showDetail, setShowDetail] = useState(false);
+  const isValueBet = prediction?.is_value_bet === true;
+  const hasNegativeEdge = prediction && prediction.model_edge !== null && prediction.model_edge < 0;
 
   const matchDate = new Date(match.match_date);
   const dateStr = matchDate.toLocaleDateString('sv-SE', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -60,14 +64,22 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
 
   return (
     <>
-      <div className="glass-card rounded-xl p-5 flex flex-col gap-4 border border-border/50 hover:border-primary/30 transition-all">
+      <div className={`glass-card rounded-xl p-5 flex flex-col gap-4 border transition-all ${
+        isValueBet ? 'border-green-500/50 bg-green-500/5' : hasNegativeEdge ? 'border-border/30 opacity-60' : 'border-border/50 hover:border-primary/30'
+      }`}>
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col gap-1">
             <Badge variant="outline" className="text-xs w-fit">{match.league}</Badge>
             <p className="text-xs text-muted-foreground">{dateStr} · {timeStr}</p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
+            {isValueBet && (
+              <Badge className="bg-green-500/20 text-green-400 border-green-500/30 gap-1">
+                <TrendingUp className="w-3 h-3" />
+                VALUE
+              </Badge>
+            )}
             {getStatusBadge()}
             {match.status === 'finished' && match.home_score !== null && (
               <span className="text-sm font-mono font-bold">{match.home_score} – {match.away_score}</span>

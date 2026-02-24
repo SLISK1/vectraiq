@@ -6,8 +6,10 @@ import { Button } from '@/components/ui/button';
 import { MatchCard } from '@/components/betting/MatchCard';
 import { PoolTipsCard } from '@/components/betting/PoolTipsCard';
 import { BacktestPanel } from '@/components/betting/BacktestPanel';
-import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered, Database, ChevronDown, History } from 'lucide-react';
+import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered, Database, ChevronDown, History, TrendingUp } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 type Sport = 'football' | 'ufc' | 'topptipset' | 'stryktipset';
 
@@ -40,6 +42,8 @@ type BettingPrediction = {
   market_odds_away: number | null;
   market_implied_prob: number | null;
   model_edge: number | null;
+  is_value_bet: boolean | null;
+  suggested_stake_pct: number | null;
   created_at: string;
 };
 
@@ -60,6 +64,7 @@ export const BettingPage = () => {
   const [poolData, setPoolData] = useState<any>(null);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
   const [selectedLeague, setSelectedLeague] = useState<string>('all');
+  const [showOnlyValueBets, setShowOnlyValueBets] = useState(false);
   const [apiBudget, setApiBudget] = useState<{ searches_used: number; last_updated: string } | null>(null);
 
   const { user } = useAuth();
@@ -258,9 +263,13 @@ export const BettingPage = () => {
     if (m.status === 'FINISHED' || m.status === 'finished') return true;
     return new Date(m.match_date) < now;
   };
-  const upcomingMatches = filteredMatches
+  const upcomingMatchesRaw = filteredMatches
     .filter(m => !isMatchPlayed(m))
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime());
+  const upcomingMatches = showOnlyValueBets
+    ? upcomingMatchesRaw.filter(m => predictions.get(m.id)?.is_value_bet === true)
+    : upcomingMatchesRaw;
+  const valueBetCount = upcomingMatchesRaw.filter(m => predictions.get(m.id)?.is_value_bet === true).length;
   const finishedMatches = filteredMatches
     .filter(m => isMatchPlayed(m))
     .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime());
@@ -357,20 +366,35 @@ export const BettingPage = () => {
       {/* Match view */}
       {!isPoolSport && (
         <>
-          <div className="flex items-center justify-between">
+           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">
               {selectedSport === 'football' ? 'Fotbollsmatcher' : 'UFC / MMA-matcher'}
             </h2>
-            <Button
-              onClick={handleFetchMatches}
-              disabled={isFetching}
-              size="sm"
-              variant="outline"
-              className="gap-2"
-            >
-              {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              {isFetching ? 'Hämtar...' : 'Hämta matcher'}
-            </Button>
+            <div className="flex items-center gap-3">
+              {valueBetCount > 0 && (
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="value-filter"
+                    checked={showOnlyValueBets}
+                    onCheckedChange={setShowOnlyValueBets}
+                  />
+                  <Label htmlFor="value-filter" className="text-xs flex items-center gap-1 cursor-pointer whitespace-nowrap">
+                    <TrendingUp className="w-3.5 h-3.5 text-green-400" />
+                    Value ({valueBetCount})
+                  </Label>
+                </div>
+              )}
+              <Button
+                onClick={handleFetchMatches}
+                disabled={isFetching}
+                size="sm"
+                variant="outline"
+                className="gap-2"
+              >
+                {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                {isFetching ? 'Hämtar...' : 'Hämta matcher'}
+              </Button>
+            </div>
           </div>
 
           {isLoading ? (
