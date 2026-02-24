@@ -14,7 +14,9 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const fmpKey = Deno.env.get("FMP_API_KEY")!;
+    const fmpKey = Deno.env.get("FMP_API_KEY");
+
+    console.log("fetch-sp500: starting, FMP key present:", !!fmpKey);
 
     // Auth: service role or user JWT
     const authHeader = req.headers.get("Authorization") || "";
@@ -38,18 +40,21 @@ Deno.serve(async (req) => {
     }
 
     // Check cache first
-    const { data: cached } = await supabase
+    const { data: cached, error: cacheErr } = await supabase
       .from("universe_cache")
       .select("*")
       .eq("cache_key", "SP500_CONSTITUENTS")
-      .single();
+      .maybeSingle();
+
+    console.log("Cache check:", cached ? "found" : "not found", cacheErr ? `error: ${cacheErr.message}` : "");
 
     const forceRefresh = new URL(req.url).searchParams.get("force") === "true";
     const now = new Date();
 
     if (cached && !forceRefresh) {
-      const expiresAt = new Date(cached.expires_at);
+      const expiresAt = cached.expires_at ? new Date(cached.expires_at) : new Date(0);
       if (expiresAt > now && !cached.is_stale) {
+        console.log("Returning cached data, expires:", expiresAt.toISOString());
         return new Response(
           JSON.stringify({
             source: cached.source,
@@ -68,48 +73,61 @@ Deno.serve(async (req) => {
     let tickers: string[] = [];
     let fetchSuccess = false;
 
-    try {
-      const res = await fetch(
-        `https://financialmodelingprep.com/api/v3/sp500_constituent?apikey=${fmpKey}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          tickers = data
-            .map((c: any) => (c.symbol || "").replace(".", "-"))
-            .filter(Boolean);
-          fetchSuccess = true;
+    if (fmpKey) {
+      try {
+        const url = `https://financialmodelingprep.com/api/v3/sp500_constituent?apikey=${fmpKey}`;
+        console.log("Fetching FMP SP500...");
+        const res = await fetch(url);
+        const body = await res.text();
+        console.log("FMP response status:", res.status, "body length:", body.length);
+
+        if (res.ok) {
+          const data = JSON.parse(body);
+          if (Array.isArray(data) && data.length > 0) {
+            tickers = data
+              .map((c: any) => (c.symbol || "").replace(".", "-"))
+              .filter(Boolean);
+            fetchSuccess = true;
+            console.log("FMP success, tickers:", tickers.length);
+          } else {
+            console.log("FMP returned non-array or empty:", typeof data, Array.isArray(data) ? data.length : "n/a");
+          }
+        } else {
+          console.error("FMP error response:", body.substring(0, 200));
         }
+      } catch (e) {
+        console.error("FMP fetch exception:", e);
       }
-    } catch (e) {
-      console.error("FMP fetch failed:", e);
+    } else {
+      console.warn("No FMP_API_KEY configured");
     }
 
     if (fetchSuccess && tickers.length > 0) {
-      // Upsert cache via service role (bypasses RLS)
       const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const payload = { tickers, disclaimer: "current_constituents_only" };
+
       if (cached) {
-        await supabase.rpc("exec_sql", {}).catch(() => {}); // ignore
-        // Direct update via service role
-        await supabase
+        const { error: updateErr } = await supabase
           .from("universe_cache")
           .update({
-            payload: { tickers, disclaimer: "current_constituents_only" },
+            payload,
             source: "FMP",
             updated_at: now.toISOString(),
             expires_at: expiresAt.toISOString(),
             is_stale: false,
           })
           .eq("cache_key", "SP500_CONSTITUENTS");
+        if (updateErr) console.error("Cache update error:", updateErr.message);
       } else {
-        await supabase.from("universe_cache").insert({
+        const { error: insertErr } = await supabase.from("universe_cache").insert({
           cache_key: "SP500_CONSTITUENTS",
-          payload: { tickers, disclaimer: "current_constituents_only" },
+          payload,
           source: "FMP",
           updated_at: now.toISOString(),
           expires_at: expiresAt.toISOString(),
           is_stale: false,
         });
+        if (insertErr) console.error("Cache insert error:", insertErr.message);
       }
 
       return new Response(
@@ -127,7 +145,6 @@ Deno.serve(async (req) => {
 
     // Fetch failed — return stale cache if available
     if (cached) {
-      // Mark as stale
       await supabase
         .from("universe_cache")
         .update({ is_stale: true })
@@ -146,6 +163,7 @@ Deno.serve(async (req) => {
       );
     }
 
+    console.error("No FMP data and no cache available");
     return new Response(
       JSON.stringify({
         error: "Could not fetch S&P 500 data and no cache available",
@@ -156,6 +174,7 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error) {
+    console.error("fetch-sp500 unhandled error:", error);
     return new Response(JSON.stringify({ error: String(error) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
