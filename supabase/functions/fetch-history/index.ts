@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 // Crypto ticker to CoinGecko ID mapping
@@ -219,22 +219,16 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     // === AUTH ===
-    const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
     const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
 
-    if (!authHeader?.startsWith('Bearer ') && !isInternalCall) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    if (!isInternalCall && !isServiceRole) {
-      if (!authHeader?.startsWith('Bearer ')) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+    if (!isServiceRole) {
       const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
       });

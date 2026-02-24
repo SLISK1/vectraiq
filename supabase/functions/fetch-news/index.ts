@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 // Mapping of tickers to search-friendly company names
@@ -67,17 +67,16 @@ Deno.serve(async (req) => {
     }
 
     // === AUTH ===
-    const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
     const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
 
-    if (!authHeader?.startsWith('Bearer ') && !isInternalCall) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    if (!isInternalCall && !isServiceRole) {
+    if (!isServiceRole) {
       const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader! } },
       });

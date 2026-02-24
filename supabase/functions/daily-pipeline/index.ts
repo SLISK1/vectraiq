@@ -33,7 +33,6 @@ async function callEdgeFunction(
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${serviceKey}`,
-        'x-internal-call': 'true',
       },
       body: JSON.stringify(body),
     });
@@ -51,6 +50,15 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+  // Auth: require service role key
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ') || authHeader !== `Bearer ${serviceKey}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   const supabase = createClient(supabaseUrl, serviceKey);
 
   const pipelineStart = new Date();

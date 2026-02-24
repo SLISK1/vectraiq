@@ -48,26 +48,22 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const internalHeader = req.headers.get("x-internal-call");
     const authHeader = req.headers.get("authorization");
 
-    // Auth: allow internal calls (cron) or authenticated users
-    if (!internalHeader && !authHeader?.startsWith("Bearer ")) {
+    if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabaseService = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
 
-    // Validate user auth if not internal
-    if (!internalHeader) {
+    if (!isServiceRole) {
       const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
+        supabaseUrl,
         Deno.env.get("SUPABASE_ANON_KEY")!,
         { global: { headers: { Authorization: authHeader! } } }
       );
@@ -80,6 +76,8 @@ Deno.serve(async (req) => {
         });
       }
     }
+
+    const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
 
     const body = await req.json();
     const { match_id, batch } = body;
@@ -124,8 +122,7 @@ Deno.serve(async (req) => {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-internal-call": "true",
-              "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
             },
             body: JSON.stringify({ match_id: toAnalyze[i] }),
           });

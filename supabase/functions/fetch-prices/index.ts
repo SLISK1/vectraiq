@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-internal-call',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 // Crypto ticker to CoinGecko ID mapping
@@ -205,7 +205,6 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     // === AUTH ===
-    const isInternalCall = req.headers.get('x-internal-call') === 'true';
     const authHeader = req.headers.get('authorization');
 
     if (!authHeader?.startsWith('Bearer ')) {
@@ -214,7 +213,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!isInternalCall) {
+    const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
+    if (!isServiceRole) {
       const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
       });
