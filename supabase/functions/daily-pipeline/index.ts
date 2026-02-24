@@ -242,6 +242,26 @@ Deno.serve(async (req) => {
     }
     await updateRun('running');
 
+    // ==================== STEP 5.5: FETCH CLOSING ODDS ====================
+    console.log('=== Step 5.5: fetch-closing-odds ===');
+    const closingOddsResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-closing-odds');
+
+    if (closingOddsResult.ok) {
+      stepResults.push({
+        step: 'fetch-closing-odds', status: 'success',
+        duration_ms: closingOddsResult.duration_ms,
+        details: { updated: closingOddsResult.data?.updated || 0, total_matches: closingOddsResult.data?.total_matches || 0 },
+      });
+    } else {
+      errors.push({ step: 'fetch-closing-odds', error: closingOddsResult.data?.error || `HTTP ${closingOddsResult.status}` });
+      stepResults.push({
+        step: 'fetch-closing-odds', status: 'failed',
+        duration_ms: closingOddsResult.duration_ms,
+        details: { error: closingOddsResult.data?.error },
+      });
+    }
+    await updateRun('running');
+
     // ==================== STEP 6: ANALYZE MATCHES (batch) ====================
     console.log('=== Step 6: analyze-match (batch) ===');
     const analyzeResult = await callEdgeFunction(supabaseUrl, serviceKey, 'analyze-match', { batch: true });

@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.daily-pipeline]
 verify_jwt = false
+
+[functions.fetch-closing-odds]
+verify_jwt = false

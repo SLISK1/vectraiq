@@ -155,22 +155,23 @@ Deno.serve(async (req) => {
     }
     
     // ==============================
-    // 2. Score betting_predictions
+    // 2. Score betting_predictions + CLV calculation
     // ==============================
     const { data: finishedMatches } = await supabase
       .from('betting_matches')
-      .select('id, home_score, away_score')
+      .select('id, home_score, away_score, closing_odds_home, closing_odds_draw, closing_odds_away')
       .eq('status', 'finished')
       .not('home_score', 'is', null)
       .not('away_score', 'is', null);
     
     let bettingScored = 0;
+    let clvCalculated = 0;
     
     if (finishedMatches && finishedMatches.length > 0) {
       const matchIds = finishedMatches.map((m: any) => m.id);
       const { data: unscoredBets } = await supabase
         .from('betting_predictions')
-        .select('id, match_id, predicted_winner')
+        .select('id, match_id, predicted_winner, predicted_prob, market_implied_prob')
         .is('outcome', null)
         .in('match_id', matchIds);
       
@@ -183,16 +184,45 @@ Deno.serve(async (req) => {
         const normalizedOutcome = outcome === 'home_win' ? 'home' : outcome === 'away_win' ? 'away' : 'draw';
         const hit = normalizedOutcome === pred.predicted_winner;
         
+        // CLV calculation: model_implied_prob - closing_implied_prob for predicted winner
+        let clv: number | null = null;
+        const closingHome = match.closing_odds_home ? Number(match.closing_odds_home) : null;
+        const closingDraw = match.closing_odds_draw ? Number(match.closing_odds_draw) : null;
+        const closingAway = match.closing_odds_away ? Number(match.closing_odds_away) : null;
+        
+        if (closingHome && closingAway) {
+          // Normalize closing implied probs (remove overround)
+          const rawHome = 1 / closingHome;
+          const rawDraw = closingDraw ? 1 / closingDraw : 0;
+          const rawAway = 1 / closingAway;
+          const total = rawHome + rawDraw + rawAway;
+          
+          let closingImpliedProb: number | null = null;
+          if (pred.predicted_winner === 'home') closingImpliedProb = rawHome / total;
+          else if (pred.predicted_winner === 'away') closingImpliedProb = rawAway / total;
+          else if (pred.predicted_winner === 'draw' && closingDraw) closingImpliedProb = rawDraw / total;
+          
+          if (closingImpliedProb !== null && pred.predicted_prob) {
+            clv = Number(pred.predicted_prob) - closingImpliedProb;
+          }
+        }
+        
+        const updateData: any = { outcome, scored_at: now.toISOString() };
+        if (clv !== null) {
+          updateData.clv = clv;
+          clvCalculated++;
+        }
+        
         const { error: betUpdateErr } = await supabase
           .from('betting_predictions')
-          .update({ outcome, scored_at: now.toISOString() })
+          .update(updateData)
           .eq('id', pred.id);
         
         if (!betUpdateErr) bettingScored++;
       }
     }
     
-    console.log(`score-predictions: updated ${matchesUpdated} match results, scored ${bettingScored} betting predictions`);
+    console.log(`score-predictions: updated ${matchesUpdated} match results, scored ${bettingScored} betting predictions, CLV calculated for ${clvCalculated}`);
     
     // ==============================
     // 3. Score expired asset_predictions (slower — Yahoo Finance calls)
@@ -385,6 +415,7 @@ Deno.serve(async (req) => {
       scored_watchlist: watchlistScored,
       matches_updated: matchesUpdated,
       scored_betting: bettingScored,
+      clv_calculated: clvCalculated,
       module_reliability_updated: reliabilityUpdated,
       timestamp: now.toISOString(),
     }), {
