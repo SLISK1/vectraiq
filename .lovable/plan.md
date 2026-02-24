@@ -1,233 +1,204 @@
 
-# Forbattrad ROI/Accuracy-plan (med alla tweaks)
 
-## Prioriteringsordning (betting-fokus forst)
+# Strategi-flik -- Uppdaterad plan med riskfixar
+
+## Anvandaren har identifierat 5 risker i den tidigare planen. Alla ingar nu som forstaklassfunktioner.
+
+---
+
+## Riskfix 1: Execution Policy (EntryPrice)
+
+Ny config-parameter `execution_policy` med tre val:
 
 ```text
-5. Pipeline-orkestrering  (forutsattning for allt)
-   |
-   v
-2. Value-filter + flat/capped staking  (snabbast ROI-effekt)
-   |
-   v
-3. CLV-tracking  (matbar edge)
-   |
-   v
-1. Kalibrering med 5 buckets + ECE/Brier  (modellplattform)
-   |
-   v
-4. Sentiment med health-flagga  (oberoende signal)
-   |
-   v
-6. Fond-proxy  (nice-to-have)
+NEXT_OPEN  (default, rekommenderas)
+NEXT_CLOSE
+LIMIT_AT_SIGNAL_PRICE (avancerat)
 ```
+
+- Nar strategimotorn skapar ett orderforslag laggs `execution_policy` + `signal_price` (priset vid signaltillfallet) i forslaget.
+- I SIMULATE-lage anvands `next day open` som entry (hamtas fran price_history nasta dag).
+- UI visar tydligt: "Entry: nasta dags oppning" med tooltip som forklarar varfor.
 
 ---
 
-## Steg 1: Pipeline-orkestrering (Forslag 5)
+## Riskfix 2: Slippage + Courtage
 
-### Ny edge function: `daily-pipeline/index.ts`
-
-Kaller alla steg i ordning med felhantering och coverage-loggning:
+Nya config-falt i `strategy_configs`:
 
 ```text
-fetch-prices (alla aktiva symboler, batchat)
-   -> logga: X symboler fick pris, Y missade
-fetch-history (symboler som saknar >30 datapunkter)
-generate-signals (batchar om 20)
-   -> logga: X symboler fick signaler, per modul: hur manga som korats
-score-predictions
-   -> logga: X predictions utvarderade, Y watchlist, Z betting
-fetch-matches + analyze-match (batch)
-   -> logga: X matcher analyserade, Y saknade odds
+slippage_bps        numeric DEFAULT 10    -- 10 basis points
+commission_per_trade numeric DEFAULT 0    -- fast belopp per trade (SEK)
+commission_bps       numeric DEFAULT 0    -- alternativt procentuellt
 ```
 
-### Ny tabell: `pipeline_runs`
-
-| Kolumn | Typ |
-|--------|-----|
-| id | uuid PK |
-| started_at | timestamptz |
-| completed_at | timestamptz |
-| status | text (running/completed/failed) |
-| step_results | jsonb |
-| coverage | jsonb |
-| errors | jsonb |
-
-`coverage`-faltet lagrar per-steg-metriker:
-```json
-{
-  "prices": { "attempted": 85, "succeeded": 80, "failed_tickers": ["XYZ.ST"] },
-  "signals": { "attempted": 80, "succeeded": 78, "modules_per_symbol": { "avg": 5.8, "min": 3 } },
-  "scoring": { "predictions_evaluated": 12, "betting_scored": 5 }
-}
-```
-
-### Cron-setup
-- `0 6 * * *` (06:00 UTC dagligen)
-- RLS: deny all public access, select for authenticated users
-
----
-
-## Steg 2: Value-filter + konservativ staking (Forslag 2)
-
-### Andringar i `analyze-match/index.ts`
-- Berakna `is_value_bet = model_edge > 5 AND confidence_capped >= 60`
-- Spara i `betting_predictions`
-
-### Staking-logik (INTE Kelly an)
-- Flat staking: fast belopp per spel
-- Alternativt capped proportional: `stake = min(bank * 0.01, max_stake)`
-- Ingen Kelly forran kalibreringen ar igang och vi har 200+ utvarderade bets
-
-### Nya kolumner i `betting_predictions`
-- `is_value_bet` (boolean)
-- `suggested_stake_pct` (numeric, capped vid 1.0%)
-
-### Frontend-andringar
-- "VALUE" badge pa matcher med positiv edge > 5%
-- Filter-toggle: "Visa bara value bets"
-- Dolja/graya ut matcher med negativ edge
-
-### Away-bias: INTE fixa Poisson an
-- Dokumentera away-svagheten (30.8% hit rate)
-- Koppla ihop med CLV-data (steg 3) for att forsta om problemet ar:
-  - Poisson-modellens hemmafordel
-  - Odds-kallans timing (pre-closing vs closing)
-  - Bookmaker-mix
-
----
-
-## Steg 3: CLV-tracking (Forslag 3)
-
-### Nya kolumner i `betting_matches`
-- `closing_odds_home` (numeric)
-- `closing_odds_draw` (numeric)
-- `closing_odds_away` (numeric)
-- `closing_odds_fetched_at` (timestamptz)
-
-### Ny kolumn i `betting_predictions`
-- `clv` (numeric) = model_implied_prob - closing_implied_prob
-
-### Ny edge function: `fetch-closing-odds/index.ts`
-- Kors for matcher som ar <3h fran kickoff
-- Hamtar odds fran **samma bookmaker/marknad** som anvandsfor prediction-odds (The Odds API)
-- Sparar bade odds OCH timestamp for att undvika brus
-
-### Logik i `score-predictions`
-- Nar en match ar finished OCH har closing_odds:
-  - `clv = model_implied_prob - (1 / closing_odds_X)` for ratt predicted_winner
-  - Spara i betting_predictions
-
-### Nya metrics att logga (fran dag 1)
-- **CLV per tidsenhet** (genomsnittlig CLV senaste 30 dagarna)
-- **ROI per odds-intervall** (1.4-1.8, 1.8-2.2, 2.2-3.0, 3.0+)
-- **Hit rate per edge-bucket** (edge <0%, 0-5%, 5-10%, 10%+)
-
-### Frontend
-- CLV-kurva over tid i backtest-panelen
-- ROI per odds-intervall (stapeldiagram)
-
----
-
-## Steg 4: Kalibreringspipeline (Forslag 1)
-
-### Justerad bucket-strategi
-- **Start med 5 buckets** (0-20%, 20-40%, 40-60%, 60-80%, 80-100%) tills vi har 500+ predictions
-- Byt till 10 buckets nar datamangden tillater det
-- Minimum 20 predictions per bucket for att publicera (inte 50-100)
-
-### Nya metrics (utover hit rate per bucket)
-- **Brier Score**: `mean((predicted_prob - actual_outcome)^2)` -- lagre ar battre
-- **ECE (Expected Calibration Error)**: viktat genomsnitt av |predicted - actual| per bucket
-- **Log Loss**: `-mean(actual * log(pred) + (1-actual) * log(1-pred))`
-
-### Kalibrerings-modell-versionering
-- Spara `calibration_version` (t.ex. "v1-5bucket-2026-02") i calibration_stats
-- Nar en ny kalibrering beraknas, bumpa versionen
-- asset_predictions far en `calibration_version`-kolumn sa man vet vilken mapping som anvandes
-
-### Andringar i `score-predictions/index.ts`
-Lagg till steg 6 efter module_reliability (steg 5):
+PnL-berakning i SIMULATE:
 
 ```text
-Steg 6: Calibration stats
-- Bucketa alla scored predictions (senaste 90 dagarna) i 5 intervall
-- Berakna: actual hit rate, count, Brier, ECE per (bucket, horizon, asset_type)
-- Upsert i calibration_stats
+effective_entry = entry_price * (1 + slippage_bps/10000)   -- for long
+effective_exit  = exit_price  * (1 - slippage_bps/10000)   -- for long
+net_pnl = gross_pnl - (2 * commission_per_trade) - notional * (2 * commission_bps/10000)
 ```
 
-### Nya kolumner i `calibration_stats`
-- `brier_score` (redan finns)
-- `ece` (numeric)
-- `log_loss` (numeric)
-- `calibration_version` (text)
-- `sample_count` (integer)
-
-### Frontend
-- Kalibreringskurva (Recharts): x = predicted prob bucket center, y = actual hit rate
-- Diagonallinje for "perfekt kalibrering"
-- Brier/ECE visas som KPI-kort
+UI i "Regler & Parametrar":
+- Slippage (bps): slider 0-50, default 10
+- Courtage per trade (SEK): input, default 0
+- Courtage (bps): input, default 0
+- Alla PnL-varden i loggen och oversikten visas som **netto** med en liten "brutto"-etikett tillganglig
 
 ---
 
-## Steg 5: Riktig nyhetssentiment med health-flagga (Forslag 4)
+## Riskfix 3: Survivorship Bias (S&P 500)
 
-### Sentiment-kalla-hierarki
-1. `ai-analysis` (bast, men kostar API-anrop)
-2. `news_cache` (cached nyheter, gratis)
-3. `none` (inget sentiment tillgangligt)
+- UI visar tydlig text: "S&P 500-listan baseras pa dagens sammansattning och ar inte lämpad for historisk backtesting."
+- Badge pa S&P 500-kallan: "CURRENT" (inte "HISTORICAL")
+- Ingen backtesting-funktion byggs for S&P 500-universumet i denna version
+- `universe_cache` lagrar `disclaimer: "current_constituents_only"` i payload
 
-### Ny metadata per sentiment-signal
-```json
-{
-  "sentiment_source": "ai" | "cached_news" | "none",
-  "article_count": 12,
-  "sentiment_score": 0.65
-}
+---
+
+## Riskfix 4: Graceful Degradation for Fundamental Exits
+
+Fundamental Position Mode far en fallback-kedja for exit-triggers:
+
+```text
+Prioritet 1: Earnings miss >10% (om data finns i fundamentals)
+Prioritet 2: Negativ FCF (om data finns)
+Prioritet 3: TotalScore < 55 OR SignalEnighet < 60 (alltid tillganglig)
+Prioritet 4: Pris-baserad stop loss (alltid tillganglig)
+Prioritet 5: Time-based review (veckovis re-evaluering)
 ```
 
-### Vikjustering baserad pa kalla
-- `ai` -> full vikt (1.0x)
-- `cached_news` -> reducerad vikt (0.5x) pga alder/coverage
-- `none` -> vikt = 0 (inte momentum-proxy)
-
-### Artikel-count-viktning
-- 1-3 artiklar: 0.3x multiplikator
-- 4-10 artiklar: 0.7x multiplikator
-- 10+ artiklar: 1.0x multiplikator
-
-### Andringar i `generate-signals/index.ts`
-- Efter tekniska modulerna, kolla `news_cache` for symbolens ticker
-- Om nyheter finns (<24h gamla): berakna sentiment fran titlar/descriptions
-- Spara `sentiment_source` och `article_count` i signal evidence
-- Om inga nyheter: satt sentiment-vikt till 0
+- Om fundamental-triggers saknas: UI visar orange badge "Begransade exit-triggers" med forklaring
+- Automation faller tillbaks pa pris + score-baserade exits
 
 ---
 
-## Steg 6: Fond-proxy (Forslag 6, bonus)
+## Riskfix 5: Server-side strategimotor som source of truth
 
-- Nar fond laggs till via `add-symbol`: identifiera proxy-ETF automatiskt
-- Spara i `symbols.metadata.proxy_etf`
-- `generate-signals` anvander proxy-ETF:ens prisdata for teknisk analys
-- Reducerad konfidensgrad (tracking error-faktor)
+Strategimotorn kors **server-side** i en edge function (`strategy-evaluate`). Client-side koden ar bara for **preview/display**.
+
+```text
+Dataflode:
+1. Anvandare sparar config -> strategy_configs (DB)
+2. Edge function "strategy-evaluate" kors (cron eller manuellt)
+   -> Hamtar config, bygger universum, kor quality gate + regim
+   -> Skriver resultat till strategy_candidates, strategy_positions
+3. Frontend laser fran DB och visar resultat
+4. "Preview"-knapp i UI kor samma logik client-side for snabb feedback
+   -> Men med tydlig markering: "Forhandsvisning -- ej sparad"
+```
 
 ---
 
-## 5 Must-Have Metrics (loggas fran dag 1)
+## Implementation -- 8 steg i ordning
 
-### Betting
-| Metric | Var den loggas |
-|--------|---------------|
-| CLV per 30d | `pipeline_runs.coverage` |
-| ROI per odds-intervall | Ny vy i backtest-panelen |
-| Hit rate per edge-bucket | Ny vy i backtest-panelen |
+### Steg 1: Databasmigration
 
-### Markets (aktier/krypto/metaller)
-| Metric | Var den loggas |
-|--------|---------------|
-| Brier Score | `calibration_stats` |
-| ECE (Expected Calibration Error) | `calibration_stats` |
+6 nya tabeller + RLS:
+
+**strategy_configs** -- en per anvandare
+- id, user_id, portfolio_value (100000), max_risk_pct (1.0), max_open_pos (5), max_sector_pct (30)
+- mean_reversion_enabled (false), total_score_min (65), agreement_min (80), coverage_min (90), vol_risk_max (60), max_staleness_h (24)
+- automation_mode ('OFF'), schedule ('daily'), universe_sources (jsonb), combine_mode ('UNION'), candidate_limit (200)
+- execution_policy ('NEXT_OPEN'), slippage_bps (10), commission_per_trade (0), commission_bps (0)
+- created_at, updated_at
+
+**strategy_candidates** -- utvarderingsresultat
+- id, user_id, config_id, symbol_id, ticker, source, regime, status
+- block_reasons (jsonb), total_score, confidence, trend_duration, trend_strength
+- stop_loss_price, stop_loss_pct, target_price, target_pct, rr_ratio
+- position_size, entry_price, signal_price, analysis_data (jsonb)
+- fundamental_exit_available (boolean), evaluated_at, created_at
+
+**strategy_positions** -- oppna/stangda simulerade positioner
+- id, user_id, config_id, candidate_id, symbol_id, ticker, regime, side
+- entry_price, effective_entry (efter slippage), stop_loss, take_profit, qty
+- status ('open'/'closed'/'stopped'/'timed_out')
+- opened_at, closed_at, exit_price, effective_exit
+- gross_pnl, net_pnl, pnl_pct, slippage_cost, commission_cost, close_reason
+
+**strategy_trade_log** -- alla handelser
+- id, user_id, config_id, run_id, action, ticker, details (jsonb), created_at
+
+**strategy_automation_jobs** -- korningshistorik
+- id, user_id, config_id, started_at, completed_at, status
+- universe_size, candidates_found, positions_opened, positions_closed, errors (jsonb)
+
+**universe_cache** -- S&P 500 etc.
+- id, cache_key (unique), payload (jsonb), source, updated_at, expires_at, is_stale
+
+RLS: alla strategy_*-tabeller user_id = auth.uid(). universe_cache: SELECT for alla, write deny.
+
+### Steg 2: Edge function `fetch-sp500`
+
+- Hamtar fran FMP `/api/v3/sp500_constituent`
+- FMP_API_KEY finns redan
+- Caching i universe_cache, TTL 24h
+- Fallback till stale cache vid API-fel
+- Returnerar `{ source, updatedAt, tickers[], count, stale, disclaimer }`
+
+### Steg 3: Strategimotor -- `src/lib/strategy/engine.ts`
+
+Rena funktioner (anvands bade server-side och for preview):
+
+- `evaluateCandidate(analysis, config)` -> `{ eligible, mode, reasons, suggestedOrder, fundamentalExitAvailable }`
+- `buildUniverse(sources, combineMode, limit)` -> `ticker[]`
+- `classifyRegime(analysis, config)` -> regime + reasons
+- `calculatePositionSize(portfolioValue, riskPct, entryPrice, stopLoss)` -> qty + berakning
+- `calculateNetPnl(entry, exit, qty, slippageBps, commissionPerTrade, commissionBps)` -> { gross, net, costs }
+
+### Steg 4: Edge function `strategy-evaluate`
+
+Server-side orkestrering:
+1. Hamtar config fran strategy_configs
+2. Bygger universum (watchlist + screener + SP500 + manuella)
+3. For varje ticker: hamtar analysdata fran asset_predictions + signals
+4. Kor quality gate + regimklassificering
+5. Skapar strategy_candidates
+6. I SIMULATE: oppnar/stanger positioner med slippage/courtage
+7. Loggar allt i strategy_trade_log + strategy_automation_jobs
+8. Auth: user JWT eller service role key
+
+### Steg 5: Hooks -- `src/hooks/useStrategy.ts`
+
+- `useStrategyConfig()` -- CRUD
+- `useStrategyCandidates(configId)` -- laser fran DB
+- `useStrategyPositions(configId)` -- oppna + stangda
+- `useStrategyLog(configId)` -- med paginering
+- `useSP500Universe()` -- anropar fetch-sp500
+- `useRunEvaluation()` -- mutation som triggar strategy-evaluate
+
+### Steg 6: Frontend-komponenter
+
+```text
+src/components/strategy/
+  StrategyPage.tsx           -- Huvudsida med 4 tabs
+  UniverseBuilder.tsx        -- Checkboxes, combine mode, SP500 status
+  StrategyOverview.tsx       -- KPI-kort + kandidattabell
+  CandidateTable.tsx         -- Sorterad tabell
+  CandidateDetail.tsx        -- Sidepanel med regler, entry/stop/target, position size
+  StrategyRulesForm.tsx      -- Sliders for thresholds, risk, slippage, courtage, execution policy
+  AutomationPanel.tsx        -- Mode-valjare, schema, logg med CSV-export
+  StrategyStatusBadge.tsx    -- Chips: "Klar att agera", "Vanta", "Blockerad", "Simulering"
+  RegimeBadge.tsx            -- MOMENTUM / FUNDAMENTAL / MEAN_REVERSION
+```
+
+Layout foljder Screener-sidans monster (ikon-header, cards, tabell).
+
+Disclaimer langst upp: "Historisk data garanterar inte framtida resultat. Denna funktion syftar till att hjalpa dig simulera och testa strategier."
+
+### Steg 7: Navigation
+
+- Lagg till `'strategy'` i TabId-typen
+- Ny tab: `{ id: 'strategy', label: 'Strategi', icon: Target }`
+- Rendera `<StrategyPage />` nar activeTab === 'strategy' i Index.tsx
+
+### Steg 8: Cron for automation
+
+- `strategy-evaluate` kors dagligen 09:00 UTC (efter signals ar klara)
+- Veckovis alternativ: mandag 09:00 UTC
+- Bara for anvandare med automation_mode = 'SIMULATE'
 
 ---
 
@@ -236,28 +207,26 @@ Steg 6: Calibration stats
 ### Nya filer
 | Fil | Beskrivning |
 |-----|-------------|
-| `supabase/functions/daily-pipeline/index.ts` | Orkestrerings-function |
-| `supabase/functions/fetch-closing-odds/index.ts` | Hamtar stangningsodds |
+| `supabase/functions/fetch-sp500/index.ts` | S&P 500 via FMP + caching |
+| `supabase/functions/strategy-evaluate/index.ts` | Server-side strategimotor |
+| `src/lib/strategy/engine.ts` | Ren evaluerings-logik |
+| `src/hooks/useStrategy.ts` | React hooks for strategi-data |
+| `src/components/strategy/*.tsx` | 9 frontend-komponenter |
 
 ### Andrade filer
 | Fil | Andringar |
 |-----|-----------|
-| `supabase/functions/score-predictions/index.ts` | Steg 6: calibration stats + CLV-berakning |
-| `supabase/functions/generate-signals/index.ts` | Sentiment health-flagga + viktjustering |
-| `supabase/functions/analyze-match/index.ts` | is_value_bet + suggested_stake_pct |
-| `src/components/betting/BacktestPanel.tsx` | CLV-kurva, ROI per odds, hit rate per edge |
-| `src/components/betting/MatchCard.tsx` | VALUE badge, grayout negativ edge |
+| `src/components/Header.tsx` | +strategy tab |
+| `src/pages/Index.tsx` | +StrategyPage rendering |
+| `supabase/config.toml` | +fetch-sp500, +strategy-evaluate |
 
-### Nya/andrade tabeller
-| Tabell | Andringar |
-|--------|-----------|
-| `pipeline_runs` | NY -- orkestrerings-logg |
-| `betting_predictions` | +is_value_bet, +suggested_stake_pct, +clv |
-| `betting_matches` | +closing_odds_home/draw/away, +closing_odds_fetched_at |
-| `calibration_stats` | +ece, +log_loss, +calibration_version, +sample_count |
+### Nya tabeller
+| Tabell | Rader |
+|--------|-------|
+| strategy_configs | 1 per anvandare |
+| strategy_candidates | N per utvarderings-korning |
+| strategy_positions | Simulerade trades |
+| strategy_trade_log | Alla handelser |
+| strategy_automation_jobs | Korningshistorik |
+| universe_cache | S&P 500 + framtida index |
 
-### Config
-| Fil | Andringar |
-|-----|-----------|
-| `supabase/config.toml` | +daily-pipeline, +fetch-closing-odds (verify_jwt=false) |
-| Cron (pg_cron SQL) | daily-pipeline 06:00 UTC |
