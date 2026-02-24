@@ -801,6 +801,15 @@ INSTRUKTIONER:
     }
     const modelEdge = marketImpliedProb !== null ? predictedProb - marketImpliedProb : null;
 
+    // === VALUE BET DETECTION ===
+    const VALUE_EDGE_THRESHOLD = 0.05; // 5%
+    const VALUE_CONFIDENCE_THRESHOLD = 60;
+    const isValueBet = modelEdge !== null && modelEdge > VALUE_EDGE_THRESHOLD && confidenceCapped >= VALUE_CONFIDENCE_THRESHOLD;
+    // Capped proportional staking: edge * 5, capped at 1.0%, floor at 0.25%
+    const suggestedStakePct = isValueBet && modelEdge !== null
+      ? Math.min(1.0, Math.max(0.25, modelEdge * 5 * 100))
+      : null;
+
     // Calculate side market edges
     const sidePredictions = aiResult.side_predictions || null;
     let sideEdges: Record<string, number> | null = null;
@@ -853,6 +862,8 @@ INSTRUKTIONER:
         market_odds_away: marketOddsAway,
         market_implied_prob: marketImpliedProb,
         model_edge: modelEdge,
+        is_value_bet: isValueBet,
+        suggested_stake_pct: suggestedStakePct,
       })
       .select()
       .single();

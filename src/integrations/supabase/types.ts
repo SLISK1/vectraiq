@@ -219,6 +219,7 @@ export type Database = {
           confidence_raw: number
           created_at: string
           id: string
+          is_value_bet: boolean | null
           key_factors: Json | null
           market_implied_prob: number | null
           market_odds_away: number | null
@@ -233,6 +234,7 @@ export type Database = {
           scored_at: string | null
           sources_hash: string | null
           sources_used: Json | null
+          suggested_stake_pct: number | null
         }
         Insert: {
           ai_reasoning?: string | null
@@ -241,6 +243,7 @@ export type Database = {
           confidence_raw: number
           created_at?: string
           id?: string
+          is_value_bet?: boolean | null
           key_factors?: Json | null
           market_implied_prob?: number | null
           market_odds_away?: number | null
@@ -255,6 +258,7 @@ export type Database = {
           scored_at?: string | null
           sources_hash?: string | null
           sources_used?: Json | null
+          suggested_stake_pct?: number | null
         }
         Update: {
           ai_reasoning?: string | null
@@ -263,6 +267,7 @@ export type Database = {
           confidence_raw?: number
           created_at?: string
           id?: string
+          is_value_bet?: boolean | null
           key_factors?: Json | null
           market_implied_prob?: number | null
           market_odds_away?: number | null
@@ -277,6 +282,7 @@ export type Database = {
           scored_at?: string | null
           sources_hash?: string | null
           sources_used?: Json | null
+          suggested_stake_pct?: number | null
         }
         Relationships: [
           {
