@@ -100,27 +100,40 @@ export const BacktestPanel = () => {
   const loadBacktestData = async () => {
     setIsLoading(true);
     try {
-      // Load 1X2 settled predictions (existing logic)
+      // Load settled predictions — no market filter at DB level (backward-compatible
+      // before the A1 migration is applied to Supabase production)
       const { data: preds } = await supabase
         .from('betting_predictions')
         .select('*, betting_matches!inner(league, home_team, away_team, home_score, away_score, match_date)')
         .not('outcome', 'is', null)
-        .or('market.is.null,market.eq.1X2')
         .order('scored_at', { ascending: true })
         .limit(500);
 
-      // Load side bet rows that have been settled (bet_outcome is set)
-      const { data: sides } = await supabase
-        .from('betting_predictions')
-        .select('id, match_id, market, line, selection, predicted_prob, bet_outcome, created_at, betting_matches!inner(league)')
-        .not('market', 'is', null)
-        .neq('market', '1X2')
-        .not('bet_outcome', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(2000);
+      // Filter in JS: keep only 1X2 rows (market IS NULL or '1X2')
+      const filtered1x2 = (preds || []).filter((p: any) => {
+        const market = p.market;
+        return market === null || market === undefined || market === '1X2';
+      });
+
+      // Load side bet rows — wrapped in try/catch: fails gracefully if market column
+      // doesn't exist yet in production
+      let sidesRaw: any[] = [];
+      try {
+        const { data: sidesData } = await supabase
+          .from('betting_predictions')
+          .select('id, match_id, market, line, selection, predicted_prob, bet_outcome, created_at, betting_matches!inner(league)')
+          .not('market', 'is', null)
+          .neq('market', '1X2')
+          .not('bet_outcome', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(2000);
+        sidesRaw = sidesData || [];
+      } catch {
+        // market column not yet in DB — side bets unavailable
+      }
 
       // Process 1X2 predictions
-      const mapped: ScoredPrediction[] = (preds || []).map((p: any) => ({
+      const mapped: ScoredPrediction[] = filtered1x2.map((p: any) => ({
         id: p.id,
         predicted_winner: p.predicted_winner,
         outcome: p.outcome,
@@ -138,7 +151,7 @@ export const BacktestPanel = () => {
       setPredictions(mapped);
 
       // Process side bets
-      const mappedSides: SideBetRow[] = (sides || []).map((s: any) => ({
+      const mappedSides: SideBetRow[] = sidesRaw.map((s: any) => ({
         id: s.id,
         match_id: s.match_id,
         market: s.market,
