@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MatchDetailModal } from './MatchDetailModal';
+import { MatchDetailModal, SideBetOutcome } from './MatchDetailModal';
 import { PredictionSection } from './PredictionSection';
 import { Loader2, Bookmark, TrendingUp } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Match {
   id: string;
@@ -49,7 +50,21 @@ interface MatchCardProps {
 
 export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, isLoggedIn }: MatchCardProps) => {
   const [showDetail, setShowDetail] = useState(false);
+  const [sideBetOutcomes, setSideBetOutcomes] = useState<SideBetOutcome[]>([]);
   const isValueBet = prediction?.is_value_bet === true;
+
+  const handleShowDetail = async () => {
+    setShowDetail(true);
+    if (prediction?.id) {
+      const { data } = await supabase
+        .from('betting_predictions')
+        .select('market, line, selection, bet_outcome')
+        .eq('match_id', match.id)
+        .not('market', 'is', null)
+        .neq('market', '1X2');
+      if (data) setSideBetOutcomes(data as SideBetOutcome[]);
+    }
+  };
   const hasNegativeEdge = prediction && prediction.model_edge !== null && prediction.model_edge < 0;
 
   const matchDate = new Date(match.match_date);
@@ -106,7 +121,7 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
             prediction={prediction}
             homeTeam={match.home_team}
             awayTeam={match.away_team}
-            onShowDetail={() => setShowDetail(true)}
+            onShowDetail={handleShowDetail}
           />
         )}
 
@@ -119,7 +134,7 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
             </Button>
           )}
           {prediction && (
-            <Button onClick={() => setShowDetail(true)} size="sm" variant="outline" className="flex-1">
+            <Button onClick={handleShowDetail} size="sm" variant="outline" className="flex-1">
               Detaljer
             </Button>
           )}
@@ -132,7 +147,12 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
       </div>
 
       {showDetail && prediction && (
-        <MatchDetailModal match={match} prediction={prediction} onClose={() => setShowDetail(false)} />
+        <MatchDetailModal
+          match={match}
+          prediction={prediction}
+          onClose={() => setShowDetail(false)}
+          sideBetOutcomes={sideBetOutcomes}
+        />
       )}
     </>
   );

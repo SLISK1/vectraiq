@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.strategy-evaluate]
 verify_jwt = false
+
+[functions.betting-settle]
+verify_jwt = false
