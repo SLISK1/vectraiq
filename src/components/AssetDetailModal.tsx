@@ -8,7 +8,7 @@ import { ModuleSignalTable } from './ModuleSignalTable';
 import { TrendPredictionCard } from './TrendPredictionCard';
 import { SignalFlipCard } from './SignalFlipCard';
 import { cn } from '@/lib/utils';
-import { Star, ExternalLink, TrendingUp, BarChart2, ShoppingCart } from 'lucide-react';
+import { Star, ExternalLink, TrendingUp, BarChart2, ShoppingCart, Clock, Target } from 'lucide-react';
 import { Button } from './ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -52,6 +52,48 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
     staleTime: 1000 * 60 * 5,
   });
 
+  // Fetch data freshness from features table
+  const { data: freshness } = useQuery({
+    queryKey: ['feature-freshness', asset.ticker],
+    queryFn: async () => {
+      const { data: symbols } = await supabase
+        .from('symbols')
+        .select('id')
+        .eq('ticker', asset.ticker)
+        .limit(1);
+      if (!symbols?.length) return null;
+      const { data } = await supabase
+        .from('features')
+        .select('ts, data_coverage')
+        .eq('asset_id', symbols[0].id)
+        .order('ts', { ascending: false })
+        .limit(1);
+      if (!data?.length) return null;
+      const ageMs = Date.now() - new Date(data[0].ts).getTime();
+      const ageHours = Math.round(ageMs / (1000 * 60 * 60));
+      return { ageHours, coverage: data[0].data_coverage as number };
+    },
+    enabled: isOpen && !!asset,
+    staleTime: 1000 * 60 * 10,
+  });
+
+  // Fetch calibration for the asset's confidence band
+  const { data: calibration } = useQuery({
+    queryKey: ['calibration', asset.horizon, asset.confidence],
+    queryFn: async () => {
+      const bin = Math.min(9, Math.floor(asset.confidence / 10));
+      const { data } = await supabase
+        .from('calibration_bins')
+        .select('hit_rate, brier, n')
+        .eq('horizon', asset.horizon)
+        .eq('score_bin', bin)
+        .single();
+      return data;
+    },
+    enabled: isOpen && !!asset,
+    staleTime: 1000 * 60 * 10,
+  });
+
   const formatPrice = (price: number, currency: string) => {
     return new Intl.NumberFormat('sv-SE', {
       style: 'currency',
@@ -72,10 +114,37 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto scrollbar-thin">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
+          <DialogTitle className="flex items-center gap-3 flex-wrap">
             <span className="text-2xl">{asset.ticker}</span>
             <AssetTypeBadge type={asset.type} />
             <DirectionBadge direction={asset.direction} />
+            {freshness && (
+              <span className={cn(
+                "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-mono",
+                freshness.ageHours <= 24
+                  ? "bg-green-500/10 text-green-500 border border-green-500/20"
+                  : freshness.ageHours <= 72
+                  ? "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"
+                  : "bg-red-500/10 text-red-500 border border-red-500/20"
+              )}>
+                <Clock className="w-3 h-3" />
+                {freshness.ageHours <= 24 ? 'Färsk' : freshness.ageHours <= 72 ? `${freshness.ageHours}h` : 'Gammal'}
+                {freshness.coverage < 100 && ` ${freshness.coverage}%`}
+              </span>
+            )}
+            {calibration && calibration.n >= 5 && (
+              <span className={cn(
+                "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-mono",
+                calibration.hit_rate >= 0.6
+                  ? "bg-green-500/10 text-green-500 border border-green-500/20"
+                  : calibration.hit_rate >= 0.45
+                  ? "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"
+                  : "bg-red-500/10 text-red-500 border border-red-500/20"
+              )}>
+                <Target className="w-3 h-3" />
+                Kalibrering {(calibration.hit_rate * 100).toFixed(0)}% (n={calibration.n})
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 

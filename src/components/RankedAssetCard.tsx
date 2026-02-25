@@ -8,13 +8,14 @@ import { ChevronRight, Star, AlertTriangle, ShoppingCart } from 'lucide-react';
 interface RankedAssetCardProps {
   asset: RankedAsset;
   rank: number;
+  dbRank?: { rank: number; total: number } | null;
   onAddToWatchlist?: (asset: RankedAsset) => void;
   onClick?: (asset: RankedAsset) => void;
   onSimulateTrade?: (asset: RankedAsset) => void;
   className?: string;
 }
 
-export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, onSimulateTrade, className }: RankedAssetCardProps) => {
+export const RankedAssetCard = ({ asset, rank, dbRank, onAddToWatchlist, onClick, onSimulateTrade, className }: RankedAssetCardProps) => {
   const formatPrice = (price: number, currency: string) => {
     return new Intl.NumberFormat('sv-SE', {
       style: 'currency',
@@ -57,6 +58,11 @@ export const RankedAssetCard = ({ asset, rank, onAddToWatchlist, onClick, onSimu
             <h3 className="font-semibold text-lg truncate">{asset.ticker}</h3>
             <AssetTypeBadge type={asset.type} />
             <DirectionBadge direction={asset.direction} size="sm" />
+            {dbRank && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono">
+                Rankad {dbRank.rank}/{dbRank.total}
+              </span>
+            )}
           </div>
           
           <p className="text-sm text-muted-foreground truncate mb-2">{asset.name}</p>

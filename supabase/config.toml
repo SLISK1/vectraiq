@@ -38,3 +38,18 @@ verify_jwt = false
 
 [functions.betting-settle]
 verify_jwt = false
+
+[functions.ingest-prices]
+verify_jwt = false
+
+[functions.build-features]
+verify_jwt = false
+
+[functions.run-rank]
+verify_jwt = false
+
+[functions.score-outcomes]
+verify_jwt = false
+
+[functions.update-calibration]
+verify_jwt = false
