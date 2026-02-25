@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge';
 import { ScoreRing } from '@/components/ScoreRing';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronDown, TrendingUp, TrendingDown, ExternalLink, AlertTriangle, Brain } from 'lucide-react';
+import { ChevronDown, TrendingUp, TrendingDown, ExternalLink, AlertTriangle, Brain, CheckCircle, XCircle, MinusCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface Match {
@@ -29,10 +29,18 @@ interface Prediction {
   model_edge: number | null;
 }
 
+export interface SideBetOutcome {
+  market: string;
+  line: number | null;
+  selection: string | null;
+  bet_outcome: string | null; // 'win' | 'loss' | 'push' | 'void' | null
+}
+
 interface MatchDetailModalProps {
   match: Match;
   prediction: Prediction;
   onClose: () => void;
+  sideBetOutcomes?: SideBetOutcome[];
 }
 
 const SOURCE_TYPE_STYLES: Record<string, string> = {
@@ -49,17 +57,54 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   news: 'Nyhet',
 };
 
-const SideMarketItem = ({ emoji, label, prob, reasoning, edge }: { emoji: string; label: string; prob: number; reasoning?: string; edge?: number | null }) => (
+const BetOutcomeBadge = ({ outcome }: { outcome: string | null | undefined }) => {
+  if (!outcome) return null;
+  if (outcome === 'win') return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
+      <CheckCircle className="w-3 h-3" /> Rätt
+    </span>
+  );
+  if (outcome === 'loss') return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-destructive">
+      <XCircle className="w-3 h-3" /> Fel
+    </span>
+  );
+  if (outcome === 'push') return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <MinusCircle className="w-3 h-3" /> Push
+    </span>
+  );
+  if (outcome === 'void') return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <MinusCircle className="w-3 h-3" /> Void
+    </span>
+  );
+  return null;
+};
+
+const MARKET_TO_KEY: Record<string, string> = {
+  'OU_GOALS': 'total_goals',
+  'BTTS': 'btts',
+  'CORNERS_OU': 'corners',
+  'CARDS_OU': 'cards',
+  'HT_OU_GOALS': 'first_half_goals',
+  'FIRST_TO_SCORE': 'first_to_score',
+};
+
+const SideMarketItem = ({ emoji, label, prob, reasoning, edge, betOutcome }: { emoji: string; label: string; prob: number; reasoning?: string; edge?: number | null; betOutcome?: string | null }) => (
   <div className="flex items-start gap-2 p-2 rounded-lg bg-background/50">
     <span className="text-lg">{emoji}</span>
     <div className="min-w-0 flex-1">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">{label}</p>
-        {edge !== null && edge !== undefined && (
-          <span className={`text-xs font-bold ${edge > 0 ? 'text-primary' : 'text-destructive'}`}>
-            Edge: {edge > 0 ? '+' : ''}{Math.round(edge * 100)}%
-          </span>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {edge !== null && edge !== undefined && (
+            <span className={`text-xs font-bold ${edge > 0 ? 'text-primary' : 'text-destructive'}`}>
+              Edge: {edge > 0 ? '+' : ''}{Math.round(edge * 100)}%
+            </span>
+          )}
+          <BetOutcomeBadge outcome={betOutcome} />
+        </div>
       </div>
       <p className="text-xs text-primary font-bold">{Math.round(prob * 100)}%</p>
       {reasoning && <p className="text-xs text-muted-foreground mt-0.5">{reasoning}</p>}
@@ -67,7 +112,7 @@ const SideMarketItem = ({ emoji, label, prob, reasoning, edge }: { emoji: string
   </div>
 );
 
-export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModalProps) => {
+export const MatchDetailModal = ({ match, prediction, onClose, sideBetOutcomes = [] }: MatchDetailModalProps) => {
   const [keyFactorsOpen, setKeyFactorsOpen] = useState(true);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [deepAnalysisOpen, setDeepAnalysisOpen] = useState(false);
@@ -95,6 +140,11 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
   const sidePredictions = !Array.isArray(rawKf) ? rawKf?.side_predictions : null;
   const sideEdges: Record<string, number> | null = !Array.isArray(rawKf) ? rawKf?.side_edges || null : null;
   const sourcesUsed: any[] = Array.isArray(prediction.sources_used) ? prediction.sources_used : [];
+
+  // Build market→bet_outcome lookup from sideBetOutcomes prop
+  const sideOutcomeMap = new Map<string, string | null>(
+    sideBetOutcomes.map(s => [MARKET_TO_KEY[s.market] || s.market, s.bet_outcome])
+  );
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -186,6 +236,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     prob={sidePredictions.total_goals.prob}
                     reasoning={sidePredictions.total_goals.reasoning}
                     edge={sideEdges?.total_goals}
+                    betOutcome={sideOutcomeMap.get('total_goals')}
                   />
                 )}
                 {sidePredictions.btts && (
@@ -195,6 +246,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     prob={sidePredictions.btts.prob}
                     reasoning={sidePredictions.btts.reasoning}
                     edge={sideEdges?.btts}
+                    betOutcome={sideOutcomeMap.get('btts')}
                   />
                 )}
                 {sidePredictions.corners && (
@@ -203,6 +255,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     label={`Hörnor ${sidePredictions.corners.prediction === 'over' ? 'Över' : 'Under'} ${sidePredictions.corners.line}`}
                     prob={sidePredictions.corners.prob}
                     reasoning={sidePredictions.corners.reasoning}
+                    betOutcome={sideOutcomeMap.get('corners')}
                   />
                 )}
                 {sidePredictions.cards && (
@@ -211,6 +264,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     label={`Kort ${sidePredictions.cards.prediction === 'over' ? 'Över' : 'Under'} ${sidePredictions.cards.line}`}
                     prob={sidePredictions.cards.prob}
                     reasoning={sidePredictions.cards.reasoning}
+                    betOutcome={sideOutcomeMap.get('cards')}
                   />
                 )}
                 {sidePredictions.first_half_goals && (
@@ -219,6 +273,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     label={`1:a halvlek ${sidePredictions.first_half_goals.prediction === 'over' ? 'Ö' : 'U'}${sidePredictions.first_half_goals.line} mål`}
                     prob={sidePredictions.first_half_goals.prob}
                     reasoning={sidePredictions.first_half_goals.reasoning}
+                    betOutcome={sideOutcomeMap.get('first_half_goals')}
                   />
                 )}
                 {sidePredictions.first_to_score && (
@@ -227,6 +282,7 @@ export const MatchDetailModal = ({ match, prediction, onClose }: MatchDetailModa
                     label={`Första mål: ${sidePredictions.first_to_score.prediction === 'home' ? match.home_team : sidePredictions.first_to_score.prediction === 'away' ? match.away_team : 'Ingen'}`}
                     prob={sidePredictions.first_to_score.prob}
                     reasoning={sidePredictions.first_to_score.reasoning}
+                    betOutcome={sideOutcomeMap.get('first_to_score')}
                   />
                 )}
                 {sidePredictions.exact_score && (

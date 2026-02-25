@@ -119,8 +119,10 @@ export const BettingPage = () => {
 
         if (preds) {
           const predMap = new Map<string, BettingPrediction>();
-          // Keep latest prediction per match
+          // Keep latest 1X2 prediction per match (A2: filter out side bets)
           for (const p of preds) {
+            const market = (p as any).market;
+            if (market !== null && market !== undefined && market !== '1X2') continue;
             if (!predMap.has(p.match_id)) {
               predMap.set(p.match_id, p as BettingPrediction);
             }

@@ -834,11 +834,14 @@ INSTRUKTIONER:
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const sourcesHash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
-    // Save prediction
+    const MODEL_VERSION = "4.0-gpt5";
+
+    // Save main 1X2 prediction
     const { data: prediction, error: predError } = await supabaseService
       .from("betting_predictions")
       .insert({
         match_id,
+        market: "1X2",
         predicted_winner: predictedWinner,
         predicted_prob: predictedProb,
         confidence_raw: confidenceRaw,
@@ -853,7 +856,7 @@ INSTRUKTIONER:
         ai_reasoning: aiResult.ai_reasoning || "",
         sources_used: sources,
         sources_hash: sourcesHash,
-        model_version: "4.0-gpt5",
+        model_version: MODEL_VERSION,
         market_odds_home: marketOddsHome,
         market_odds_draw: marketOddsDraw,
         market_odds_away: marketOddsAway,
@@ -870,6 +873,107 @@ INSTRUKTIONER:
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // A3: Log side bets as individual rows (append-only with dedupe)
+    if (sidePredictions) {
+      // Dedupe: remove previous side bets for this match+model_version before re-inserting
+      await supabaseService
+        .from("betting_predictions")
+        .delete()
+        .eq("match_id", match_id)
+        .eq("model_version", MODEL_VERSION)
+        .neq("market", "1X2");
+
+      const sideBetRows: Record<string, unknown>[] = [];
+
+      if (sidePredictions.total_goals) {
+        sideBetRows.push({
+          match_id,
+          market: "OU_GOALS",
+          line: sidePredictions.total_goals.line ?? 2.5,
+          selection: sidePredictions.total_goals.prediction, // 'over' | 'under'
+          predicted_prob: sidePredictions.total_goals.prob,
+          confidence_raw: confidenceRaw,
+          confidence_capped: confidenceCapped,
+          model_edge: sideEdges?.total_goals ?? null,
+          model_version: MODEL_VERSION,
+        });
+      }
+      if (sidePredictions.btts) {
+        sideBetRows.push({
+          match_id,
+          market: "BTTS",
+          line: null,
+          selection: sidePredictions.btts.prediction, // 'yes' | 'no'
+          predicted_prob: sidePredictions.btts.prob,
+          confidence_raw: confidenceRaw,
+          confidence_capped: confidenceCapped,
+          model_edge: sideEdges?.btts ?? null,
+          model_version: MODEL_VERSION,
+        });
+      }
+      if (sidePredictions.corners) {
+        sideBetRows.push({
+          match_id,
+          market: "CORNERS_OU",
+          line: sidePredictions.corners.line ?? 9.5,
+          selection: sidePredictions.corners.prediction,
+          predicted_prob: sidePredictions.corners.prob,
+          confidence_raw: confidenceRaw,
+          confidence_capped: confidenceCapped,
+          model_edge: null,
+          model_version: MODEL_VERSION,
+        });
+      }
+      if (sidePredictions.cards) {
+        sideBetRows.push({
+          match_id,
+          market: "CARDS_OU",
+          line: sidePredictions.cards.line ?? 3.5,
+          selection: sidePredictions.cards.prediction,
+          predicted_prob: sidePredictions.cards.prob,
+          confidence_raw: confidenceRaw,
+          confidence_capped: confidenceCapped,
+          model_edge: null,
+          model_version: MODEL_VERSION,
+        });
+      }
+      if (sidePredictions.first_half_goals) {
+        sideBetRows.push({
+          match_id,
+          market: "HT_OU_GOALS",
+          line: sidePredictions.first_half_goals.line ?? 1.5,
+          selection: sidePredictions.first_half_goals.prediction,
+          predicted_prob: sidePredictions.first_half_goals.prob,
+          confidence_raw: confidenceRaw,
+          confidence_capped: confidenceCapped,
+          model_edge: null,
+          model_version: MODEL_VERSION,
+        });
+      }
+      if (sidePredictions.first_to_score) {
+        sideBetRows.push({
+          match_id,
+          market: "FIRST_TO_SCORE",
+          line: null,
+          selection: sidePredictions.first_to_score.prediction, // 'home' | 'away' | 'none'
+          predicted_prob: sidePredictions.first_to_score.prob,
+          confidence_raw: confidenceRaw,
+          confidence_capped: confidenceCapped,
+          model_edge: null,
+          model_version: MODEL_VERSION,
+        });
+      }
+
+      if (sideBetRows.length > 0) {
+        const { error: sideErr } = await supabaseService
+          .from("betting_predictions")
+          .insert(sideBetRows);
+        if (sideErr) {
+          console.warn("Side bet insert warning:", sideErr.message);
+        }
+      }
     }
 
     return new Response(JSON.stringify({ success: true, prediction }), {

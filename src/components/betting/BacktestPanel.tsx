@@ -30,6 +30,30 @@ interface ScoredPrediction {
   };
 }
 
+// Side bet rows (have market/selection/bet_outcome)
+interface SideBetRow {
+  id: string;
+  match_id: string;
+  market: string;
+  line: number | null;
+  selection: string | null;
+  predicted_prob: number;
+  bet_outcome: string | null; // 'win' | 'loss' | 'push' | 'void' | null
+  created_at: string;
+  league: string;
+}
+
+interface MarketStats {
+  market: string;
+  total: number;
+  win: number;
+  loss: number;
+  push: number;
+  void: number;
+  hitRate: number; // win / (win + loss)
+  roiUnits: number; // +1 win, -1 loss, 0 push/void
+}
+
 interface LeagueStats {
   league: string;
   total: number;
@@ -52,31 +76,51 @@ const normalizeOutcome = (outcome: string) => {
   return outcome;
 };
 
+const MARKET_LABELS: Record<string, string> = {
+  '1X2': '1X2',
+  'OU_GOALS': 'Mål Ö/U',
+  'BTTS': 'Båda scorer',
+  'HT_OU_GOALS': '1H Mål',
+  'CORNERS_OU': 'Hörnor',
+  'CARDS_OU': 'Kort',
+  'FIRST_TO_SCORE': 'Första mål',
+};
+
 export const BacktestPanel = () => {
   const [open, setOpen] = useState(false);
   const [predictions, setPredictions] = useState<ScoredPrediction[]>([]);
+  const [sideBets, setSideBets] = useState<SideBetRow[]>([]);
   const [leagueStats, setLeagueStats] = useState<LeagueStats[]>([]);
+  const [marketStats, setMarketStats] = useState<MarketStats[]>([]);
   const [calibration, setCalibration] = useState<CalibrationBin[]>([]);
   const [roi, setRoi] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'clv' | 'history'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sidebets' | 'clv' | 'history'>('overview');
 
   const loadBacktestData = async () => {
     setIsLoading(true);
     try {
+      // Load 1X2 settled predictions (existing logic)
       const { data: preds } = await supabase
         .from('betting_predictions')
         .select('*, betting_matches!inner(league, home_team, away_team, home_score, away_score, match_date)')
         .not('outcome', 'is', null)
+        .or('market.is.null,market.eq.1X2')
         .order('scored_at', { ascending: true })
         .limit(500);
 
-      if (!preds || preds.length === 0) {
-        setIsLoading(false);
-        return;
-      }
+      // Load side bet rows that have been settled (bet_outcome is set)
+      const { data: sides } = await supabase
+        .from('betting_predictions')
+        .select('id, match_id, market, line, selection, predicted_prob, bet_outcome, created_at, betting_matches!inner(league)')
+        .not('market', 'is', null)
+        .neq('market', '1X2')
+        .not('bet_outcome', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(2000);
 
-      const mapped: ScoredPrediction[] = preds.map((p: any) => ({
+      // Process 1X2 predictions
+      const mapped: ScoredPrediction[] = (preds || []).map((p: any) => ({
         id: p.id,
         predicted_winner: p.predicted_winner,
         outcome: p.outcome,
@@ -91,10 +135,23 @@ export const BacktestPanel = () => {
         created_at: p.created_at,
         match: p.betting_matches,
       }));
-
       setPredictions(mapped);
 
-      // League stats
+      // Process side bets
+      const mappedSides: SideBetRow[] = (sides || []).map((s: any) => ({
+        id: s.id,
+        match_id: s.match_id,
+        market: s.market,
+        line: s.line,
+        selection: s.selection,
+        predicted_prob: s.predicted_prob,
+        bet_outcome: s.bet_outcome,
+        created_at: s.created_at,
+        league: s.betting_matches?.league || 'Okänd',
+      }));
+      setSideBets(mappedSides);
+
+      // League stats (1X2 only)
       const leagueMap = new Map<string, { total: number; correct: number; edgeSum: number; edgeCount: number }>();
       for (const p of mapped) {
         const league = p.match.league;
@@ -105,7 +162,6 @@ export const BacktestPanel = () => {
         if (correct) entry.correct++;
         if (p.model_edge !== null) { entry.edgeSum += Number(p.model_edge); entry.edgeCount++; }
       }
-
       setLeagueStats(Array.from(leagueMap.entries()).map(([league, s]) => ({
         league,
         total: s.total,
@@ -114,7 +170,30 @@ export const BacktestPanel = () => {
         vs_market: s.edgeCount > 0 ? (s.edgeSum / s.edgeCount) * 100 : null,
       })).sort((a, b) => b.total - a.total));
 
-      // Calibration
+      // Market stats (side bets, excluding void for hit rate)
+      const allMarkets = [...new Set(mappedSides.map(s => s.market))];
+      const mStats: MarketStats[] = allMarkets.map(market => {
+        const rows = mappedSides.filter(s => s.market === market);
+        const win = rows.filter(s => s.bet_outcome === 'win').length;
+        const loss = rows.filter(s => s.bet_outcome === 'loss').length;
+        const push = rows.filter(s => s.bet_outcome === 'push').length;
+        const voidCount = rows.filter(s => s.bet_outcome === 'void').length;
+        const settled = win + loss; // push/void excluded from hit rate
+        const roiUnits = (win * 1) + (loss * -1); // push/void = 0
+        return {
+          market,
+          total: rows.length,
+          win,
+          loss,
+          push,
+          void: voidCount,
+          hitRate: settled > 0 ? (win / settled) * 100 : 0,
+          roiUnits: settled > 0 ? (roiUnits / settled) * 100 : 0,
+        };
+      }).sort((a, b) => b.total - a.total);
+      setMarketStats(mStats);
+
+      // Calibration (1X2)
       const bins = [
         { range: '40–50%', min: 40, max: 50, mid: 45 },
         { range: '50–60%', min: 50, max: 60, mid: 55 },
@@ -128,7 +207,7 @@ export const BacktestPanel = () => {
         return { range: bin.range, predictions: inBin.length, correct, accuracy: inBin.length > 0 ? (correct / inBin.length) * 100 : 0, expected: bin.mid };
       }).filter(b => b.predictions > 0));
 
-      // ROI
+      // ROI (1X2)
       let totalReturn = 0, totalBets = 0;
       for (const p of mapped) {
         if (p.market_odds_home && p.outcome) {
@@ -152,8 +231,6 @@ export const BacktestPanel = () => {
   const cumulativeData = predictions.map((p, i) => {
     const correct = predictions.slice(0, i + 1).filter(x => x.predicted_winner === normalizeOutcome(x.outcome)).length;
     const total = i + 1;
-
-    // Cumulative ROI
     let cRoi = 0;
     if (predictions.slice(0, i + 1).some(x => x.market_odds_home)) {
       let ret = 0, bets = 0;
@@ -167,7 +244,6 @@ export const BacktestPanel = () => {
       }
       if (bets > 0) cRoi = (ret / bets) * 100;
     }
-
     return {
       index: total,
       accuracy: (correct / total) * 100,
@@ -185,7 +261,6 @@ export const BacktestPanel = () => {
   const totalCorrect = predictions.filter(p => p.predicted_winner === normalizeOutcome(p.outcome)).length;
   const overallAccuracy = predictions.length > 0 ? (totalCorrect / predictions.length) * 100 : 0;
 
-  // CLV data
   const clvData = predictions
     .filter(p => p.clv !== null)
     .map((p, i, arr) => {
@@ -198,7 +273,6 @@ export const BacktestPanel = () => {
       };
     });
 
-  // ROI per odds interval
   const oddsIntervals = [
     { label: '1.4–1.8', min: 1.4, max: 1.8 },
     { label: '1.8–2.2', min: 1.8, max: 2.2 },
@@ -227,7 +301,6 @@ export const BacktestPanel = () => {
     return { name: interval.label, roi: Number(intervalRoi.toFixed(1)), count: inRange.length };
   }).filter(d => d.count > 0);
 
-  // Hit rate per edge bucket
   const edgeBuckets = [
     { label: '<0%', min: -100, max: 0 },
     { label: '0–5%', min: 0, max: 0.05 },
@@ -249,8 +322,12 @@ export const BacktestPanel = () => {
 
   const avgClv = clvData.length > 0 ? clvData[clvData.length - 1].cumClv : null;
 
+  const totalSideBets = sideBets.length;
+  const settledSideBets = sideBets.filter(s => s.bet_outcome !== 'void').length;
+
   const tabs = [
-    { id: 'overview' as const, label: 'Översikt' },
+    { id: 'overview' as const, label: 'Översikt 1X2' },
+    { id: 'sidebets' as const, label: `Sidomarknader${totalSideBets > 0 ? ` (${totalSideBets})` : ''}` },
     { id: 'clv' as const, label: 'CLV & Edge' },
     { id: 'history' as const, label: 'Historik' },
   ];
@@ -262,7 +339,7 @@ export const BacktestPanel = () => {
           <BarChart3 className="w-4 h-4 text-primary" />
           <h3 className="text-sm font-semibold">Backtest & Träffsäkerhet</h3>
           {predictions.length > 0 && (
-            <span className="text-xs text-muted-foreground">({predictions.length} avslutade prediktioner)</span>
+            <span className="text-xs text-muted-foreground">({predictions.length} 1X2 | {settledSideBets} sidospel)</span>
           )}
         </div>
         <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -272,7 +349,7 @@ export const BacktestPanel = () => {
         <div className="border border-t-0 border-border/50 rounded-b-xl p-4 space-y-5">
           {isLoading ? (
             <div className="text-center py-6 text-muted-foreground text-sm">Laddar statistik...</div>
-          ) : predictions.length === 0 ? (
+          ) : predictions.length === 0 && sideBets.length === 0 ? (
             <div className="text-center py-8 space-y-2">
               <Target className="w-8 h-8 mx-auto text-muted-foreground opacity-40" />
               <p className="text-sm text-muted-foreground">Ingen backtest-data ännu.</p>
@@ -285,7 +362,7 @@ export const BacktestPanel = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    className={`flex-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
                       activeTab === tab.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
@@ -324,7 +401,6 @@ export const BacktestPanel = () => {
                     </div>
                   </div>
 
-                  {/* Cumulative accuracy + ROI chart */}
                   {cumulativeData.length > 1 && (
                     <div>
                       <h4 className="text-sm font-semibold mb-3">Träffsäkerhet & ROI över tid</h4>
@@ -335,10 +411,6 @@ export const BacktestPanel = () => {
                               <linearGradient id="accGrad" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
                                 <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                              </linearGradient>
-                              <linearGradient id="roiGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="hsl(var(--accent-foreground))" stopOpacity={0.2} />
-                                <stop offset="95%" stopColor="hsl(var(--accent-foreground))" stopOpacity={0} />
                               </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
@@ -355,21 +427,10 @@ export const BacktestPanel = () => {
                             <Line type="monotone" dataKey="roi" stroke="hsl(var(--accent-foreground))" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
                           </AreaChart>
                         </ResponsiveContainer>
-                        <div className="flex justify-center gap-6 mt-2">
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <div className="w-3 h-0.5 bg-primary rounded" />
-                            <span className="text-muted-foreground">Träffsäkerhet</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <div className="w-3 h-0.5 bg-accent-foreground rounded" style={{ borderBottom: '1px dashed' }} />
-                            <span className="text-muted-foreground">ROI</span>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   )}
 
-                  {/* League bar chart */}
                   {leagueChartData.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold mb-3">Träffsäkerhet per liga</h4>
@@ -395,13 +456,10 @@ export const BacktestPanel = () => {
                     </div>
                   )}
 
-                  {/* Calibration */}
                   {calibration.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold mb-2">Kalibrering</h4>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Modellens konfidens vs faktiskt utfall
-                      </p>
+                      <p className="text-xs text-muted-foreground mb-3">Modellens konfidens vs faktiskt utfall</p>
                       <div className="rounded-lg bg-muted/20 border border-border/50 p-3">
                         <ResponsiveContainer width="100%" height={160}>
                           <BarChart data={calibration} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
@@ -429,9 +487,146 @@ export const BacktestPanel = () => {
                 </>
               )}
 
+              {activeTab === 'sidebets' && (
+                <div className="space-y-5">
+                  {sideBets.length === 0 ? (
+                    <div className="text-center py-8 space-y-2">
+                      <Target className="w-8 h-8 mx-auto text-muted-foreground opacity-40" />
+                      <p className="text-sm text-muted-foreground">
+                        Inga sidospel avgjorda ännu. Side bets loggas automatiskt vid nästa matchanalys och avgörs av betting-settle.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Overall side bet KPIs */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {(() => {
+                          const allWin = sideBets.filter(s => s.bet_outcome === 'win').length;
+                          const allLoss = sideBets.filter(s => s.bet_outcome === 'loss').length;
+                          const allPush = sideBets.filter(s => s.bet_outcome === 'push').length;
+                          const allVoid = sideBets.filter(s => s.bet_outcome === 'void').length;
+                          const settled = allWin + allLoss;
+                          const hr = settled > 0 ? (allWin / settled) * 100 : 0;
+                          return (
+                            <>
+                              <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
+                                <p className="text-xs text-muted-foreground">Totalt sidospel</p>
+                                <p className="text-xl font-bold font-mono">{sideBets.length}</p>
+                              </div>
+                              <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
+                                <p className="text-xs text-muted-foreground">Träffsäkerhet</p>
+                                <p className={`text-xl font-bold font-mono ${hr > 50 ? 'text-primary' : 'text-destructive'}`}>
+                                  {settled > 0 ? `${hr.toFixed(1)}%` : '—'}
+                                </p>
+                              </div>
+                              <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
+                                <p className="text-xs text-muted-foreground">Rätt / Fel</p>
+                                <p className="text-xl font-bold font-mono">
+                                  <span className="text-primary">{allWin}</span>
+                                  <span className="text-muted-foreground mx-1">/</span>
+                                  <span className="text-destructive">{allLoss}</span>
+                                </p>
+                              </div>
+                              <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
+                                <p className="text-xs text-muted-foreground">Push / Void</p>
+                                <p className="text-xl font-bold font-mono text-muted-foreground">
+                                  {allPush} / {allVoid}
+                                </p>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Per market breakdown */}
+                      {marketStats.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold mb-3">Träffsäkerhet per marknad</h4>
+                          <div className="rounded-lg border border-border/50 overflow-hidden">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-muted/50 border-b border-border/50">
+                                  <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Marknad</th>
+                                  <th className="text-center px-2 py-2 text-xs text-muted-foreground font-medium">Träff%</th>
+                                  <th className="text-center px-2 py-2 text-xs text-muted-foreground font-medium">W/L</th>
+                                  <th className="text-center px-2 py-2 text-xs text-muted-foreground font-medium">Push/Void</th>
+                                  <th className="text-center px-2 py-2 text-xs text-muted-foreground font-medium">ROI</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border/30">
+                                {marketStats.map(ms => (
+                                  <tr key={ms.market} className="hover:bg-muted/20 transition-colors">
+                                    <td className="px-3 py-2 text-xs font-medium">
+                                      {MARKET_LABELS[ms.market] || ms.market}
+                                    </td>
+                                    <td className="px-2 py-2 text-center">
+                                      <span className={`text-xs font-bold font-mono ${ms.hitRate > 50 ? 'text-primary' : ms.hitRate > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                        {ms.win + ms.loss > 0 ? `${ms.hitRate.toFixed(1)}%` : '—'}
+                                      </span>
+                                    </td>
+                                    <td className="px-2 py-2 text-center text-xs font-mono">
+                                      <span className="text-primary">{ms.win}</span>
+                                      <span className="text-muted-foreground mx-1">/</span>
+                                      <span className="text-destructive">{ms.loss}</span>
+                                    </td>
+                                    <td className="px-2 py-2 text-center text-xs font-mono text-muted-foreground">
+                                      {ms.push} / {ms.void}
+                                    </td>
+                                    <td className="px-2 py-2 text-center">
+                                      <span className={`text-xs font-bold font-mono ${ms.roiUnits > 0 ? 'text-primary' : ms.roiUnits < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                        {ms.win + ms.loss > 0 ? `${ms.roiUnits > 0 ? '+' : ''}${ms.roiUnits.toFixed(1)}%` : '—'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground mt-1.5">
+                            Push och void exkluderas från träffsäkerhet och ROI. ROI = win/loss-units per avgjort bet.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Per market hit rate chart */}
+                      {marketStats.filter(ms => ms.win + ms.loss > 0).length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold mb-3">Träffsäkerhet per marknad (diagram)</h4>
+                          <div className="rounded-lg bg-muted/20 border border-border/50 p-3">
+                            <ResponsiveContainer width="100%" height={180}>
+                              <BarChart
+                                data={marketStats.filter(ms => ms.win + ms.loss > 0).map(ms => ({
+                                  name: MARKET_LABELS[ms.market] || ms.market,
+                                  hitRate: Number(ms.hitRate.toFixed(1)),
+                                  count: ms.win + ms.loss,
+                                }))}
+                                margin={{ top: 5, right: 10, left: -10, bottom: 5 }}
+                              >
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                                <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                                  formatter={(value: number, _: string, props: any) => [`${value}% (n=${props.payload.count})`, 'Träffsäkerhet']}
+                                />
+                                <ReferenceLine y={50} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" opacity={0.5} />
+                                <Bar dataKey="hitRate" radius={[4, 4, 0, 0]}>
+                                  {marketStats.filter(ms => ms.win + ms.loss > 0).map((entry, index) => (
+                                    <Cell key={index} fill={entry.hitRate > 50 ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'} />
+                                  ))}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {activeTab === 'clv' && (
                 <div className="space-y-5">
-                  {/* CLV + Edge KPIs */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
                       <p className="text-xs text-muted-foreground">Snitt CLV</p>
@@ -449,7 +644,6 @@ export const BacktestPanel = () => {
                     </div>
                   </div>
 
-                  {/* CLV curve */}
                   {clvData.length > 1 && (
                     <div>
                       <h4 className="text-sm font-semibold mb-3">CLV över tid (kumulativt snitt)</h4>
@@ -477,7 +671,6 @@ export const BacktestPanel = () => {
                     </div>
                   )}
 
-                  {/* ROI per odds interval */}
                   {roiPerOdds.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold mb-3">ROI per odds-intervall</h4>
@@ -503,7 +696,6 @@ export const BacktestPanel = () => {
                     </div>
                   )}
 
-                  {/* Hit rate per edge bucket */}
                   {hitRatePerEdge.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold mb-3">Träffsäkerhet per edge-intervall</h4>
@@ -533,7 +725,7 @@ export const BacktestPanel = () => {
 
               {activeTab === 'history' && (
                 <div>
-                  <h4 className="text-sm font-semibold mb-3">Alla prediktioner</h4>
+                  <h4 className="text-sm font-semibold mb-3">Alla 1X2-prediktioner</h4>
                   <div className="rounded-lg border border-border/50 overflow-hidden max-h-[400px] overflow-y-auto">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 z-10">

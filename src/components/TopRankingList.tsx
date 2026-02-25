@@ -1,7 +1,10 @@
+import { useMemo } from 'react';
 import { RankedAsset } from '@/types/market';
 import { RankedAssetCard } from './RankedAssetCard';
 import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 interface TopRankingListProps {
   title: string;
@@ -31,6 +34,38 @@ export const TopRankingList = ({
   const Icon = direction === 'UP' ? TrendingUp : TrendingDown;
   const gradientClass = direction === 'UP' ? 'gradient-up' : 'gradient-down';
   const iconColor = direction === 'UP' ? 'text-up' : 'text-down';
+
+  // Fetch today's rank_results from DB (if a rank_run exists)
+  const { data: rankResultsData } = useQuery({
+    queryKey: ['rank-results-today'],
+    queryFn: async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const { data: runs } = await supabase
+        .from('rank_runs')
+        .select('id')
+        .gte('ts', `${today}T00:00:00Z`)
+        .order('ts', { ascending: false })
+        .limit(1);
+      if (!runs?.length) return null;
+      const { data: results } = await supabase
+        .from('rank_results')
+        .select('asset_id, rank, symbols!inner(ticker)')
+        .eq('rank_run_id', runs[0].id);
+      return results as { asset_id: string; rank: number; symbols: { ticker: string } }[] | null;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+
+  const rankMap = useMemo(() => {
+    if (!rankResultsData) return new Map<string, { rank: number; total: number }>();
+    const total = rankResultsData.length;
+    const m = new Map<string, { rank: number; total: number }>();
+    for (const r of rankResultsData) {
+      const ticker = (r.symbols as any)?.ticker;
+      if (ticker) m.set(ticker, { rank: r.rank, total });
+    }
+    return m;
+  }, [rankResultsData]);
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -87,6 +122,7 @@ export const TopRankingList = ({
               key={asset.ticker}
               asset={asset}
               rank={index + 1}
+              dbRank={rankMap.get(asset.ticker) ?? null}
               onAddToWatchlist={onAddToWatchlist}
               onClick={onAssetClick}
               onSimulateTrade={onSimulateTrade}
