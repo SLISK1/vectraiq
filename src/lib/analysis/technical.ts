@@ -25,50 +25,76 @@ export const calculateEMA = (prices: number[], period: number): number | undefin
   return ema;
 };
 
-// Calculate RSI (Relative Strength Index)
+// Calculate RSI using Wilder smoothing (industry standard)
 export const calculateRSI = (prices: number[], period: number = 14): number | undefined => {
   if (prices.length < period + 1) return undefined;
 
   const changes = prices.slice(1).map((price, i) => price - prices[i]);
-  const recentChanges = changes.slice(-period);
-  
-  const gains = recentChanges.filter(c => c > 0);
-  const losses = recentChanges.filter(c => c < 0).map(c => Math.abs(c));
-  
-  const avgGain = gains.length > 0 ? gains.reduce((a, b) => a + b, 0) / period : 0;
-  const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / period : 0;
-  
+
+  // Seed: SMA of first `period` changes
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let i = 0; i < period; i++) {
+    if (changes[i] > 0) avgGain += changes[i];
+    else avgLoss += Math.abs(changes[i]);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+
+  // Wilder smoothing for remaining changes
+  for (let i = period; i < changes.length; i++) {
+    const gain = changes[i] > 0 ? changes[i] : 0;
+    const loss = changes[i] < 0 ? Math.abs(changes[i]) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+
   if (avgLoss === 0) return 100;
-  
+
   const rs = avgGain / avgLoss;
   return 100 - (100 / (1 + rs));
 };
 
-// Calculate MACD
+// Calculate MACD using incremental EMA (O(n) instead of O(n²))
 export const calculateMACD = (prices: number[]): { value: number; signal: number; histogram: number } | undefined => {
   if (prices.length < 26) return undefined;
-  
-  const ema12 = calculateEMA(prices, 12);
-  const ema26 = calculateEMA(prices, 26);
-  
-  if (!ema12 || !ema26) return undefined;
-  
-  const macdLine = ema12 - ema26;
-  
-  // Calculate signal line (9-period EMA of MACD)
-  const macdHistory: number[] = [];
-  for (let i = 26; i <= prices.length; i++) {
-    const e12 = calculateEMA(prices.slice(0, i), 12);
-    const e26 = calculateEMA(prices.slice(0, i), 26);
-    if (e12 && e26) macdHistory.push(e12 - e26);
+
+  const mult12 = 2 / (12 + 1);
+  const mult26 = 2 / (26 + 1);
+  const multSignal = 2 / (9 + 1);
+
+  // Seed EMA-12 and EMA-26 with SMA of their respective periods
+  let ema12 = prices.slice(0, 12).reduce((s, p) => s + p, 0) / 12;
+  let ema26 = prices.slice(0, 26).reduce((s, p) => s + p, 0) / 26;
+
+  // Advance EMA-12 from index 12 to 25
+  for (let i = 12; i < 26; i++) {
+    ema12 = (prices[i] - ema12) * mult12 + ema12;
   }
-  
-  const signalLine = macdHistory.length >= 9 ? calculateEMA(macdHistory, 9) : macdLine;
-  
+
+  // Build MACD history from index 26 onward (O(n))
+  const macdHistory: number[] = [ema12 - ema26];
+  for (let i = 26; i < prices.length; i++) {
+    ema12 = (prices[i] - ema12) * mult12 + ema12;
+    ema26 = (prices[i] - ema26) * mult26 + ema26;
+    macdHistory.push(ema12 - ema26);
+  }
+
+  const macdLine = macdHistory[macdHistory.length - 1];
+
+  // Signal line: 9-period EMA of MACD history
+  let signalLine = macdLine;
+  if (macdHistory.length >= 9) {
+    signalLine = macdHistory.slice(0, 9).reduce((s, v) => s + v, 0) / 9;
+    for (let i = 9; i < macdHistory.length; i++) {
+      signalLine = (macdHistory[i] - signalLine) * multSignal + signalLine;
+    }
+  }
+
   return {
     value: macdLine,
-    signal: signalLine || macdLine,
-    histogram: macdLine - (signalLine || macdLine),
+    signal: signalLine,
+    histogram: macdLine - signalLine,
   };
 };
 
@@ -96,24 +122,31 @@ export const calculateBollingerBands = (prices: number[], period: number = 20, s
   return { upper, middle: sma, lower, percentB };
 };
 
-// Calculate Stochastic Oscillator
+// Calculate Stochastic Oscillator with proper %D (3-period SMA of %K)
 export const calculateStochastic = (
   highs: number[],
   lows: number[],
   closes: number[],
-  period: number = 14
+  period: number = 14,
+  dPeriod: number = 3
 ): { k: number; d: number } | undefined => {
-  if (closes.length < period) return undefined;
-  
-  const highPeriod = Math.max(...highs.slice(-period));
-  const lowPeriod = Math.min(...lows.slice(-period));
-  const currentClose = closes[closes.length - 1];
-  
-  const k = ((currentClose - lowPeriod) / (highPeriod - lowPeriod)) * 100;
-  
-  // Calculate %D (3-period SMA of %K)
-  const d = k; // Simplified
-  
+  if (closes.length < period + dPeriod - 1) return undefined;
+
+  // Calculate %K for the last `dPeriod` bars to compute %D
+  const kValues: number[] = [];
+  for (let offset = dPeriod - 1; offset >= 0; offset--) {
+    const end = closes.length - offset;
+    const start = end - period;
+    const highPeriod = Math.max(...highs.slice(start, end));
+    const lowPeriod = Math.min(...lows.slice(start, end));
+    const range = highPeriod - lowPeriod;
+    const kVal = range > 0 ? ((closes[end - 1] - lowPeriod) / range) * 100 : 50;
+    kValues.push(kVal);
+  }
+
+  const k = kValues[kValues.length - 1];
+  const d = kValues.reduce((s, v) => s + v, 0) / kValues.length;
+
   return { k, d };
 };
 

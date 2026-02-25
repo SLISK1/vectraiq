@@ -23,7 +23,7 @@ type BettingMatch = {
   status: string;
   home_score: number | null;
   away_score: number | null;
-  source_data: any;
+  source_data: Record<string, unknown>;
 };
 
 type BettingPrediction = {
@@ -34,9 +34,9 @@ type BettingPrediction = {
   confidence_raw: number;
   confidence_capped: number;
   cap_reason: string | null;
-  key_factors: any;
+  key_factors: Record<string, unknown> | null;
   ai_reasoning: string | null;
-  sources_used: any;
+  sources_used: string[] | null;
   market_odds_home: number | null;
   market_odds_draw: number | null;
   market_odds_away: number | null;
@@ -61,11 +61,11 @@ export const BettingPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
-  const [poolData, setPoolData] = useState<any>(null);
+  const [poolData, setPoolData] = useState<{ rows?: Record<string, unknown>[]; message?: string } | null>(null);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
   const [selectedLeague, setSelectedLeague] = useState<string>('all');
   const [showOnlyValueBets, setShowOnlyValueBets] = useState(false);
-  const [apiBudget, setApiBudget] = useState<{ searches_used: number; last_updated: string } | null>(null);
+  const [apiBudget, setApiBudget] = useState<{ searches_used: number; daily_limit: number; last_updated: string } | null>(null);
 
   const { user } = useAuth();
   const { toast } = useToast();
@@ -73,6 +73,8 @@ export const BettingPage = () => {
   const isPoolSport = selectedSport === 'topptipset' || selectedSport === 'stryktipset';
 
   // Load API budget from api_usage_tracker
+  const DAILY_SEARCH_LIMIT = 15;
+
   const loadApiBudget = async () => {
     const todayStr = new Date().toISOString().split('T')[0];
     const { data } = await supabase
@@ -82,9 +84,9 @@ export const BettingPage = () => {
       .eq('date_key', todayStr)
       .single();
     if (data) {
-      setApiBudget(data as any);
+      setApiBudget({ searches_used: data.searches_used, daily_limit: DAILY_SEARCH_LIMIT, last_updated: data.last_updated });
     } else {
-      setApiBudget({ searches_used: 0, last_updated: '' });
+      setApiBudget({ searches_used: 0, daily_limit: DAILY_SEARCH_LIMIT, last_updated: '' });
     }
   };
 
@@ -297,15 +299,15 @@ export const BettingPage = () => {
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">Firecrawl-budget idag</p>
               <span className="text-xs font-semibold">
-                {apiBudget.searches_used} / 15 sökningar
+                {apiBudget.searches_used} / {apiBudget.daily_limit} sökningar
               </span>
             </div>
               <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${
-                  apiBudget.searches_used > 13 ? 'bg-destructive' : apiBudget.searches_used > 10 ? 'bg-yellow-500' : 'bg-primary'
+                  apiBudget.searches_used > apiBudget.daily_limit - 2 ? 'bg-destructive' : apiBudget.searches_used > apiBudget.daily_limit - 5 ? 'bg-yellow-500' : 'bg-primary'
                 }`}
-                style={{ width: `${Math.min(100, (apiBudget.searches_used / 15) * 100)}%` }}
+                style={{ width: `${Math.min(100, (apiBudget.searches_used / apiBudget.daily_limit) * 100)}%` }}
               />
             </div>
           </div>

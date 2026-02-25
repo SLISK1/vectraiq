@@ -280,16 +280,22 @@ export const analyzeSentimentSync = (
   // Horizon adjustment - sentiment is more reliable for shorter horizons
   const horizonMultiplier = horizon === '1d' ? 1.1 : horizon === '1w' ? 1.0 : horizon === '1mo' ? 0.9 : 0.85;
   confidence = Math.round(confidence * horizonMultiplier);
-  
+
+  // Dampen strength toward neutral since this is a momentum proxy, not real sentiment.
+  // This avoids double-counting with technical/fundamental modules that also use price data.
+  const proxyDamping = 0.5;
+  const dampenedStrength = Math.round(50 + (strength - 50) * proxyDamping);
+
   return {
     module: 'sentiment',
     direction,
-    strength: Math.round(strength),
-    confidence: Math.max(35, Math.min(65, confidence)),
-    coverage,
+    strength: Math.max(35, Math.min(65, dampenedStrength)),
+    confidence: Math.max(25, Math.min(55, confidence)),
+    coverage: Math.min(coverage, 40), // Cap coverage — proxy data is inherently limited
     evidence,
-    metadata: { 
+    metadata: {
       source: 'momentum_proxy',
+      isMomentumProxy: true,
       method: priceHistory && priceHistory.length >= 5 ? 'price_momentum' : 'base_estimate',
     },
   };

@@ -7,6 +7,7 @@ export interface StrategyConfig {
   max_open_pos: number;
   max_sector_pct: number;
   mean_reversion_enabled: boolean;
+  short_selling_enabled: boolean;
   total_score_min: number;
   agreement_min: number;
   coverage_min: number;
@@ -68,14 +69,22 @@ export interface SuggestedOrder {
 }
 
 // ---- Quality Gate ----
+// For long: totalScore must exceed total_score_min (e.g. 60+)
+// For short: totalScore must be below (100 - total_score_min) (e.g. 40-)
+// Agreement, coverage, vol, staleness apply symmetrically
 export function qualityGate(
   analysis: AnalysisSnapshot,
   config: StrategyConfig
-): { pass: boolean; failures: string[] } {
+): { pass: boolean; failures: string[]; side: 'long' | 'short' | null } {
   const failures: string[] = [];
 
-  if (analysis.totalScore < config.total_score_min)
-    failures.push(`TotalScore ${analysis.totalScore} < ${config.total_score_min}`);
+  const longThreshold = config.total_score_min;
+  const shortThreshold = 100 - config.total_score_min;
+  const isLongCandidate = analysis.totalScore >= longThreshold;
+  const isShortCandidate = config.short_selling_enabled && analysis.totalScore <= shortThreshold;
+
+  if (!isLongCandidate && !isShortCandidate)
+    failures.push(`TotalScore ${analysis.totalScore} — varken long (≥${longThreshold}) eller short (≤${shortThreshold})`);
   if (analysis.agreement < config.agreement_min)
     failures.push(`SignalEnighet ${analysis.agreement}% < ${config.agreement_min}%`);
   if (analysis.coverage < config.coverage_min)
@@ -85,29 +94,35 @@ export function qualityGate(
   if (analysis.staleness > config.max_staleness_h)
     failures.push(`Data ${analysis.staleness}h gammal > ${config.max_staleness_h}h`);
 
-  return { pass: failures.length === 0, failures };
+  const side = isLongCandidate ? 'long' : isShortCandidate ? 'short' : null;
+  return { pass: failures.length === 0, failures, side };
 }
 
 // ---- Regime Classification ----
+// Now supports both long (UP) and short (DOWN) signal directions
 export function classifyRegime(
   analysis: AnalysisSnapshot,
-  config: StrategyConfig
+  config: StrategyConfig,
+  side: 'long' | 'short'
 ): { regime: Regime | null; reasons: string[] } {
   const reasons: string[] = [];
   const getSignal = (mod: string) =>
     analysis.signals.find((s) => s.module === mod);
+
+  const targetDir = side === 'long' ? 'UP' : 'DOWN';
+  const dirLabel = side === 'long' ? 'UP' : 'DOWN';
 
   // 1. Fundamental Position (highest priority)
   const fundamental = getSignal('fundamental');
   if (fundamental) {
     const fundamentalWeight = fundamental.weight || 0;
     if (
-      fundamental.direction === 'UP' &&
+      fundamental.direction === targetDir &&
       fundamentalWeight >= 25 &&
       analysis.trendDuration >= 120 &&
       analysis.agreement >= 85
     ) {
-      reasons.push('Fundamental signal UP med hög vikt och lång trend');
+      reasons.push(`Fundamental signal ${dirLabel} med hög vikt och lång trend`);
       return { regime: 'FUNDAMENTAL', reasons };
     }
   }
@@ -116,18 +131,18 @@ export function classifyRegime(
   const quant = getSignal('quant');
   const measured = getSignal('measuredmoves');
   if (
-    quant?.direction === 'UP' &&
-    measured?.direction === 'UP' &&
+    quant?.direction === targetDir &&
+    measured?.direction === targetDir &&
     analysis.trendStrength >= 50 &&
     analysis.trendDuration >= 14 &&
     analysis.trendDuration <= 42
   ) {
-    reasons.push('Kvant + MeasuredMoves UP, trendstyrka ≥50%, duration 2-6v');
+    reasons.push(`Kvant + MeasuredMoves ${dirLabel}, trendstyrka ≥50%, duration 2-6v`);
     return { regime: 'MOMENTUM', reasons };
   }
 
-  // 3. Mean Reversion (if enabled)
-  if (config.mean_reversion_enabled) {
+  // 3. Mean Reversion (if enabled) — only for long side
+  if (config.mean_reversion_enabled && side === 'long') {
     if (
       quant?.direction === 'UP' &&
       analysis.trendStrength < 45 &&
@@ -193,9 +208,9 @@ export function evaluateCandidate(
   analysis: AnalysisSnapshot,
   config: StrategyConfig
 ): EvaluationResult {
-  // Quality gate
+  // Quality gate (now returns detected side)
   const gate = qualityGate(analysis, config);
-  if (!gate.pass) {
+  if (!gate.pass || !gate.side) {
     return {
       eligible: false,
       mode: null,
@@ -207,8 +222,10 @@ export function evaluateCandidate(
     };
   }
 
-  // Regime classification
-  const { regime, reasons } = classifyRegime(analysis, config);
+  const side = gate.side;
+
+  // Regime classification (now side-aware)
+  const { regime, reasons } = classifyRegime(analysis, config, side);
   if (!regime) {
     return {
       eligible: false,
@@ -221,23 +238,36 @@ export function evaluateCandidate(
     };
   }
 
-  // Calculate entry/stop/target based on regime
+  // Calculate entry/stop/target based on regime and side
   const entry = analysis.entryPrice;
-  let stopLoss = analysis.stopLossPrice || entry * 0.96; // fallback 4%
+  let stopLoss: number;
   let takeProfit: number | null = null;
   let rrMultiple = 2.5;
 
-  if (regime === 'MOMENTUM') {
-    rrMultiple = 2.5;
-    const risk = Math.abs(entry - stopLoss);
-    takeProfit = entry + risk * rrMultiple;
-  } else if (regime === 'FUNDAMENTAL') {
-    stopLoss = analysis.stopLossPrice || entry * 0.96;
-    takeProfit = null; // no fixed target
-  } else if (regime === 'MEAN_REVERSION') {
-    rrMultiple = 1.5;
-    const risk = Math.abs(entry - stopLoss);
-    takeProfit = entry + risk * rrMultiple;
+  if (side === 'long') {
+    stopLoss = analysis.stopLossPrice || entry * 0.96; // 4% below
+    if (regime === 'MOMENTUM') {
+      rrMultiple = 2.5;
+      takeProfit = entry + Math.abs(entry - stopLoss) * rrMultiple;
+    } else if (regime === 'FUNDAMENTAL') {
+      takeProfit = null;
+    } else if (regime === 'MEAN_REVERSION') {
+      rrMultiple = 1.5;
+      takeProfit = entry + Math.abs(entry - stopLoss) * rrMultiple;
+    }
+  } else {
+    // Short: stop above entry, target below entry
+    // Only use stopLossPrice if it is above entry (i.e. a valid short stop)
+    stopLoss =
+      analysis.stopLossPrice && analysis.stopLossPrice > entry
+        ? analysis.stopLossPrice
+        : entry * 1.04; // 4% above
+    if (regime === 'MOMENTUM') {
+      rrMultiple = 2.5;
+      takeProfit = entry - Math.abs(stopLoss - entry) * rrMultiple;
+    } else if (regime === 'FUNDAMENTAL') {
+      takeProfit = null;
+    }
   }
 
   const rrRatio = takeProfit
@@ -254,7 +284,7 @@ export function evaluateCandidate(
 
   const suggestedOrder: SuggestedOrder | null = valid
     ? {
-        side: 'long',
+        side,
         entryPrice: entry,
         stopLoss,
         takeProfit,

@@ -144,8 +144,8 @@ export const analyzeML = async (
   // Fallback to basic statistical prediction
   evidence.push({
     type: 'fallback',
-    description: 'AI-ML ej tillgängligt',
-    value: 'Använder statistisk estimering',
+    description: 'AI-ML ej tillgängligt — använder statistisk modell',
+    value: 'Momentum + trend + volatilitet (ej maskininlärning)',
     timestamp: new Date().toISOString(),
     source: 'System',
   });
@@ -267,10 +267,10 @@ export const analyzeMLSync = (
   
   evidence.push({
     type: 'info',
-    description: 'Statistisk modell baserad på prisdata',
+    description: 'Statistisk heuristik (momentum + trend), ej ML',
     value: `Analyserat ${prices.length} datapunkter`,
     timestamp: new Date().toISOString(),
-    source: 'Databas',
+    source: 'Statistisk Modell',
   });
   
   return {

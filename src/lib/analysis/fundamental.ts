@@ -406,10 +406,13 @@ export const analyzeFundamental = (
       priceMetrics.riskAdjustedReturn
     );
     
-    totalScore += proxyAnalysis.score;
+    // Dampen proxy scores to avoid double-counting with technical/sentiment modules
+    // that also use price data. Factor 0.4 reduces overlap while preserving signal.
+    const proxyDamping = 0.4;
+    totalScore += proxyAnalysis.score * proxyDamping;
     allSignals.push(...proxyAnalysis.signals);
-    coverage = Math.min(60, 35 + proxyAnalysis.coverageBoost);
-    confidence = Math.min(55, 40 + proxyAnalysis.signals.length * 3);
+    coverage = Math.min(40, 25 + proxyAnalysis.coverageBoost);
+    confidence = Math.min(45, 35 + proxyAnalysis.signals.length * 2);
   }
   
   // Add evidence for each signal

@@ -66,34 +66,37 @@ export function usePaperPortfolio() {
 
       if (!portfolio) return null;
 
-      // Get holdings with prices
+      // Get holdings with symbol info in a single query (avoids N+1)
       const { data: holdings } = await supabase
         .from('paper_holdings')
-        .select('*')
+        .select('*, symbols:symbol_id(name, asset_type)')
         .eq('portfolio_id', portfolio.id);
 
       const enrichedHoldings: PaperHolding[] = [];
       let holdingsValue = 0;
 
-      if (holdings) {
+      if (holdings && holdings.length > 0) {
+        // Batch-fetch latest prices for all holdings in one query
+        const symbolIds = holdings.map(h => h.symbol_id);
+        const { data: latestPrices } = await supabase
+          .from('raw_prices')
+          .select('symbol_id, price')
+          .in('symbol_id', symbolIds)
+          .order('recorded_at', { ascending: false });
+
+        // Build a map of symbol_id -> latest price (first occurrence per symbol)
+        const priceMap = new Map<string, number>();
+        if (latestPrices) {
+          for (const p of latestPrices) {
+            if (!priceMap.has(p.symbol_id)) {
+              priceMap.set(p.symbol_id, Number(p.price));
+            }
+          }
+        }
+
         for (const h of holdings) {
-          // Get symbol info
-          const { data: symbol } = await supabase
-            .from('symbols')
-            .select('name, asset_type')
-            .eq('id', h.symbol_id)
-            .single();
-
-          // Get latest price
-          const { data: priceData } = await supabase
-            .from('raw_prices')
-            .select('price')
-            .eq('symbol_id', h.symbol_id)
-            .order('recorded_at', { ascending: false })
-            .limit(1)
-            .single();
-
-          const lastPrice = priceData ? Number(priceData.price) : Number(h.avg_cost);
+          const symbol = h.symbols as { name: string; asset_type: string } | null;
+          const lastPrice = priceMap.get(h.symbol_id) ?? Number(h.avg_cost);
           const qty = Number(h.qty);
           const avgCost = Number(h.avg_cost);
           const mv = qty * lastPrice;

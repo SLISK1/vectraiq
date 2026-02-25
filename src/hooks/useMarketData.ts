@@ -259,11 +259,16 @@ export const useRankedAssets = (horizon: Horizon, direction: 'UP' | 'DOWN') => {
         console.log('AV cache fetch failed (non-critical):', e);
       }
       
-      // Transform all symbols with their history
-      const promises = symbols.map(s => 
-        transformToRankedAsset(s, horizon, direction, priceHistoryCache, avCacheMap)
-      );
-      const results = await Promise.all(promises);
+      // Transform symbols with concurrency limit to avoid browser thread saturation
+      const CONCURRENCY = 10;
+      const results: (RankedAsset | null)[] = [];
+      for (let i = 0; i < symbols.length; i += CONCURRENCY) {
+        const batch = symbols.slice(i, i + CONCURRENCY);
+        const batchResults = await Promise.all(
+          batch.map(s => transformToRankedAsset(s, horizon, direction, priceHistoryCache, avCacheMap))
+        );
+        results.push(...batchResults);
+      }
       
       const validAssets = results.filter((a): a is RankedAsset => a !== null);
       
