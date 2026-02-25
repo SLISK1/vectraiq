@@ -1,6 +1,5 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { RegimeBadge } from './RegimeBadge';
 import { StrategyStatusBadge } from './StrategyStatusBadge';
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 
@@ -25,8 +24,9 @@ export function CandidateDetailModal({ candidate, open, onClose }: CandidateDeta
           <DialogTitle className="flex items-center gap-2">
             <span className="font-mono">{candidate.ticker}</span>
             <StrategyStatusBadge status={candidate.status} />
-            <RegimeBadge regime={candidate.regime} />
+            {candidate.regime && <Badge variant="outline" className="text-xs">{candidate.regime}</Badge>}
           </DialogTitle>
+          <DialogDescription>Detaljerad analys och blockorsaker</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 text-sm">

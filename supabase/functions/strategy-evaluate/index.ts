@@ -130,6 +130,9 @@ function normalizeFromDB(
     riskRewardRatio: ad.riskRewardRatio ?? null,
   };
 
+  if (trend.durationLikelyDays == null) debug.missingFields.push("durationLikelyDays");
+  if (trend.trendStrength == null) debug.missingFields.push("trendStrength");
+
   return {
     totalScore: prediction?.total_score ?? 50,
     confidence: prediction?.confidence ?? 50,
@@ -244,6 +247,24 @@ function classifyRegime(n: NormalizedSnapshot, config: any): { regime: Regime; r
 }
 
 // ============================================================
+// Helper: paginated fetch (Supabase default limit is 1000)
+// ============================================================
+async function fetchAll(client: any, table: string, query: any) {
+  const PAGE = 1000;
+  let all: any[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
+// ============================================================
 // Edge Function
 // ============================================================
 Deno.serve(async (req) => {
@@ -273,7 +294,6 @@ Deno.serve(async (req) => {
         });
       }
     } else {
-      // Try to parse body (may be empty for GET-style calls)
       try { requestBody = await req.json(); } catch { requestBody = {}; }
       const userClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: `Bearer ${token}` } },
@@ -287,7 +307,7 @@ Deno.serve(async (req) => {
       userId = userData.user.id;
     }
 
-    // ---- C: Get config (exact saved config, NOT defaults) ----
+    // ---- Get config ----
     const configId = requestBody.config_id;
     let configQuery = adminClient.from("strategy_configs").select("*").eq("user_id", userId);
     if (configId) {
@@ -309,7 +329,7 @@ Deno.serve(async (req) => {
     }).select().single();
     const jobId = job?.id;
 
-    // ---- H: Log run_start with exact config used ----
+    // ---- Log run_start ----
     await adminClient.from("strategy_trade_log").insert({
       user_id: userId,
       config_id: config.id,
@@ -382,28 +402,89 @@ Deno.serve(async (req) => {
     const symbolMap = new Map((symbols || []).map((s: any) => [s.ticker, s]));
     const symbolIds = (symbols || []).map((s: any) => s.id);
 
-    // ---- Get predictions & signals ----
-    const { data: predictions } = await adminClient
-      .from("asset_predictions")
-      .select("*")
-      .in("symbol_id", symbolIds.length > 0 ? symbolIds : ["00000000-0000-0000-0000-000000000000"])
-      .order("created_at", { ascending: false });
+    // ---- FIX: Fetch predictions PER SYMBOL (latest only, with proper horizon) ----
+    // Use '1w' horizon for swing strategy, fall back to any horizon
+    const STRATEGY_HORIZON = "1w";
 
-    const { data: signals } = await adminClient
-      .from("signals")
-      .select("*")
-      .in("symbol_id", symbolIds.length > 0 ? symbolIds : ["00000000-0000-0000-0000-000000000000"])
-      .order("created_at", { ascending: false });
-
+    // Fetch predictions in batches to avoid the 1000-row limit
     const predBySymbol = new Map<string, any>();
-    for (const p of predictions || []) {
-      if (!predBySymbol.has(p.symbol_id)) predBySymbol.set(p.symbol_id, p);
+
+    // Fetch in chunks of 50 symbol IDs to stay well within limits
+    const CHUNK = 50;
+    for (let i = 0; i < symbolIds.length; i += CHUNK) {
+      const chunk = symbolIds.slice(i, i + CHUNK);
+
+      // Try preferred horizon first
+      const { data: preds } = await adminClient
+        .from("asset_predictions")
+        .select("*")
+        .in("symbol_id", chunk)
+        .eq("horizon", STRATEGY_HORIZON)
+        .order("created_at", { ascending: false })
+        .limit(chunk.length);
+
+      for (const p of preds || []) {
+        if (!predBySymbol.has(p.symbol_id)) predBySymbol.set(p.symbol_id, p);
+      }
+
+      // For symbols without the preferred horizon, try any horizon
+      const missing = chunk.filter((id: string) => !predBySymbol.has(id));
+      if (missing.length > 0) {
+        const { data: fallback } = await adminClient
+          .from("asset_predictions")
+          .select("*")
+          .in("symbol_id", missing)
+          .order("created_at", { ascending: false })
+          .limit(missing.length * 4); // up to 4 horizons
+
+        for (const p of fallback || []) {
+          if (!predBySymbol.has(p.symbol_id)) predBySymbol.set(p.symbol_id, p);
+        }
+      }
     }
 
+    // ---- FIX: Fetch signals PER SYMBOL in batches, filtered by horizon ----
     const sigBySymbol = new Map<string, any[]>();
-    for (const s of signals || []) {
-      if (!sigBySymbol.has(s.symbol_id)) sigBySymbol.set(s.symbol_id, []);
-      sigBySymbol.get(s.symbol_id)!.push(s);
+
+    for (let i = 0; i < symbolIds.length; i += CHUNK) {
+      const chunk = symbolIds.slice(i, i + CHUNK);
+
+      // Try preferred horizon
+      const { data: sigs } = await adminClient
+        .from("signals")
+        .select("*")
+        .in("symbol_id", chunk)
+        .eq("horizon", STRATEGY_HORIZON)
+        .order("created_at", { ascending: false })
+        .limit(chunk.length * 10); // ~10 modules per symbol
+
+      for (const s of sigs || []) {
+        if (!sigBySymbol.has(s.symbol_id)) sigBySymbol.set(s.symbol_id, []);
+        // Only keep one signal per module per symbol (latest)
+        const existing = sigBySymbol.get(s.symbol_id)!;
+        if (!existing.find((e: any) => e.module === s.module)) {
+          existing.push(s);
+        }
+      }
+
+      // For symbols without signals at preferred horizon, try any
+      const missingSigs = chunk.filter((id: string) => !sigBySymbol.has(id) || sigBySymbol.get(id)!.length === 0);
+      if (missingSigs.length > 0) {
+        const { data: fallback } = await adminClient
+          .from("signals")
+          .select("*")
+          .in("symbol_id", missingSigs)
+          .order("created_at", { ascending: false })
+          .limit(missingSigs.length * 10);
+
+        for (const s of fallback || []) {
+          if (!sigBySymbol.has(s.symbol_id)) sigBySymbol.set(s.symbol_id, []);
+          const existing = sigBySymbol.get(s.symbol_id)!;
+          if (!existing.find((e: any) => e.module === s.module)) {
+            existing.push(s);
+          }
+        }
+      }
     }
 
     // Delete old candidates
@@ -426,7 +507,6 @@ Deno.serve(async (req) => {
       const sigs = sigBySymbol.get(sym.id) || [];
 
       if (!pred) {
-        // Still create a blocked candidate so it shows up
         candidateRows.push({
           user_id: userId, config_id: config.id, symbol_id: sym.id, ticker,
           source: sources.join(","), status: "blocked",
@@ -437,6 +517,7 @@ Deno.serve(async (req) => {
             moduleKeysSeen: [],
           },
           total_score: 0, confidence: 0,
+          fundamental_exit_available: false,
           analysis_data: {},
         });
         continue;
@@ -444,10 +525,9 @@ Deno.serve(async (req) => {
 
       analysisRowsFetched++;
 
-      // ---- B: Normalize using canonical mapper ----
       const n = normalizeFromDB(pred, sigs);
 
-      // ---- E: Quality Gate ----
+      // Quality Gate
       const gate = passesQualityGate(n, config);
 
       if (!gate.passed) {
@@ -461,6 +541,7 @@ Deno.serve(async (req) => {
             moduleKeysSeen: n._debug.moduleKeysSeen,
           },
           total_score: n.totalScore, confidence: n.confidence,
+          fundamental_exit_available: false,
           analysis_data: {
             agreement: n.agreement, coverage: n.coverage,
             volRisk: n.volRisk, dataAgeHours: Math.round(n.dataAgeHours),
@@ -471,7 +552,7 @@ Deno.serve(async (req) => {
 
       passedGateCount++;
 
-      // ---- D: Regime classification with correct module keys ----
+      // Regime classification
       const { regime, reasons: regimeReasons } = classifyRegime(n, config);
 
       if (regime !== "NONE") matchedRegimeCount++;
@@ -534,7 +615,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ---- I: Sanity override (debug_force_one_candidate) ----
+    // ---- Sanity override (debug_force_one_candidate) ----
     if (config.debug_force_one_candidate && tickers.length > 0 && matchedRegimeCount === 0) {
       const firstTicker = tickers[0];
       const sym = symbolMap.get(firstTicker);
@@ -571,11 +652,12 @@ Deno.serve(async (req) => {
 
     candidatesUpsertedCount = candidateRows.length;
 
-    // Insert candidates
+    // Insert candidates in batches
     if (candidateRows.length > 0) {
       const batchSize = 50;
       for (let i = 0; i < candidateRows.length; i += batchSize) {
-        await adminClient.from("strategy_candidates").insert(candidateRows.slice(i, i + batchSize));
+        const { error: insertErr } = await adminClient.from("strategy_candidates").insert(candidateRows.slice(i, i + batchSize));
+        if (insertErr) console.error("Insert candidates error:", insertErr);
       }
     }
 
@@ -584,7 +666,7 @@ Deno.serve(async (req) => {
       await adminClient.from("strategy_trade_log").insert(logRows);
     }
 
-    // ---- H: run_summary log ----
+    // run_summary log
     const summary = {
       universeSize: tickers.length,
       analysisRowsFetched,
@@ -601,7 +683,7 @@ Deno.serve(async (req) => {
       action: "run_summary", details: summary,
     });
 
-    // ---- Update job ----
+    // Update job
     if (jobId) {
       await adminClient.from("strategy_automation_jobs").update({
         completed_at: new Date().toISOString(),
