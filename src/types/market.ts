@@ -181,5 +181,5 @@ export const MODULE_NAMES: Record<string, string> = {
   volatility: 'Volatilitet',
   seasonal: 'Säsongsmönster',
   orderFlow: 'Orderflöde',
-  ml: 'Machine Learning',
+  ml: 'ML / Statistik',
 };

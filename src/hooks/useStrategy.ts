@@ -25,7 +25,7 @@ export function useStrategyConfig() {
   });
 
   const upsert = useMutation({
-    mutationFn: async (config: Record<string, any>) => {
+    mutationFn: async (config: Record<string, unknown>) => {
       if (!user) throw new Error('Not authenticated');
       const existing = query.data;
       if (existing) {
@@ -116,22 +116,9 @@ export function useSP500Universe() {
   return useQuery({
     queryKey: ['sp500-universe'],
     queryFn: async () => {
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token || anonKey;
-
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/fetch-sp500`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      if (!res.ok) throw new Error('Failed to fetch S&P 500');
-      return await res.json() as {
+      const { data, error } = await supabase.functions.invoke('fetch-sp500');
+      if (error) throw new Error('Failed to fetch S&P 500');
+      return data as {
         source: string;
         updatedAt: string;
         tickers: string[];
@@ -152,26 +139,14 @@ export function useRunEvaluation() {
 
   return useMutation({
     mutationFn: async (configId: string) => {
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/strategy-evaluate`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ config_id: configId }),
-        }
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Evaluation failed');
+      const { data, error } = await supabase.functions.invoke('strategy-evaluate', {
+        body: { config_id: configId },
+      });
+      if (error) {
+        const errorMsg = (data as Record<string, string>)?.error || 'Evaluation failed';
+        throw new Error(errorMsg);
       }
-      return await res.json();
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['strategy-candidates'] });
@@ -179,7 +154,7 @@ export function useRunEvaluation() {
       queryClient.invalidateQueries({ queryKey: ['strategy-log'] });
       toast({ title: 'Utvärdering klar', description: 'Kandidater har uppdaterats.' });
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast({ title: 'Utvärdering misslyckades', description: err.message, variant: 'destructive' });
     },
   });

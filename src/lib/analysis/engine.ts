@@ -247,9 +247,11 @@ const calculateCalibratedReturns = (
   const variance = logReturns.reduce((s, r) => s + Math.pow(r - meanReturn, 2), 0) / logReturns.length;
   const dailyVol = Math.sqrt(variance);
   
-  // Score-to-expected-move: linear mapping with shrinkage
+  // Score-to-expected-move: linear mapping with dynamic shrinkage
   const scoreSignal = (normalizedScore - 50) / 50; // -1 to +1
-  const shrinkage = 0.3; // Conservative — reduces overfitting
+  // Dynamic shrinkage: stronger signals get less shrinkage (0.2–0.4 range)
+  const signalMagnitude = Math.abs(scoreSignal);
+  const shrinkage = 0.4 - signalMagnitude * 0.2;
   const expectedDailyMove = scoreSignal * dailyVol * shrinkage;
   
   const horizonDays = assetType === 'crypto' ? HORIZON_DAYS_CRYPTO : HORIZON_DAYS_STOCK;
@@ -505,6 +507,7 @@ export const runAnalysis = (
   const confidence = calculateTotalConfidence(confidenceBreakdown, assetType, cryptoHighVol);
   
   // === H: Top contributors — consistent with signed scoring ===
+  let topContributors: { module: string; contribution: number }[];
   if (direction === 'NEUTRAL') {
     // Show top 4 by absolute contribution
     const contributions = signals.map((s, i) => ({
@@ -512,14 +515,14 @@ export const runAnalysis = (
       contribution: Math.round(weightedScores[i]),
     }));
     contributions.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
-    var topContributors = contributions.slice(0, 4);
+    topContributors = contributions.slice(0, 4);
   } else {
     // Show top 3 modules that align with direction
     const contributions = signals
       .map((s, i) => ({ module: s.module, contribution: Math.round(weightedScores[i]) }))
       .filter(c => (direction === 'UP' && c.contribution > 0) || (direction === 'DOWN' && c.contribution < 0));
     contributions.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
-    var topContributors = contributions.slice(0, 3);
+    topContributors = contributions.slice(0, 3);
   }
   
   // === B: Calibrated returns ===
@@ -552,13 +555,6 @@ export const runAnalysis = (
     trendPrediction,
     aiSummary,
   };
-};
-
-// Run async analyses (for future use)
-export const runAsyncAnalyses = async (
-  context: AnalysisContext
-): Promise<{ sentiment?: AnalysisResult; ml?: AnalysisResult }> => {
-  return {};
 };
 
 // Helper to create analysis context from symbol data
