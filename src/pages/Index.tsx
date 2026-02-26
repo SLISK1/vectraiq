@@ -249,14 +249,21 @@ const Index = () => {
     try {
       const result = await addSymbolMutation.mutateAsync(ticker);
       const name = result.displayName || ticker;
+      const isRefetching = !result.isNew && result.reactivated;
       toast({
-        title: result.isNew ? "Tillgång tillagd!" : "Tillgång finns redan",
-        description: result.isNew 
+        title: result.isNew
+          ? "Tillgång tillagd!"
+          : isRefetching
+          ? "Hämtar data på nytt..."
+          : "Tillgång finns redan",
+        description: result.isNew
           ? `${name} (${ticker}) har lagts till som ${result.detectedType}. Historik, priser och signaler hämtas i bakgrunden — tillgången dyker upp inom ca 30 sekunder.`
-          : `${ticker} finns redan i systemet.`,
+          : isRefetching
+          ? `${ticker} fanns i systemet men saknade data. Hämtar historik och priser — tillgången dyker upp inom ca 30 sekunder.`
+          : `${ticker} finns redan och visas redan i listan.`,
       });
       // Auto-invalidate after 30s so signals/prices appear
-      if (result.isNew) {
+      if (result.isNew || isRefetching) {
         setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ['symbols'] });
           queryClient.invalidateQueries({ queryKey: ['rankedAssets'] });

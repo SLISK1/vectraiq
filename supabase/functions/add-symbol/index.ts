@@ -78,14 +78,68 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Check if exists
+    // Check if exists (including inactive rows)
     const { data: existing } = await supabase
       .from("symbols")
-      .select("id, ticker")
+      .select("id, ticker, is_active, name, asset_type, currency")
       .eq("ticker", cleanTicker)
       .single();
 
     if (existing) {
+      const internalHeaders = {
+        Authorization: `Bearer ${supabaseServiceKey}`,
+        "Content-Type": "application/json",
+      };
+
+      // Re-activate if inactive
+      if (!existing.is_active) {
+        await supabase
+          .from("symbols")
+          .update({ is_active: true })
+          .eq("id", existing.id);
+      }
+
+      // Check if there is any price data for this symbol
+      const { count: priceCount } = await supabase
+        .from("raw_prices")
+        .select("*", { count: "exact", head: true })
+        .eq("symbol_id", existing.id);
+
+      const hasData = (priceCount ?? 0) > 0;
+
+      // If inactive or has no data: re-fetch history + prices + signals
+      if (!existing.is_active || !hasData) {
+        await Promise.allSettled([
+          fetch(`${supabaseUrl}/functions/v1/fetch-history`, {
+            method: "POST",
+            headers: internalHeaders,
+            body: JSON.stringify({ tickers: [cleanTicker], days: 365 }),
+          }),
+          fetch(`${supabaseUrl}/functions/v1/fetch-prices`, {
+            method: "POST",
+            headers: internalHeaders,
+            body: JSON.stringify({ tickers: [cleanTicker] }),
+          }),
+        ]);
+        fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
+          method: "POST",
+          headers: internalHeaders,
+          body: JSON.stringify({ tickers: [cleanTicker], allHorizons: true }),
+        }).catch(() => {});
+
+        return new Response(JSON.stringify({
+          success: true,
+          isNew: false,
+          reactivated: true,
+          symbol: existing,
+          displayName: existing.name,
+          detectedType: existing.asset_type,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Symbol exists and is active with data — nothing to do
       return new Response(JSON.stringify({ success: true, isNew: false, symbol: existing }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

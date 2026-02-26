@@ -60,6 +60,7 @@ export const BettingPage = () => {
   const [predictions, setPredictions] = useState<Map<string, BettingPrediction>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [poolData, setPoolData] = useState<{ rows?: Record<string, unknown>[]; message?: string } | null>(null);
   const [isLoadingPool, setIsLoadingPool] = useState(false);
@@ -140,6 +141,8 @@ export const BettingPage = () => {
   // Fetch new matches from external API
   const handleFetchMatches = async () => {
     setIsFetching(true);
+    // Reset the auto-sync cooldown so the next page load also re-fetches
+    localStorage.setItem(`match_fetch_${selectedSport}`, String(Date.now()));
     try {
       const { data, error } = await supabase.functions.invoke('fetch-matches', {
         body: { sport: selectedSport === 'ufc' ? 'ufc' : 'football' },
@@ -243,15 +246,37 @@ export const BettingPage = () => {
     }
   };
 
-  // Reload when sport changes
+  // Reload when sport changes — auto-fetch upcoming matches in background if stale (> 2h)
   useEffect(() => {
-    if (!isPoolSport) {
-      loadMatches();
-      setPoolData(null);
-      setSelectedLeague('all');
-    } else {
-      setMatches([]);
-    }
+    if (isPoolSport) { setMatches([]); return; }
+
+    setPoolData(null);
+    setSelectedLeague('all');
+
+    const init = async () => {
+      await loadMatches(); // Show whatever is in DB immediately
+
+      const key = `match_fetch_${selectedSport}`;
+      const lastFetch = parseInt(localStorage.getItem(key) || '0');
+      const staleMs = 2 * 60 * 60 * 1000; // 2 hours
+      if (Date.now() - lastFetch < staleMs) return; // recent enough, skip
+
+      // Background fetch
+      localStorage.setItem(key, String(Date.now()));
+      setIsAutoSyncing(true);
+      try {
+        await supabase.functions.invoke('fetch-matches', {
+          body: { sport: selectedSport === 'ufc' ? 'ufc' : 'football' },
+        });
+        await loadMatches(); // Reload with fresh upcoming matches
+      } catch {
+        // Fail silently — user can always click "Hämta matcher" manually
+      } finally {
+        setIsAutoSyncing(false);
+      }
+    };
+
+    init();
   }, [selectedSport]);
 
   // Extract unique leagues and filter
@@ -388,9 +413,15 @@ export const BettingPage = () => {
                   </Label>
                 </div>
               )}
+              {isAutoSyncing && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Synkar...
+                </span>
+              )}
               <Button
                 onClick={handleFetchMatches}
-                disabled={isFetching}
+                disabled={isFetching || isAutoSyncing}
                 size="sm"
                 variant="outline"
                 className="gap-2"
