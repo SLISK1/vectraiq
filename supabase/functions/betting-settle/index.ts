@@ -80,9 +80,10 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Find finished matches that have unsettled prediction rows
+    // Also fetch predicted_prob so we can update calibration buckets after settlement
     const { data: unsettledPreds, error: predsErr } = await supabase
       .from("betting_predictions")
-      .select("id, match_id, market, selection, line")
+      .select("id, match_id, market, selection, line, predicted_prob")
       .is("bet_outcome", null)
       .order("match_id");
 
@@ -223,6 +224,26 @@ Deno.serve(async (req) => {
           .eq("id", pred.id)
           .then(),
       );
+
+      // Update calibration bucket for markets we track (BTTS and OU_GOALS only,
+      // since those are the ones with Poisson p_raw priors in analyze-match).
+      // Mirrors calibration/calibrator.py update_buckets().
+      if (
+        (pred.market === "BTTS" || pred.market === "OU_GOALS") &&
+        (bet_outcome === "win" || bet_outcome === "loss") &&
+        pred.predicted_prob !== null && pred.predicted_prob !== undefined
+      ) {
+        const bucketIdx = Math.min(9, Math.floor(Number(pred.predicted_prob) * 10));
+        updates.push(
+          supabase.rpc("upsert_betting_cal_bucket", {
+            p_market: pred.market,
+            p_bucket_idx: bucketIdx,
+            p_n_bets_delta: 1,
+            p_n_wins_delta: bet_outcome === "win" ? 1 : 0,
+          }),
+        );
+      }
+
       settledCount++;
     }
 
