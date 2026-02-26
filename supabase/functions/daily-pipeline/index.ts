@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
     console.log('=== Step 2: fetch-history (sparse data) ===');
     
     // Find symbols with < 30 data points
-    const { data: histCounts } = await supabase.rpc('', {}).catch(() => ({ data: null }));
+    const histCounts = null; // Placeholder — fetch-history handles dedup via upsert
     // Simpler approach: just call fetch-history for all, it handles dedup via upsert
     const histResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-history', { days: 365 });
     

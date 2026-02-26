@@ -119,7 +119,7 @@ export const BacktestPanel = () => {
       // doesn't exist yet in production
       let sidesRaw: any[] = [];
       try {
-        const { data: sidesData } = await supabase
+        const { data: sidesData } = await (supabase as any)
           .from('betting_predictions')
           .select('id, match_id, market, line, selection, predicted_prob, bet_outcome, created_at, betting_matches!inner(league)')
           .not('market', 'is', null)

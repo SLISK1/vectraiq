@@ -219,8 +219,9 @@ Deno.serve(async (req) => {
             bet_outcome,
             actual_value,
             settled_at: new Date().toISOString(),
-          })
-          .eq("id", pred.id),
+          } as any)
+          .eq("id", pred.id)
+          .then(),
       );
       settledCount++;
     }

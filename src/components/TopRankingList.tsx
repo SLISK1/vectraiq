@@ -47,7 +47,7 @@ export const TopRankingList = ({
         .order('ts', { ascending: false })
         .limit(1);
       if (!runs?.length) return null;
-      const { data: results } = await supabase
+      const { data: results } = await (supabase as any)
         .from('rank_results')
         .select('asset_id, rank, symbols!inner(ticker)')
         .eq('rank_run_id', runs[0].id);

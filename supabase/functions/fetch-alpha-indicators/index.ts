@@ -103,7 +103,7 @@ function parseAVResponse(indicator: string, data: AVResponse, interval: string):
         timestamp,
         rsi: parseFloat(v['RSI']),
       })),
-      latest: parseFloat(Object.values(rsiData)[0]?.['RSI'] ?? '0'),
+      latest: parseFloat((Object.values(rsiData) as any[])[0]?.['RSI'] ?? '0'),
     };
   }
 
@@ -119,9 +119,9 @@ function parseAVResponse(indicator: string, data: AVResponse, interval: string):
         histogram: parseFloat(v['MACD_Hist']),
       })),
       latest: {
-        macd: parseFloat(Object.values(macdData)[0]?.['MACD'] ?? '0'),
-        signal: parseFloat(Object.values(macdData)[0]?.['MACD_Signal'] ?? '0'),
-        histogram: parseFloat(Object.values(macdData)[0]?.['MACD_Hist'] ?? '0'),
+        macd: parseFloat((Object.values(macdData) as any[])[0]?.['MACD'] ?? '0'),
+        signal: parseFloat((Object.values(macdData) as any[])[0]?.['MACD_Signal'] ?? '0'),
+        histogram: parseFloat((Object.values(macdData) as any[])[0]?.['MACD_Hist'] ?? '0'),
       },
     };
   }
@@ -135,7 +135,7 @@ function parseAVResponse(indicator: string, data: AVResponse, interval: string):
         timestamp,
         adx: parseFloat(v['ADX']),
       })),
-      latest: parseFloat(Object.values(adxData)[0]?.['ADX'] ?? '0'),
+      latest: parseFloat((Object.values(adxData) as any[])[0]?.['ADX'] ?? '0'),
     };
   }
 
@@ -148,7 +148,7 @@ function parseAVResponse(indicator: string, data: AVResponse, interval: string):
         timestamp,
         vwap: parseFloat(v['VWAP']),
       })),
-      latest: parseFloat(Object.values(vwapData)[0]?.['VWAP'] ?? '0'),
+      latest: parseFloat((Object.values(vwapData) as any[])[0]?.['VWAP'] ?? '0'),
     };
   }
 

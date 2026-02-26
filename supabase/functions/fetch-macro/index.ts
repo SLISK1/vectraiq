@@ -85,6 +85,7 @@ async function fetchECBRate(): Promise<MacroSeries | null> {
     const observations = data?.dataSets?.[0]?.series?.['0:0:0:0:0:0:0']?.observations;
     if (!observations) throw new Error('No observations');
     const lastKey = Object.keys(observations).sort().pop();
+    if (!lastKey) throw new Error('No observation keys');
     const value = parseFloat(observations[lastKey][0]);
     if (isNaN(value)) throw new Error('Invalid ECB value');
     

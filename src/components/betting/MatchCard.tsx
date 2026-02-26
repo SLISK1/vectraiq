@@ -56,7 +56,7 @@ export const MatchCard = ({ match, prediction, isAnalyzing, onAnalyze, onSave, i
   const handleShowDetail = async () => {
     setShowDetail(true);
     if (prediction?.id) {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from('betting_predictions')
         .select('market, line, selection, bet_outcome')
         .eq('match_id', match.id)
