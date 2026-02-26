@@ -250,20 +250,23 @@ const Index = () => {
       const result = await addSymbolMutation.mutateAsync(ticker);
       const name = result.displayName || ticker;
       const isRefetching = !result.isNew && result.reactivated;
+      const isPending = result.isNew && result.pending;
       toast({
         title: result.isNew
-          ? "Tillgång tillagd!"
+          ? isPending ? "Tillgång köad!" : "Tillgång tillagd!"
           : isRefetching
           ? "Hämtar data på nytt..."
           : "Tillgång finns redan",
         description: result.isNew
-          ? `${name} (${ticker}) har lagts till som ${result.detectedType}. Historik, priser och signaler hämtas i bakgrunden — tillgången dyker upp inom ca 30 sekunder.`
+          ? isPending
+            ? `${name} (${ticker}) är tillagd men data kunde inte hämtas just nu (API-limit). Den aktiveras automatiskt vid nästa schemalagda körning.`
+            : `${name} (${ticker}) har lagts till som ${result.detectedType}. Historik, priser och signaler hämtas i bakgrunden — tillgången dyker upp inom ca 30 sekunder.`
           : isRefetching
           ? `${ticker} fanns i systemet men saknade data. Hämtar historik och priser — tillgången dyker upp inom ca 30 sekunder.`
           : `${ticker} finns redan och visas redan i listan.`,
       });
-      // Auto-invalidate after 30s so signals/prices appear
-      if (result.isNew || isRefetching) {
+      // Auto-invalidate after 30s so signals/prices appear (not needed for pending)
+      if ((result.isNew && !isPending) || isRefetching) {
         setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ['symbols'] });
           queryClient.invalidateQueries({ queryKey: ['rankedAssets'] });

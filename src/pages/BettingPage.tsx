@@ -329,14 +329,23 @@ export const BettingPage = () => {
                 {apiBudget.searches_used} / {apiBudget.daily_limit} sökningar
               </span>
             </div>
+            {apiBudget.searches_used === 0 && !apiBudget.last_updated ? (
+              <p className="text-xs text-muted-foreground mt-1">Inga sökningar registrerade idag</p>
+            ) : (
               <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  apiBudget.searches_used > apiBudget.daily_limit - 2 ? 'bg-destructive' : apiBudget.searches_used > apiBudget.daily_limit - 5 ? 'bg-yellow-500' : 'bg-primary'
-                }`}
-                style={{ width: `${Math.min(100, (apiBudget.searches_used / apiBudget.daily_limit) * 100)}%` }}
-              />
-            </div>
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    apiBudget.searches_used > apiBudget.daily_limit - 2 ? 'bg-destructive' : apiBudget.searches_used > apiBudget.daily_limit - 5 ? 'bg-yellow-500' : 'bg-primary'
+                  }`}
+                  style={{ width: `${Math.min(100, (apiBudget.searches_used / apiBudget.daily_limit) * 100)}%` }}
+                />
+              </div>
+            )}
+            {apiBudget.last_updated && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Senast: {new Date(apiBudget.last_updated).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
           </div>
         </div>
       )}
