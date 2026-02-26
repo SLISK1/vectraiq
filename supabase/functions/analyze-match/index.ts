@@ -453,6 +453,11 @@ Deno.serve(async (req) => {
     const newsSection = buildNewsSection([...liveNewsArticles, ...newsApiArticles]);
     const scrapedSection = buildScrapedSection(liveScrapedArticles);
 
+    // === STATISTICAL ENGINE: Poisson p_raw + subscores (ported from betting_system) ===
+    const poissonPRaw = computePoissonPRaw(liveStandings?.home, liveStandings?.away);
+    const matchSubscores = computeSubscores(liveStandings?.home, liveStandings?.away, poissonPRaw);
+    const statsPriorsSection = buildStatsPriorsSection(poissonPRaw, matchSubscores);
+
     // === EVIDENCE GATING ===
     const sources: Array<{ url: string; title: string; date: string; type: string }> = [];
     let hasConfirmedFact = false;
@@ -613,21 +618,24 @@ ${standingsSection}
 
 ${formSection}
 
+${statsPriorsSection}
+
 ${newsSection}
 
 ${scrapedSection}
 
 INSTRUCTIONS:
-1. Use goals scored/conceded per game to estimate Poisson-based goal expectation for each team.
+1. Use the STATISTICAL MODEL PRIORS above as your Poisson baseline for side markets (BTTS, O2.5). These are pre-calculated from standings data — anchor your predictions to them and adjust ±10% only if news/injuries justify it.
 2. Weight: table position (30%) + recent form (30%) + H2H record (25%) + home advantage (15%).
 3. If standings data is missing for a team, rely on H2H and news context.
 4. NEVER invent statistics not shown above.
 5. Base confidence on data quality: more data = higher confidence allowed.
 6. Set predicted_prob to your calculated probability for the predicted_winner outcome (0.0-1.0).
 7. Respond with the analysis in Swedish (ai_reasoning) but keep JSON keys in English.
-8. Also predict these side markets based on the statistical data:
-   - Total goals: Over/Under 2.5 (use Poisson with the calculated goal expectations)
-   - BTTS (Both Teams To Score): based on goals scored/conceded per game
+8. GoalChaos and Volatility subscores are provided — use GoalChaos for BTTS/goals markets, Volatility for draw probability (high Volatility = more likely draw).
+9. Also predict these side markets based on the statistical data:
+   - Total goals: Over/Under 2.5 (start from the statistical prior above)
+   - BTTS (Both Teams To Score): start from the statistical prior above
    - Corners: Over/Under 9.5 (estimate from league averages and team attacking style)
    - Cards: Over/Under 3.5 (estimate from league discipline stats and match importance)
    - First half goals: Over/Under 1.5 (estimate ~45% of total goals in first half)
@@ -807,8 +815,31 @@ INSTRUKTIONER:
       ? Math.min(1.0, Math.max(0.25, modelEdge * 5 * 100))
       : null;
 
+    // === CORRELATION FILTER (ported from betting_system/leg_selector.py) ===
+    // BTTS and O2.5 are correlated ~0.7 — never recommend both as positive picks.
+    // Keep only the one with higher model probability; the other gets suppressed.
+    const rawSidePredictions = aiResult.side_predictions || null;
+    const { filtered: sidePredictions, droppedMarket: correlationDropped } =
+      applyCorrelationFilter(rawSidePredictions);
+    if (correlationDropped) {
+      console.log(`Correlation filter dropped: ${correlationDropped} (correlated with kept market)`);
+    }
+
+    // === 3-PHASE CALIBRATION for p_raw priors ===
+    // Calibrate the Poisson-derived p_raw values using historical betting outcomes.
+    // Phase 1 (<80 resolved bets): conservative shrinkage (p_raw * 0.85)
+    // Phase 2 (80-199): Laplace-weighted blend of proxy and empirical bucket
+    // Phase 3 (≥200): full empirical Laplace-smoothed bucket
+    let calBtts: { pCal: number; phase: number } | null = null;
+    let calO25: { pCal: number; phase: number } | null = null;
+    if (poissonPRaw.btts !== null) {
+      calBtts = await getCalibration(supabaseService, "BTTS", poissonPRaw.btts);
+    }
+    if (poissonPRaw.o25 !== null) {
+      calO25 = await getCalibration(supabaseService, "OU_GOALS", poissonPRaw.o25);
+    }
+
     // Calculate side market edges
-    const sidePredictions = aiResult.side_predictions || null;
     let sideEdges: Record<string, number> | null = null;
     if (sidePredictions) {
       sideEdges = {};
@@ -852,6 +883,13 @@ INSTRUKTIONER:
           side_predictions: sidePredictions,
           side_edges: sideEdges,
           deep_analysis: deepAnalysis,
+          poisson_priors: poissonPRaw,
+          subscores: matchSubscores,
+          calibration: {
+            btts: calBtts,
+            o25: calO25,
+          },
+          correlation_dropped: correlationDropped,
         },
         ai_reasoning: aiResult.ai_reasoning || "",
         sources_used: sources,
@@ -1195,4 +1233,214 @@ function extractJsonFromResponse(response: string): any {
 
     return JSON.parse(cleaned);
   }
+}
+
+// ============================================================
+// STATISTICAL ENGINE — ported from betting_system/
+// ============================================================
+
+/**
+ * Poisson-based p_raw computation from standings data.
+ * Mirrors scoring/probability.py: uses geometric mean of team rates.
+ *
+ * Expected goals: lambda = HOME_ADV * geomean(attack_rate, opponent_defense_rate)
+ * P(BTTS) = P(home > 0) × P(away > 0)   [Poisson: P(>0) = 1 - e^-lambda]
+ * P(O2.5) = 1 - P(0 goals) - P(1 goal) - P(2 goals)  [total Poisson]
+ */
+interface PoissonPRaw {
+  btts: number | null;
+  o25: number | null;
+  lambdaHome: number | null;
+  lambdaAway: number | null;
+}
+
+function computePoissonPRaw(home: any, away: any): PoissonPRaw {
+  const NULL_RESULT: PoissonPRaw = { btts: null, o25: null, lambdaHome: null, lambdaAway: null };
+  if (!home?.playedGames || !away?.playedGames || home.playedGames < 3 || away.playedGames < 3) {
+    return NULL_RESULT;
+  }
+
+  const homeGF = home.goalsFor / home.playedGames;
+  const homeGA = home.goalsAgainst / home.playedGames;
+  const awayGF = away.goalsFor / away.playedGames;
+  const awayGA = away.goalsAgainst / away.playedGames;
+
+  // Geometric mean of attack × opposition defense, with home advantage factor
+  const HOME_ADV = 1.15;
+  const lambdaHome = Math.max(0.1, HOME_ADV * Math.sqrt(homeGF * awayGA));
+  const lambdaAway = Math.max(0.1, (1 / HOME_ADV) * Math.sqrt(awayGF * homeGA));
+
+  // P(team scores ≥ 1) = 1 - P(0 goals) = 1 - e^-lambda
+  const pHomeScores = 1 - Math.exp(-lambdaHome);
+  const pAwayScores = 1 - Math.exp(-lambdaAway);
+
+  // P(BTTS): both teams score at least once (assumes independence after correlation filter)
+  const pBtts = Math.min(0.99, Math.max(0.01, pHomeScores * pAwayScores));
+
+  // P(Over 2.5): 1 - P(X ≤ 2) where X ~ Poisson(lambda_total)
+  const lt = lambdaHome + lambdaAway;
+  const pUnder25 =
+    Math.exp(-lt) +                        // P(X=0)
+    lt * Math.exp(-lt) +                   // P(X=1)
+    ((lt * lt) / 2) * Math.exp(-lt);       // P(X=2)
+  const pOver25 = Math.min(0.99, Math.max(0.01, 1 - pUnder25));
+
+  return {
+    btts: Math.round(pBtts * 1000) / 1000,
+    o25: Math.round(pOver25 * 1000) / 1000,
+    lambdaHome: Math.round(lambdaHome * 100) / 100,
+    lambdaAway: Math.round(lambdaAway * 100) / 100,
+  };
+}
+
+/**
+ * Compute GoalChaos and Volatility subscores [0-100].
+ * Mirrors scoring/subscores.py:
+ *   GoalChaos  — how likely is a high-scoring match? (attack-based)
+ *   Volatility — how unpredictable is the result?  (form-evenness-based)
+ */
+interface MatchSubscores {
+  goalChaos: number;
+  volatility: number;
+  chaosScore: number;
+}
+
+function computeSubscores(home: any, away: any, pRaw: PoissonPRaw): MatchSubscores {
+  const DEFAULT: MatchSubscores = { goalChaos: 50, volatility: 50, chaosScore: 50 };
+  if (!home || !away) return DEFAULT;
+
+  const sigmoid = (x: number) => 100 / (1 + Math.exp(-x));
+
+  // --- GoalChaos: based on expected goals potential ---
+  const hGF = (home.goalsFor || 0) / Math.max(1, home.playedGames || 1);
+  const aGF = (away.goalsFor || 0) / Math.max(1, away.playedGames || 1);
+  const totalGoalsRate = hGF + aGF; // goals per match combined
+  // Centre at league average ~2.5, scale so 3.5 goals/game ≈ 73, 1.5 ≈ 27
+  const goalChaos = Math.round(sigmoid(totalGoalsRate - 2.5));
+
+  // Override with Poisson-derived BTTS prior if available (more precise)
+  const goalChaosAdjusted = pRaw.btts !== null
+    ? Math.round(0.6 * goalChaos + 0.4 * (pRaw.btts * 100))
+    : goalChaos;
+
+  // --- Volatility: form evenness → high when teams are similarly matched ---
+  const hPPG = (home.points || 0) / Math.max(1, home.playedGames || 1);
+  const aPPG = (away.points || 0) / Math.max(1, away.playedGames || 1);
+  const formDiff = Math.abs(hPPG - aPPG); // 0 = even, 3 = max gap
+  // Even matchup (diff ≈ 0) → high volatility (unpredictable); lopsided → low
+  const volatility = Math.round(sigmoid(1.5 - formDiff));
+
+  // Combined chaos score (weights from config.CHAOS_WEIGHTS_V0)
+  const chaosScore = Math.round(0.65 * goalChaosAdjusted + 0.35 * volatility);
+
+  return { goalChaos: goalChaosAdjusted, volatility, chaosScore };
+}
+
+/**
+ * Build the statistical priors prompt section.
+ * Gives the AI anchored starting points for BTTS/O2.5 instead of guessing from scratch.
+ */
+function buildStatsPriorsSection(pRaw: PoissonPRaw, subscores: MatchSubscores): string {
+  if (pRaw.lambdaHome === null) {
+    return "STATISTICAL MODEL PRIORS: Ej tillgängliga (otillräckliga matchdata).";
+  }
+  return [
+    "STATISTICAL MODEL PRIORS (Poisson-baserat från ligatabell):",
+    `  Förväntade mål: Hemma ${pRaw.lambdaHome} | Borta ${pRaw.lambdaAway}`,
+    `  P(BTTS) statistisk prior: ${pRaw.btts !== null ? (pRaw.btts * 100).toFixed(1) + "%" : "N/A"}`,
+    `  P(Över 2.5 mål) statistisk prior: ${pRaw.o25 !== null ? (pRaw.o25 * 100).toFixed(1) + "%" : "N/A"}`,
+    `  GoalChaos-subscore: ${subscores.goalChaos}/100 (attack/scoringpotential)`,
+    `  Volatility-subscore: ${subscores.volatility}/100 (formmässig jämnhet → oavgjort-risk)`,
+    `  ChaosScore: ${subscores.chaosScore}/100 (sammansatt)`,
+    "  Förankra dina side-market-prediktioner i dessa siffror. Justera max ±10% baserat på nyheter/skador.",
+  ].join("\n");
+}
+
+/**
+ * Correlation filter — mirrors betting_system/leg_selector.py FORBIDDEN_COMBOS.
+ *
+ * BTTS(yes) and O2.5(over) are correlated ~0.7.
+ * When both are positive predictions, keep only the one with higher probability.
+ */
+function applyCorrelationFilter(
+  sidePredictions: any,
+): { filtered: any; droppedMarket: string | null } {
+  if (!sidePredictions) return { filtered: sidePredictions, droppedMarket: null };
+
+  // btts ≡ BTTS market, total_goals ≡ O2.5 market
+  const FORBIDDEN_COMBOS: [string, string][] = [["btts", "total_goals"]];
+
+  for (const [a, b] of FORBIDDEN_COMBOS) {
+    if (!sidePredictions[a] || !sidePredictions[b]) continue;
+
+    const aIsPositive =
+      sidePredictions[a].prediction === "yes" || sidePredictions[a].prediction === "over";
+    const bIsPositive =
+      sidePredictions[b].prediction === "yes" || sidePredictions[b].prediction === "over";
+
+    if (!aIsPositive || !bIsPositive) continue; // only filter if both are bullish
+
+    const probA = sidePredictions[a].prob || 0;
+    const probB = sidePredictions[b].prob || 0;
+
+    // Keep the higher-confidence leg, drop the other
+    if (probA >= probB) {
+      const { [b]: _dropped, ...rest } = sidePredictions;
+      return { filtered: rest, droppedMarket: b };
+    } else {
+      const { [a]: _dropped, ...rest } = sidePredictions;
+      return { filtered: rest, droppedMarket: a };
+    }
+  }
+
+  return { filtered: sidePredictions, droppedMarket: null };
+}
+
+/**
+ * 3-phase calibration — mirrors calibration/calibrator.py.
+ *
+ * Phase 1 (N < 80):  p_cal = clamp(p_raw * 0.85, 0.01, 0.99)   conservative prior
+ * Phase 2 (80-199):  p_cal = (1-w)*proxy + w*empirical           N-weighted blend
+ * Phase 3 (N ≥ 200): p_cal = Laplace-smoothed empirical bucket   full data-driven
+ */
+async function getCalibration(
+  supabase: any,
+  market: string,
+  pRaw: number,
+): Promise<{ pCal: number; phase: number; nBets: number }> {
+  const clamp = (v: number) => Math.min(0.99, Math.max(0.01, v));
+  const pProxy = clamp(pRaw * 0.85);
+
+  // Count resolved bets for this market
+  const { count } = await supabase
+    .from("betting_predictions")
+    .select("*", { count: "exact", head: true })
+    .eq("market", market)
+    .not("bet_outcome", "is", null);
+
+  const nBets = count || 0;
+  const phase = nBets < 80 ? 1 : nBets < 200 ? 2 : 3;
+
+  if (phase === 1) return { pCal: pProxy, phase, nBets };
+
+  const bucketIdx = Math.min(9, Math.floor(pRaw * 10));
+  const { data: bucket } = await supabase
+    .from("betting_calibration_buckets")
+    .select("n_bets, n_wins")
+    .eq("market", market)
+    .eq("bucket_idx", bucketIdx)
+    .maybeSingle();
+
+  const pBucket =
+    bucket && bucket.n_bets > 0
+      ? clamp((bucket.n_wins + 1) / (bucket.n_bets + 2)) // Laplace smoothing
+      : pProxy;
+
+  if (phase === 2) {
+    // N-dependent weight: grows 0 → 1 as N grows from 80 → 200
+    const w = Math.min(1, Math.max(0, (nBets - 80) / (200 - 80)));
+    return { pCal: clamp((1 - w) * pProxy + w * pBucket), phase, nBets };
+  }
+
+  return { pCal: pBucket, phase, nBets };
 }
