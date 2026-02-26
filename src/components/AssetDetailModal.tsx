@@ -62,7 +62,7 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
         .eq('ticker', asset.ticker)
         .limit(1);
       if (!symbols?.length) return null;
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from('features')
         .select('ts, data_coverage')
         .eq('asset_id', symbols[0].id)
@@ -82,7 +82,7 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
     queryKey: ['calibration', asset.horizon, asset.confidence],
     queryFn: async () => {
       const bin = Math.min(9, Math.floor(asset.confidence / 10));
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from('calibration_bins')
         .select('hit_rate, brier, n')
         .eq('horizon', asset.horizon)
