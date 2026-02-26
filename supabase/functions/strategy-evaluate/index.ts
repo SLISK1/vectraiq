@@ -102,7 +102,8 @@ function normalizeFromDB(
     ? Math.round((dirSignals.length / nonNeutralSignals.length) * 100)
     : 50;
 
-  const expectedModules = 8;
+  // generate-signals produces 6 modules: technical, volatility, quant, seasonal, sentiment, macro
+  const expectedModules = 6;
   const coverage = Math.min(100, Math.round((moduleCount / expectedModules) * 100));
 
   const volMod = modules["volatility"];

@@ -135,7 +135,11 @@ const transformToRankedAsset = async (
     return 'small';
   };
 
-  const marketCapValue = price?.market_cap ? Number(price.market_cap) : undefined;
+  const marketCapValue = price?.market_cap
+    ? Number(price.market_cap)
+    : symbol.fundamentals?.marketCap
+      ? Number(symbol.fundamentals.marketCap)
+      : undefined;
   
   return {
     ticker: symbol.ticker,
