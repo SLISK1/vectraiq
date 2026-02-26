@@ -196,8 +196,9 @@ export function normalizeFromDB(
     ? Math.round((dirSignals.length / nonNeutralSignals.length) * 100)
     : 50;
 
-  // Coverage: how many of the 8 expected modules have data
-  const expectedModules = 8;
+  // Coverage: how many of the 6 produced modules have data
+  // generate-signals produces: technical, volatility, quant, seasonal, sentiment, macro
+  const expectedModules = 6;
   const coverage = Math.min(100, Math.round((moduleCount / expectedModules) * 100));
 
   // VolRisk: from volatility module direction
