@@ -229,6 +229,32 @@ Deno.serve(async (req) => {
     }
     await updateRun('running');
 
+    // ==================== STEP 4.5: SETTLE BETTING PREDICTIONS ====================
+    // Settles finished matches: scores 1X2 outcomes AND side bets (OU_GOALS, BTTS, etc.)
+    // Fails gracefully if the A1 migration (market column) has not been applied yet.
+    console.log('=== Step 4.5: betting-settle ===');
+    const settleResult = await callEdgeFunction(supabaseUrl, serviceKey, 'betting-settle');
+
+    if (settleResult.ok) {
+      stepResults.push({
+        step: 'betting-settle', status: 'success',
+        duration_ms: settleResult.duration_ms,
+        details: {
+          settled: settleResult.data?.settled || 0,
+          matches_updated: settleResult.data?.matches_updated || 0,
+        },
+      });
+    } else {
+      // Non-fatal — settle can fail if migration not applied yet
+      errors.push({ step: 'betting-settle', error: settleResult.data?.error || `HTTP ${settleResult.status}` });
+      stepResults.push({
+        step: 'betting-settle', status: 'partial',
+        duration_ms: settleResult.duration_ms,
+        details: { error: settleResult.data?.error },
+      });
+    }
+    await updateRun('running');
+
     // ==================== STEP 5: FETCH MATCHES ====================
     console.log('=== Step 5: fetch-matches ===');
     const matchResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-matches', { sport: 'all' });
