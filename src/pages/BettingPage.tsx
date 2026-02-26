@@ -98,13 +98,37 @@ export const BettingPage = () => {
     if (isPoolSport) return;
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('betting_matches')
-        .select('*')
-        .eq('sport', selectedSport)
-        .neq('status', 'budget_tracker')
-        .order('match_date', { ascending: false })
-        .limit(60);
+      // Fetch upcoming matches (next 14 days) + recent finished (last 7 days)
+      // Two separate queries so upcoming always shows regardless of how many
+      // finished matches exist in the DB.
+      const now        = new Date();
+      const sevenDaysAgo  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const fourteenAhead = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      const [upcomingRes, finishedRes] = await Promise.all([
+        supabase
+          .from('betting_matches')
+          .select('*')
+          .eq('sport', selectedSport)
+          .neq('status', 'budget_tracker')
+          .gte('match_date', now.toISOString())
+          .lte('match_date', fourteenAhead)
+          .order('match_date', { ascending: true })
+          .limit(50),
+        supabase
+          .from('betting_matches')
+          .select('*')
+          .eq('sport', selectedSport)
+          .neq('status', 'budget_tracker')
+          .gte('match_date', sevenDaysAgo)
+          .lt('match_date', now.toISOString())
+          .order('match_date', { ascending: false })
+          .limit(20),
+      ]);
+
+      const { data, error } = upcomingRes.error
+        ? upcomingRes
+        : { data: [...(upcomingRes.data || []), ...(finishedRes.data || [])], error: finishedRes.error };
 
       if (error) throw error;
       setMatches((data || []) as BettingMatch[]);
@@ -150,16 +174,30 @@ export const BettingPage = () => {
 
       if (error) throw error;
 
+      // Surface API-key errors returned as success:false from the Edge Function
+      if (data?.success === false && data?.error) {
+        toast({
+          title: 'Konfigurationsfel',
+          description: data.error,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const count = data.inserted || 0;
       toast({
-        title: 'Matcher hämtade',
-        description: `${data.inserted || 0} nya matcher tillagda.`,
+        title: count > 0 ? 'Matcher hämtade' : 'Inga nya matcher',
+        description: count > 0
+          ? `${count} nya matcher tillagda.`
+          : 'Inga nya matcher i perioden, eller API-nyckeln saknas i Supabase Secrets.',
+        variant: count > 0 ? 'default' : 'destructive',
       });
 
       await loadMatches();
     } catch (err) {
       toast({
         title: 'Fel',
-        description: 'Kunde inte hämta matcher. Kontrollera API-nyckeln.',
+        description: 'Kunde inte hämta matcher. Kontrollera att FOOTBALL_DATA_API_KEY är satt under Project Settings → Edge Functions → Secrets.',
         variant: 'destructive',
       });
     } finally {
@@ -285,12 +323,12 @@ export const BettingPage = () => {
     ? matches
     : matches.filter(m => m.league === selectedLeague);
 
-  // Split into upcoming and finished/played
-  // A match is considered "played" if status is FINISHED or match_date is in the past
-  const now = new Date();
+  // Split into upcoming and finished — the DB query already separates them by date,
+  // but filteredMatches may mix them after the league filter, so re-split here.
+  const nowTs = Date.now();
   const isMatchPlayed = (m: BettingMatch) => {
     if (m.status === 'FINISHED' || m.status === 'finished') return true;
-    return new Date(m.match_date) < now;
+    return new Date(m.match_date).getTime() < nowTs;
   };
   const upcomingMatchesRaw = filteredMatches
     .filter(m => !isMatchPlayed(m))
