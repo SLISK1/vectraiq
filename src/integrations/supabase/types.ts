@@ -225,7 +225,9 @@ export type Database = {
       }
       betting_predictions: {
         Row: {
+          actual_value: number | null
           ai_reasoning: string | null
+          bet_outcome: string | null
           cap_reason: string | null
           clv: number | null
           confidence_capped: number
@@ -234,6 +236,8 @@ export type Database = {
           id: string
           is_value_bet: boolean | null
           key_factors: Json | null
+          line: number | null
+          market: string | null
           market_implied_prob: number | null
           market_odds_away: number | null
           market_odds_draw: number | null
@@ -245,12 +249,16 @@ export type Database = {
           predicted_prob: number
           predicted_winner: string
           scored_at: string | null
+          selection: string | null
+          settled_at: string | null
           sources_hash: string | null
           sources_used: Json | null
           suggested_stake_pct: number | null
         }
         Insert: {
+          actual_value?: number | null
           ai_reasoning?: string | null
+          bet_outcome?: string | null
           cap_reason?: string | null
           clv?: number | null
           confidence_capped: number
@@ -259,6 +267,8 @@ export type Database = {
           id?: string
           is_value_bet?: boolean | null
           key_factors?: Json | null
+          line?: number | null
+          market?: string | null
           market_implied_prob?: number | null
           market_odds_away?: number | null
           market_odds_draw?: number | null
@@ -270,12 +280,16 @@ export type Database = {
           predicted_prob: number
           predicted_winner: string
           scored_at?: string | null
+          selection?: string | null
+          settled_at?: string | null
           sources_hash?: string | null
           sources_used?: Json | null
           suggested_stake_pct?: number | null
         }
         Update: {
+          actual_value?: number | null
           ai_reasoning?: string | null
+          bet_outcome?: string | null
           cap_reason?: string | null
           clv?: number | null
           confidence_capped?: number
@@ -284,6 +298,8 @@ export type Database = {
           id?: string
           is_value_bet?: boolean | null
           key_factors?: Json | null
+          line?: number | null
+          market?: string | null
           market_implied_prob?: number | null
           market_odds_away?: number | null
           market_odds_draw?: number | null
@@ -295,6 +311,8 @@ export type Database = {
           predicted_prob?: number
           predicted_winner?: string
           scored_at?: string | null
+          selection?: string | null
+          settled_at?: string | null
           sources_hash?: string | null
           sources_used?: Json | null
           suggested_stake_pct?: number | null
@@ -351,6 +369,33 @@ export type Database = {
           },
         ]
       }
+      calibration_bins: {
+        Row: {
+          brier: number | null
+          hit_rate: number | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          n: number | null
+          score_bin: number
+          updated_at: string
+        }
+        Insert: {
+          brier?: number | null
+          hit_rate?: number | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          n?: number | null
+          score_bin: number
+          updated_at?: string
+        }
+        Update: {
+          brier?: number | null
+          hit_rate?: number | null
+          horizon?: Database["public"]["Enums"]["horizon_type"]
+          n?: number | null
+          score_bin?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       calibration_stats: {
         Row: {
           actual_up_count: number | null
@@ -395,6 +440,44 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      features: {
+        Row: {
+          asset_id: string
+          created_at: string
+          data_coverage: number | null
+          feature_set_version: string
+          id: string
+          ts: string
+          values: Json
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          data_coverage?: number | null
+          feature_set_version?: string
+          id?: string
+          ts: string
+          values?: Json
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          data_coverage?: number | null
+          feature_set_version?: string
+          id?: string
+          ts?: string
+          values?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "features_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       macro_cache: {
         Row: {
@@ -503,6 +586,44 @@ export type Database = {
           url?: string | null
         }
         Relationships: []
+      }
+      outcomes: {
+        Row: {
+          baseline_return_pct: number | null
+          excess_return_pct: number | null
+          exit_price: number | null
+          hit: boolean | null
+          prediction_id: string
+          return_pct: number | null
+          scored_at: string
+        }
+        Insert: {
+          baseline_return_pct?: number | null
+          excess_return_pct?: number | null
+          exit_price?: number | null
+          hit?: boolean | null
+          prediction_id: string
+          return_pct?: number | null
+          scored_at?: string
+        }
+        Update: {
+          baseline_return_pct?: number | null
+          excess_return_pct?: number | null
+          exit_price?: number | null
+          hit?: boolean | null
+          prediction_id?: string
+          return_pct?: number | null
+          scored_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outcomes_prediction_id_fkey"
+            columns: ["prediction_id"]
+            isOneToOne: true
+            referencedRelation: "predictions"
+            referencedColumns: ["prediction_id"]
+          },
+        ]
       }
       paper_holdings: {
         Row: {
@@ -805,6 +926,119 @@ export type Database = {
           },
         ]
       }
+      predictions: {
+        Row: {
+          asset_id: string
+          confidence: number | null
+          created_at: string
+          entry_price: number | null
+          features_hash: string | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          predicted_direction: Database["public"]["Enums"]["signal_direction"]
+          predicted_prob: number | null
+          prediction_id: string
+          rank_run_id: string | null
+          target_ts: string | null
+          user_id: string | null
+        }
+        Insert: {
+          asset_id: string
+          confidence?: number | null
+          created_at?: string
+          entry_price?: number | null
+          features_hash?: string | null
+          horizon: Database["public"]["Enums"]["horizon_type"]
+          predicted_direction: Database["public"]["Enums"]["signal_direction"]
+          predicted_prob?: number | null
+          prediction_id?: string
+          rank_run_id?: string | null
+          target_ts?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          asset_id?: string
+          confidence?: number | null
+          created_at?: string
+          entry_price?: number | null
+          features_hash?: string | null
+          horizon?: Database["public"]["Enums"]["horizon_type"]
+          predicted_direction?: Database["public"]["Enums"]["signal_direction"]
+          predicted_prob?: number | null
+          prediction_id?: string
+          rank_run_id?: string | null
+          target_ts?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "predictions_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "predictions_rank_run_id_fkey"
+            columns: ["rank_run_id"]
+            isOneToOne: false
+            referencedRelation: "rank_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      price_bars: {
+        Row: {
+          asset_id: string
+          close: number | null
+          created_at: string
+          high: number | null
+          id: string
+          interval: string
+          low: number | null
+          open: number | null
+          quality_score: number | null
+          source_provider: string | null
+          ts: string
+          volume: number | null
+        }
+        Insert: {
+          asset_id: string
+          close?: number | null
+          created_at?: string
+          high?: number | null
+          id?: string
+          interval?: string
+          low?: number | null
+          open?: number | null
+          quality_score?: number | null
+          source_provider?: string | null
+          ts: string
+          volume?: number | null
+        }
+        Update: {
+          asset_id?: string
+          close?: number | null
+          created_at?: string
+          high?: number | null
+          id?: string
+          interval?: string
+          low?: number | null
+          open?: number | null
+          quality_score?: number | null
+          source_provider?: string | null
+          ts?: string
+          volume?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_bars_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_history: {
         Row: {
           close_price: number
@@ -882,6 +1116,54 @@ export type Database = {
         }
         Relationships: []
       }
+      rank_results: {
+        Row: {
+          asset_id: string
+          confidence: number | null
+          created_at: string
+          id: string
+          rank: number | null
+          rank_run_id: string
+          score_signed: number | null
+          top_contributors: Json | null
+        }
+        Insert: {
+          asset_id: string
+          confidence?: number | null
+          created_at?: string
+          id?: string
+          rank?: number | null
+          rank_run_id: string
+          score_signed?: number | null
+          top_contributors?: Json | null
+        }
+        Update: {
+          asset_id?: string
+          confidence?: number | null
+          created_at?: string
+          id?: string
+          rank?: number | null
+          rank_run_id?: string
+          score_signed?: number | null
+          top_contributors?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rank_results_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rank_results_rank_run_id_fkey"
+            columns: ["rank_run_id"]
+            isOneToOne: false
+            referencedRelation: "rank_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rank_runs: {
         Row: {
           completed_at: string | null
@@ -891,6 +1173,9 @@ export type Database = {
           horizon: Database["public"]["Enums"]["horizon_type"]
           id: string
           total_assets_ranked: number
+          ts: string | null
+          universe_filter: Json | null
+          weights: Json | null
         }
         Insert: {
           completed_at?: string | null
@@ -900,6 +1185,9 @@ export type Database = {
           horizon: Database["public"]["Enums"]["horizon_type"]
           id?: string
           total_assets_ranked?: number
+          ts?: string | null
+          universe_filter?: Json | null
+          weights?: Json | null
         }
         Update: {
           completed_at?: string | null
@@ -909,6 +1197,9 @@ export type Database = {
           horizon?: Database["public"]["Enums"]["horizon_type"]
           id?: string
           total_assets_ranked?: number
+          ts?: string | null
+          universe_filter?: Json | null
+          weights?: Json | null
         }
         Relationships: []
       }
@@ -1031,6 +1322,7 @@ export type Database = {
           coverage: number
           created_at: string
           direction: Database["public"]["Enums"]["signal_direction"]
+          direction_num: number | null
           evidence: Json | null
           horizon: Database["public"]["Enums"]["horizon_type"]
           id: string
@@ -1038,12 +1330,14 @@ export type Database = {
           rank_run_id: string | null
           strength: number
           symbol_id: string
+          ts: string | null
         }
         Insert: {
           confidence: number
           coverage?: number
           created_at?: string
           direction: Database["public"]["Enums"]["signal_direction"]
+          direction_num?: number | null
           evidence?: Json | null
           horizon: Database["public"]["Enums"]["horizon_type"]
           id?: string
@@ -1051,12 +1345,14 @@ export type Database = {
           rank_run_id?: string | null
           strength: number
           symbol_id: string
+          ts?: string | null
         }
         Update: {
           confidence?: number
           coverage?: number
           created_at?: string
           direction?: Database["public"]["Enums"]["signal_direction"]
+          direction_num?: number | null
           evidence?: Json | null
           horizon?: Database["public"]["Enums"]["horizon_type"]
           id?: string
@@ -1064,6 +1360,7 @@ export type Database = {
           rank_run_id?: string | null
           strength?: number
           symbol_id?: string
+          ts?: string | null
         }
         Relationships: [
           {
