@@ -252,8 +252,13 @@ Deno.serve(async (req) => {
       days = body.days || 365;
     } catch {}
 
-    let query = supabase.from('symbols').select('id, ticker, asset_type, metadata').eq('is_active', true);
-    if (requestedTickers?.length) { query = query.in('ticker', requestedTickers); }
+    let query = supabase.from('symbols').select('id, ticker, asset_type, metadata');
+    if (requestedTickers?.length) {
+      // When specific tickers are requested, bypass is_active filter (allows fetching pending/inactive symbols)
+      query = query.in('ticker', requestedTickers);
+    } else {
+      query = query.eq('is_active', true);
+    }
     const { data: symbols, error: symError } = await query;
 
     if (symError || !symbols?.length) {

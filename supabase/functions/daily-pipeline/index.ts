@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
       .select('ticker')
       .eq('is_active', true);
     
-    const allTickers = (symbols || []).map((s: any) => s.ticker);
+    let allTickers = (symbols || []).map((s: any) => s.ticker);
     coverage.prices.attempted = allTickers.length;
 
     const priceResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-prices');
@@ -126,6 +126,54 @@ Deno.serve(async (req) => {
         step: 'fetch-prices', status: 'failed',
         duration_ms: priceResult.duration_ms,
         details: { error: priceResult.data?.error },
+      });
+    }
+    await updateRun('running');
+
+    // ==================== STEP 1.5: ACTIVATE PENDING SYMBOLS ====================
+    console.log('=== Step 1.5: activate-pending ===');
+    const activateStart = Date.now();
+    const { data: pendingSymbols } = await supabase
+      .from('symbols')
+      .select('id, ticker')
+      .eq('is_active', false);
+
+    const pendingTickers = (pendingSymbols || []).map((s: any) => s.ticker);
+
+    if (pendingTickers.length > 0) {
+      console.log(`Found ${pendingTickers.length} pending symbols: ${pendingTickers.join(', ')}`);
+
+      // Fetch data — bypasses is_active filter because tickers are explicitly passed
+      await Promise.allSettled([
+        callEdgeFunction(supabaseUrl, serviceKey, 'fetch-history', { tickers: pendingTickers, days: 365 }),
+        callEdgeFunction(supabaseUrl, serviceKey, 'fetch-prices', { tickers: pendingTickers }),
+      ]);
+
+      // Activate symbols that now have price data
+      let activated = 0;
+      for (const sym of (pendingSymbols || [])) {
+        const { count } = await supabase
+          .from('raw_prices')
+          .select('*', { count: 'exact', head: true })
+          .eq('symbol_id', sym.id);
+        if ((count ?? 0) > 0) {
+          await supabase.from('symbols').update({ is_active: true }).eq('id', sym.id);
+          allTickers.push(sym.ticker); // Include in signal generation
+          activated++;
+        }
+      }
+
+      console.log(`Activated ${activated}/${pendingTickers.length} pending symbols`);
+      stepResults.push({
+        step: 'activate-pending', status: activated > 0 ? 'success' : 'partial',
+        duration_ms: Date.now() - activateStart,
+        details: { pending_found: pendingTickers.length, activated },
+      });
+    } else {
+      stepResults.push({
+        step: 'activate-pending', status: 'skipped',
+        duration_ms: Date.now() - activateStart,
+        details: { pending_found: 0, activated: 0 },
       });
     }
     await updateRun('running');

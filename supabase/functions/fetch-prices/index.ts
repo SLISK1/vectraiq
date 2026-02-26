@@ -241,9 +241,12 @@ Deno.serve(async (req) => {
       }
     } catch { /* no body = fetch all */ }
 
-    let query = supabase.from('symbols').select('id, ticker, asset_type, metadata').eq('is_active', true);
+    let query = supabase.from('symbols').select('id, ticker, asset_type, metadata');
     if (tickerFilter) {
+      // When specific tickers are requested, bypass is_active filter (allows fetching pending/inactive symbols)
       query = query.in('ticker', tickerFilter);
+    } else {
+      query = query.eq('is_active', true);
     }
     const { data: symbols, error: symError } = await query;
 

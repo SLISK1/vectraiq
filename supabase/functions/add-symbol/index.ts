@@ -251,7 +251,7 @@ Deno.serve(async (req) => {
     const metadata: Record<string, unknown> = {};
     if (proxyEtf) metadata.proxy_etf = proxyEtf;
 
-    // Insert
+    // Insert as pending (is_active=false) — activate only after data is confirmed
     const { data: newSymbol, error } = await supabase
       .from("symbols")
       .insert({
@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
         name: displayName,
         asset_type: assetType,
         currency,
-        is_active: true,
+        is_active: false,
         metadata: Object.keys(metadata).length > 0 ? metadata : null,
       })
       .select()
@@ -272,13 +272,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // === SEQUENTIAL AWAIT: fetch-history + fetch-prices, then generate-signals ===
+    // === TRY TO FETCH DATA IMMEDIATELY ===
     const internalHeaders = {
       Authorization: `Bearer ${supabaseServiceKey}`,
       "Content-Type": "application/json",
     };
 
-    // 1. Fetch history + prices in parallel (both must complete before signals)
+    // Fetch history + prices in parallel (bypass is_active filter since tickers are explicit)
     const [histRes, priceRes] = await Promise.allSettled([
       fetch(`${supabaseUrl}/functions/v1/fetch-history`, {
         method: "POST",
@@ -292,30 +292,51 @@ Deno.serve(async (req) => {
       }),
     ]);
 
-    console.log(`History: ${histRes.status}, Prices: ${priceRes.status}`);
+    const histOk = histRes.status === "fulfilled" && histRes.value.ok;
+    const priceOk = priceRes.status === "fulfilled" && priceRes.value.ok;
+    const dataFetched = histOk || priceOk;
 
-    // 2. Generate signals AFTER price data is available
-    try {
-      await fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
+    console.log(`History: ${histRes.status}/${histOk}, Prices: ${priceRes.status}/${priceOk}`);
+
+    if (dataFetched) {
+      // Data arrived — activate the symbol now
+      await supabase.from("symbols").update({ is_active: true }).eq("id", newSymbol.id);
+
+      // Fire generate-signals async (non-blocking)
+      fetch(`${supabaseUrl}/functions/v1/generate-signals`, {
         method: "POST",
         headers: internalHeaders,
         body: JSON.stringify({ tickers: [cleanTicker], allHorizons: true }),
+      }).catch(() => {});
+
+      console.log(`User ${userId} added symbol: ${cleanTicker} (${displayName}, ${assetType}, ${currency}) — ACTIVATED`);
+
+      return new Response(JSON.stringify({
+        success: true,
+        isNew: true,
+        pending: false,
+        symbol: { ...newSymbol, is_active: true },
+        detectedType: assetType,
+        displayName,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    } catch (e) {
-      console.warn('generate-signals trigger failed:', e);
+    } else {
+      // Data fetch failed (likely API rate limit) — symbol stays pending (is_active=false)
+      // Daily pipeline will pick it up via activate-pending step
+      console.log(`User ${userId} added symbol: ${cleanTicker} (${displayName}) — PENDING (data fetch failed, will retry in daily pipeline)`);
+
+      return new Response(JSON.stringify({
+        success: true,
+        isNew: true,
+        pending: true,
+        symbol: newSymbol,
+        detectedType: assetType,
+        displayName,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-
-    console.log(`User ${userId} added symbol: ${cleanTicker} (${displayName}, ${assetType}, ${currency})`);
-
-    return new Response(JSON.stringify({ 
-      success: true, 
-      isNew: true, 
-      symbol: newSymbol, 
-      detectedType: assetType,
-      displayName,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
   } catch (e) {
     console.error("add-symbol error:", e);
     return new Response(JSON.stringify({ error: String(e) }), {
