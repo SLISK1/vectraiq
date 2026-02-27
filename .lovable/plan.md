@@ -1,35 +1,24 @@
 
 
-# Apply Two Pending Database Migrations
+# Fix betting-settle Build Errors
 
-## Overview
-Two migration files already exist in the codebase but have not been executed against the database. Both are idempotent (using `IF NOT EXISTS` / `IF NOT NULL` guards) and non-destructive.
+## Problem
+Two type errors in `supabase/functions/betting-settle/index.ts`:
+1. Line 217: `.then()` on a PostgREST builder returns `PromiseLike<unknown>`, not `Promise<unknown>`
+2. Line 238: `.rpc()` returns a `PostgrestFilterBuilder`, not `Promise<unknown>`
 
-## Migration 1: Multi-market Betting Support
-**File**: `supabase/migrations/20260225120000_betting_multimarket.sql`
+Both are pushed into `updates: Promise<unknown>[]` (line 194).
 
-Adds 6 columns to `betting_predictions`:
-- `market` (text, default '1X2')
-- `line` (numeric)
-- `selection` (text)
-- `bet_outcome` (text)
-- `actual_value` (numeric)
-- `settled_at` (timestamptz)
+## Fix
+**Line 194**: Change the type annotation from `Promise<unknown>[]` to `PromiseLike<unknown>[]`.
 
-Plus 2 indexes for match-level queries and settlement lookups.
+This single change fixes both errors because:
+- `PromiseLike` is the base interface that both `Promise` and PostgREST thenable objects implement
+- `Promise.all()` (line 250) already accepts `PromiseLike[]`
 
-## Migration 2: Data Architecture (B1)
-**File**: `supabase/migrations/20260225130000_b1_data_architecture.sql`
+## Additionally: SQL update for strategy configs
+Run the requested SQL to update existing `strategy_configs` rows with relaxed thresholds (coverage_min=60, agreement_min=60, vol_risk_max=75, max_staleness_h=48).
 
-- Extends `signals` with `ts` and computed `direction_num`
-- Extends `rank_runs` with `ts`, `weights`, `universe_filter`
-- Creates new tables: `price_bars`, `features`, `rank_results`, `predictions`, `outcomes`, `calibration_bins`
-- All with RLS enabled and appropriate SELECT policies
-
-## Implementation
-1. Run Migration 1 SQL via the database migration tool
-2. Run Migration 2 SQL via the database migration tool
-3. Verify both applied by checking for new columns/tables
-
-No application code changes needed.
+## No other file changes needed
+The user mentioned 4 files changed in a GitHub pull, but `strategy-evaluate`, `normalizeSnapshot`, `StrategyPage`, and `useMarketData` already have the correct values (expectedModules=6, lowered defaults) in the current codebase. Only the betting-settle type error and the SQL data update remain.
 
