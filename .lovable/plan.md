@@ -1,24 +1,33 @@
 
 
-# Fix betting-settle Build Errors
+# Fix: fetch-matches Returns 0 Matches Due to API Date Range Limit
 
-## Problem
-Two type errors in `supabase/functions/betting-settle/index.ts`:
-1. Line 217: `.then()` on a PostgREST builder returns `PromiseLike<unknown>`, not `Promise<unknown>`
-2. Line 238: `.rpc()` returns a `PostgrestFilterBuilder`, not `Promise<unknown>`
+## Root Cause
+Football-data.org (free tier) limits the date range in a single API call to **10 days maximum**. The current defaults are `days_back=7` + `days_ahead=8` = **15-day range**, which causes the API to return 0 matches for the target competitions (it silently fails without an HTTP error).
 
-Both are pushed into `updates: Promise<unknown>[]` (line 194).
+Confirmed via logs:
+- `2026-02-20 to 2026-03-07` (15 days) -> "0 matches in target competitions"
+- `2026-02-24 to 2026-03-03` (7 days) -> "56 matches in target competitions"
 
-## Fix
-**Line 194**: Change the type annotation from `Promise<unknown>[]` to `PromiseLike<unknown>[]`.
+## Fix: Split into Two API Calls
 
-This single change fixes both errors because:
-- `PromiseLike` is the base interface that both `Promise` and PostgREST thenable objects implement
-- `Promise.all()` (line 250) already accepts `PromiseLike[]`
+**File**: `supabase/functions/fetch-matches/index.ts`
 
-## Additionally: SQL update for strategy configs
-Run the requested SQL to update existing `strategy_configs` rows with relaxed thresholds (coverage_min=60, agreement_min=60, vol_risk_max=75, max_staleness_h=48).
+Instead of one API call spanning 15+ days, split into two calls that each stay under 10 days:
 
-## No other file changes needed
-The user mentioned 4 files changed in a GitHub pull, but `strategy-evaluate`, `normalizeSnapshot`, `StrategyPage`, and `useMarketData` already have the correct values (expectedModules=6, lowered defaults) in the current codebase. Only the betting-settle type error and the SQL data update remain.
+1. **Past matches**: `today - 7 days` to `today` (7 days)
+2. **Future matches**: `today` to `today + 8 days` (8 days)
 
+Then merge the results before filtering by competition.
+
+### Changes (lines ~89-117):
+- Replace the single `/v4/matches?dateFrom=...&dateTo=...` call with two parallel `fetch()` calls
+- Merge the returned arrays into `allMatches`
+- Add better error logging that includes the actual HTTP response when the API returns a non-200 status
+
+### Additional improvement:
+- Log the date ranges for each sub-call for easier debugging
+- Add a console.log showing how many raw matches each sub-call returned
+
+## No Frontend Changes Needed
+The `BettingPage.tsx` already handles the data correctly -- the issue is purely in the edge function's API call exceeding the provider's date range limit.
