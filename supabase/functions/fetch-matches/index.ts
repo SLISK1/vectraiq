@@ -88,33 +88,56 @@ Deno.serve(async (req) => {
 
       const today    = new Date();
       const daysBack = body.days_back || 7;
+      const daysAhead = body.days_ahead || 8;
+
+      // football-data.org free tier limits to 10-day range per call
+      // Split into two sub-calls: past + future
+      const todayStr = today.toISOString().split("T")[0];
       const dateFrom = new Date(today.getTime() - daysBack * 24 * 60 * 60 * 1000)
         .toISOString().split("T")[0];
-      // Always fetch at least 8 days ahead so the full coming weekend is visible
-      const daysAhead = body.days_ahead || 8;
       const dateTo = new Date(today.getTime() + daysAhead * 24 * 60 * 60 * 1000)
         .toISOString().split("T")[0];
 
-      console.log(`Fetching football matches ${dateFrom} → ${dateTo}`);
+      console.log(`Fetching football matches in two calls: ${dateFrom}→${todayStr} and ${todayStr}→${dateTo}`);
 
-      // ── Single API call: all matches for the date range ──────────────────
       let allMatches: any[] = [];
-      try {
-        const response = await fetch(
-          `https://api.football-data.org/v4/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`,
-          { headers: { "X-Auth-Token": footballApiKey } }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          allMatches = data.matches || [];
-          console.log(`API returned ${allMatches.length} total matches`);
-        } else {
-          const errBody = await response.text();
-          errors.push(`Football API HTTP ${response.status}: ${errBody}`);
+
+      const fetchRange = async (from: string, to: string, label: string) => {
+        try {
+          const response = await fetch(
+            `https://api.football-data.org/v4/matches?dateFrom=${from}&dateTo=${to}`,
+            { headers: { "X-Auth-Token": footballApiKey } }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            const matches = data.matches || [];
+            console.log(`${label}: ${matches.length} matches (${from}→${to})`);
+            return matches;
+          } else {
+            const errBody = await response.text();
+            errors.push(`Football API ${label} HTTP ${response.status}: ${errBody}`);
+            return [];
+          }
+        } catch (e) {
+          errors.push(`Football ${label} fetch failed: ${e}`);
+          return [];
         }
-      } catch (e) {
-        errors.push(`Football fetch failed: ${e}`);
+      };
+
+      const [pastMatches, futureMatches] = await Promise.all([
+        fetchRange(dateFrom, todayStr, "past"),
+        fetchRange(todayStr, dateTo, "future"),
+      ]);
+
+      // Merge and deduplicate by match id
+      const seenIds = new Set<number>();
+      for (const m of [...pastMatches, ...futureMatches]) {
+        if (!seenIds.has(m.id)) {
+          seenIds.add(m.id);
+          allMatches.push(m);
+        }
       }
+      console.log(`Merged: ${allMatches.length} unique matches`);
 
       const targetCompIds   = FOOTBALL_COMPETITIONS.map((c) => c.id);
       const filteredMatches = allMatches.filter(
