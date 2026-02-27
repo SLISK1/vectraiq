@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
     // Settle each prediction row
     const finishedMatchMap = new Map(finishedMatches.map((m: any) => [m.id, m]));
     let settledCount = 0;
-    const updates: Promise<unknown>[] = [];
+    const updates: Array<PromiseLike<unknown>> = [];
 
     for (const pred of unsettledPreds) {
       const match = finishedMatchMap.get(pred.match_id);
