@@ -1,33 +1,46 @@
 
 
-# Fix: fetch-matches Returns 0 Matches Due to API Date Range Limit
+# Fix: Avslutade matcher begränsade + Backtest slutat uppdatera
 
-## Root Cause
-Football-data.org (free tier) limits the date range in a single API call to **10 days maximum**. The current defaults are `days_back=7` + `days_ahead=8` = **15-day range**, which causes the API to return 0 matches for the target competitions (it silently fails without an HTTP error).
+## Problem 1: Avslutade matcher begränsade till 20 stycken
+**Fil**: `src/pages/BettingPage.tsx`, rad 105-126
 
-Confirmed via logs:
-- `2026-02-20 to 2026-03-07` (15 days) -> "0 matches in target competitions"
-- `2026-02-24 to 2026-03-03` (7 days) -> "56 matches in target competitions"
+Frågan som hämtar avslutade matcher har två begränsningar:
+- Tittar bara **7 dagar bakåt** (`7 * 24 * 60 * 60 * 1000`)
+- Har ett **tak på 20 matcher** (`.limit(20)`)
 
-## Fix: Split into Two API Calls
+Det innebär att du aldrig kan se fler än 20 avslutade matcher, och matcher äldre än en vecka försvinner helt.
 
-**File**: `supabase/functions/fetch-matches/index.ts`
+**Fix**: Utöka till 30 dagar bakåt och höj limiten till 100.
 
-Instead of one API call spanning 15+ days, split into two calls that each stay under 10 days:
+## Problem 2: Backtest fastnar på 40 (1X2)
+**Fil**: `supabase/functions/score-predictions/index.ts`, rad 82-89
 
-1. **Past matches**: `today - 7 days` to `today` (7 days)
-2. **Future matches**: `today` to `today + 8 days` (8 days)
+`score-predictions`-funktionen hämtar matcher som saknar resultat med `.limit(60)`. Men den viktigare begränsningen är att den bara letar 30 dagar bakåt efter resultat via football-data.org (3 x 10-dagarsintervall). Matcher äldre än 30 dagar som missade scoring förblir ospårade.
 
-Then merge the results before filtering by competition.
+Dessutom hittar den bara matcher där `home_score IS NULL` -- om en match aldrig fick sitt resultat uppdaterat under de första 30 dagarna, scorar den aldrig.
 
-### Changes (lines ~89-117):
-- Replace the single `/v4/matches?dateFrom=...&dateTo=...` call with two parallel `fetch()` calls
-- Merge the returned arrays into `allMatches`
-- Add better error logging that includes the actual HTTP response when the API returns a non-200 status
+**Fix**:
+- Utöka till 60 dagars bakåtsökning (6 x 10-dagarsintervall)
+- Höj limiten från 60 till 200 stale matches
+- Gör att score-predictions inte filtrerar bort side bets (market != '1X2') vid outcome-scoring -- de ska bara hanteras av betting-settle
 
-### Additional improvement:
-- Log the date ranges for each sub-call for easier debugging
-- Add a console.log showing how many raw matches each sub-call returned
+## Problem 3: Sidomarknader (0 sidospel) uppdateras inte
+**Fil**: `supabase/functions/score-predictions/index.ts`
 
-## No Frontend Changes Needed
-The `BettingPage.tsx` already handles the data correctly -- the issue is purely in the edge function's API call exceeding the provider's date range limit.
+`score-predictions` sätter `outcome`-fältet på ALLA betting_predictions (inklusive side bets). Men backtest-panelen hämtar side bets via `bet_outcome`-fältet (som sätts av `betting-settle`). Problemet: `score-predictions` sätter `outcome` till 'home_win'/'away_win'/'draw' på side bets -- men sedan hoppar `betting-settle` över dem eftersom den bara tittar efter `bet_outcome IS NULL`, inte `outcome IS NULL`.
+
+Tittar man på `betting-settle` rad 86-91 hämtas predictions med `.is("bet_outcome", null)` -- detta borde fungera. Men `score-predictions` (rad 169-173) har redan kört och satt `outcome` utan att filtrera ut side bets. Det skapar ingen direkt konflikt, men det visar att `betting-settle` faktiskt kör men hittar antingen inga finished matches eller att matcherna saknar score.
+
+Den verkliga orsaken: `betting-settle` kräver att matchen har `status = 'FINISHED'` (rad ~108, case-sensitive check: `m.status === "FINISHED" || m.status === "finished"`). Men `score-predictions` sätter status till lowercase `'finished'` (rad 145). Om matchen aldrig gick igenom `score-predictions` först, har den fortfarande `status: 'upcoming'` och `betting-settle` hittar inga matcher att settla.
+
+**Fix**: I `betting-settle`, matcha även mot matcher som har scores satta (home_score/away_score NOT NULL) oavsett status-texten. Alternativt: lägg till en explicit kontroll i score-predictions som skippar side bets (market != '1X2') när den sätter outcome.
+
+## Sammanfattning av ändringar
+
+| Fil | Ändring |
+|-----|---------|
+| `src/pages/BettingPage.tsx` | Utöka finished-query till 30 dagar + limit 100 |
+| `supabase/functions/score-predictions/index.ts` | 6 chunks (60 dagar), limit 200, filtrera bort side bets vid outcome-scoring |
+| `supabase/functions/betting-settle/index.ts` | Matcha finished matches bredare (home_score NOT NULL istället för bara status-check) |
+
