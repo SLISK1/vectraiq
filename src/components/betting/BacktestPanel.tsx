@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronDown, BarChart3, TrendingUp, Target, CheckCircle, XCircle } from 'lucide-react';
+import { ChevronDown, BarChart3, TrendingUp, Target, CheckCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell, Area, AreaChart,
@@ -95,7 +96,30 @@ export const BacktestPanel = () => {
   const [calibration, setCalibration] = useState<CalibrationBin[]>([]);
   const [roi, setRoi] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isScoring, setIsScoring] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'sidebets' | 'clv' | 'history'>('overview');
+  const { toast } = useToast();
+
+  const runScoring = async () => {
+    setIsScoring(true);
+    try {
+      // Step 1: score-predictions (updates match results + scores 1X2 outcomes)
+      const { error: scoreErr } = await supabase.functions.invoke('score-predictions', { body: {} });
+      if (scoreErr) console.error('score-predictions error:', scoreErr);
+
+      // Step 2: betting-settle (settles side bets)
+      const { error: settleErr } = await supabase.functions.invoke('betting-settle', { body: {} });
+      if (settleErr) console.error('betting-settle error:', settleErr);
+
+      toast({ title: 'Scoring klar', description: 'Prediktioner och sidomarknader uppdaterade.' });
+      await loadBacktestData();
+    } catch (e) {
+      console.error('Scoring failed:', e);
+      toast({ title: 'Scoring misslyckades', variant: 'destructive' });
+    } finally {
+      setIsScoring(false);
+    }
+  };
 
   const loadBacktestData = async () => {
     setIsLoading(true);
@@ -369,19 +393,30 @@ export const BacktestPanel = () => {
             </div>
           ) : (
             <>
-              {/* Tab switcher */}
-              <div className="flex gap-1 bg-muted/30 rounded-lg p-1">
-                {tabs.map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
-                      activeTab === tab.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+              {/* Scoring button + Tab switcher */}
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1 bg-muted/30 rounded-lg p-1 flex-1">
+                  {tabs.map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
+                        activeTab === tab.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={runScoring}
+                  disabled={isScoring}
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium bg-muted/30 border border-border/50 hover:border-primary/30 transition-all text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  title="Kör scoring av prediktioner och sidomarknader"
+                >
+                  {isScoring ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  Scora
+                </button>
               </div>
 
               {activeTab === 'overview' && (

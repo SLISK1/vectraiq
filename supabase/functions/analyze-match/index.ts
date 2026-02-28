@@ -1231,7 +1231,38 @@ function extractJsonFromResponse(response: string): any {
     while (brackets > 0) { cleaned += "]"; brackets--; }
     while (braces > 0) { cleaned += "}"; braces--; }
 
-    return JSON.parse(cleaned);
+    // Third attempt: if still failing, try to fix truncated strings
+    try {
+      return JSON.parse(cleaned);
+    } catch (_e2) {
+      // If truncated inside a string value, close the string and all open containers
+      // Find last unescaped quote to check if we're inside a string
+      let inStr = false;
+      let esc = false;
+      let lastGoodPos = 0;
+      for (let i = 0; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        if (esc) { esc = false; continue; }
+        if (ch === '\\' && inStr) { esc = true; continue; }
+        if (ch === '"') { inStr = !inStr; }
+        if (!inStr && (ch === ',' || ch === '{' || ch === '[' || ch === '}' || ch === ']')) {
+          lastGoodPos = i;
+        }
+      }
+      // If we're inside a string at the end, truncate to last good position and close
+      if (inStr && lastGoodPos > 0) {
+        cleaned = cleaned.substring(0, lastGoodPos + 1);
+        // Re-balance
+        let b2 = 0, br2 = 0;
+        for (const c of cleaned) {
+          if (c === '{') b2++; else if (c === '}') b2--;
+          if (c === '[') br2++; else if (c === ']') br2--;
+        }
+        while (br2 > 0) { cleaned += ']'; br2--; }
+        while (b2 > 0) { cleaned += '}'; b2--; }
+      }
+      return JSON.parse(cleaned);
+    }
   }
 }
 
