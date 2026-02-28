@@ -102,7 +102,7 @@ export const BettingPage = () => {
       // Two separate queries so upcoming always shows regardless of how many
       // finished matches exist in the DB.
       const now        = new Date();
-      const sevenDaysAgo  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const thirtyDaysAgo  = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const fourteenAhead = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
       const [upcomingRes, finishedRes] = await Promise.all([
@@ -120,10 +120,10 @@ export const BettingPage = () => {
           .select('*')
           .eq('sport', selectedSport)
           .neq('status', 'budget_tracker')
-          .gte('match_date', sevenDaysAgo)
+          .gte('match_date', thirtyDaysAgo)
           .lt('match_date', now.toISOString())
           .order('match_date', { ascending: false })
-          .limit(20),
+          .limit(100),
       ]);
 
       const { data, error } = upcomingRes.error

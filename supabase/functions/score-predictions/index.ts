@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       .is('home_score', null)
       .lt('match_date', now.toISOString())
       .neq('status', 'budget_tracker')
-      .limit(60);
+      .limit(200);
     
     let matchesUpdated = 0;
     
@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
       // Football-Data.org free tier limits to 10-day date ranges
       // Make multiple requests to cover last 30 days in 10-day chunks
       const apiLookup = new Map<string, any>();
-      const chunks = 3; // 3 x 10 days = 30 days
+      const chunks = 6; // 6 x 10 days = 60 days
       
       for (let c = 0; c < chunks; c++) {
         const chunkEnd = new Date(now.getTime() - c * 10 * 24 * 60 * 60 * 1000);
@@ -168,13 +168,16 @@ Deno.serve(async (req) => {
       const matchIds = finishedMatches.map((m: any) => m.id);
       const { data: unscoredBets } = await supabase
         .from('betting_predictions')
-        .select('id, match_id, predicted_winner, predicted_prob, market_implied_prob')
+        .select('id, match_id, predicted_winner, predicted_prob, market_implied_prob, market')
         .is('outcome', null)
         .in('match_id', matchIds);
       
       for (const pred of (unscoredBets || [])) {
         const match = finishedMatches.find((m: any) => m.id === pred.match_id);
         if (!match) continue;
+        
+        // Skip side bets — they are settled by betting-settle, not here
+        if (pred.market && pred.market !== '1X2') continue;
         
         const outcome = match.home_score > match.away_score ? 'home_win'
           : match.home_score < match.away_score ? 'away_win' : 'draw';
