@@ -108,9 +108,9 @@ Deno.serve(async (req) => {
 
     // Only process matches that are finished and have FT scores
     const finishedMatches = (matches || []).filter((m: any) => {
-      const isFinished = m.status === "FINISHED" || m.status === "finished";
+      // Match on scores being present, regardless of status text
       const hasScore = m.home_score !== null && m.away_score !== null;
-      return isFinished && hasScore;
+      return hasScore;
     });
 
     if (finishedMatches.length === 0) {
