@@ -62,8 +62,15 @@ Deno.serve(async (req) => {
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    if (authHeader !== `Bearer ${supabaseServiceKey}`) {
-      return new Response(JSON.stringify({ error: 'Service role required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    // Accept service role key OR authenticated user JWT
+    const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
+    if (!isServiceRole) {
+      // Verify JWT via Supabase to allow authenticated users to trigger manually
+      const supabaseClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || supabaseServiceKey);
+      const { data: { user }, error: authErr } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: 'Service role or valid user required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
