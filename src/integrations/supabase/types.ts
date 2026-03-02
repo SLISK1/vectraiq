@@ -247,7 +247,7 @@ export type Database = {
           model_version: string
           outcome: string | null
           predicted_prob: number
-          predicted_winner: string
+          predicted_winner: string | null
           scored_at: string | null
           selection: string | null
           settled_at: string | null
@@ -278,7 +278,7 @@ export type Database = {
           model_version?: string
           outcome?: string | null
           predicted_prob: number
-          predicted_winner: string
+          predicted_winner?: string | null
           scored_at?: string | null
           selection?: string | null
           settled_at?: string | null
@@ -309,7 +309,7 @@ export type Database = {
           model_version?: string
           outcome?: string | null
           predicted_prob?: number
-          predicted_winner?: string
+          predicted_winner?: string | null
           scored_at?: string | null
           selection?: string | null
           settled_at?: string | null
