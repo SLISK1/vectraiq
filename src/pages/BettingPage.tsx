@@ -4,12 +4,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { MatchCard } from '@/components/betting/MatchCard';
+import { MarketPicker, type BettingMarket } from '@/components/betting/MarketPicker';
+import { BettingCard } from '@/components/betting/BettingCard';
+import { ValueFilter } from '@/components/betting/ValueFilter';
 import { PoolTipsCard } from '@/components/betting/PoolTipsCard';
 import { BacktestPanel } from '@/components/betting/BacktestPanel';
-import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered, Database, ChevronDown, History, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Trophy, Swords, RefreshCw, Loader2, Dumbbell, ListOrdered, Database, ChevronDown, History } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 
 type Sport = 'football' | 'ufc' | 'topptipset' | 'stryktipset';
 
@@ -47,6 +48,23 @@ type BettingPrediction = {
   created_at: string;
 };
 
+
+type CouponRecommendation = {
+  id: string;
+  match_id: string;
+  market: string;
+  selection: string;
+  implied_prob: number;
+  p_raw: number | null;
+  p_proxy: number | null;
+  p_cal: number;
+  edge: number;
+  suggested_stake_pct: number | null;
+  phase: number;
+  chaos_score: number;
+  is_valid: boolean;
+};
+
 const sportOptions: { id: Sport; label: string; icon: React.ElementType }[] = [
   { id: 'football', label: 'Fotboll', icon: Trophy },
   { id: 'ufc', label: 'UFC / MMA', icon: Swords },
@@ -66,6 +84,8 @@ export const BettingPage = () => {
   const [isLoadingPool, setIsLoadingPool] = useState(false);
   const [selectedLeague, setSelectedLeague] = useState<string>('all');
   const [showOnlyValueBets, setShowOnlyValueBets] = useState(false);
+  const [selectedMarket, setSelectedMarket] = useState<BettingMarket>('ALL');
+  const [recommendations, setRecommendations] = useState<Map<string, CouponRecommendation[]>>(new Map());
   const [apiBudget, setApiBudget] = useState<{ searches_used: number; daily_limit: number; last_updated: string } | null>(null);
 
   const { user } = useAuth();
@@ -133,26 +153,40 @@ export const BettingPage = () => {
       if (error) throw error;
       setMatches((data || []) as BettingMatch[]);
 
-      // Load predictions for these matches
+      // Load predictions + market recommendations for these matches
       if (data && data.length > 0) {
         const ids = data.map((m) => m.id);
-        const { data: preds } = await supabase
-          .from('betting_predictions')
-          .select('*')
-          .in('match_id', ids)
-          .order('created_at', { ascending: false });
+        const [{ data: preds }, { data: recs }] = await Promise.all([
+          supabase
+            .from('betting_predictions')
+            .select('*')
+            .in('match_id', ids)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('coupon_recommendations')
+            .select('*')
+            .in('match_id', ids)
+            .order('generated_at', { ascending: false }),
+        ]);
 
         if (preds) {
           const predMap = new Map<string, BettingPrediction>();
-          // Keep latest 1X2 prediction per match (A2: filter out side bets)
           for (const p of preds) {
             const market = (p as any).market;
             if (market !== null && market !== undefined && market !== '1X2') continue;
-            if (!predMap.has(p.match_id)) {
-              predMap.set(p.match_id, p as BettingPrediction);
-            }
+            if (!predMap.has(p.match_id)) predMap.set(p.match_id, p as BettingPrediction);
           }
           setPredictions(predMap);
+        }
+
+        if (recs) {
+          const recMap = new Map<string, CouponRecommendation[]>();
+          for (const rec of recs as CouponRecommendation[]) {
+            const list = recMap.get(rec.match_id) || [];
+            if (!list.find((x) => x.market === rec.market)) list.push(rec);
+            recMap.set(rec.match_id, list);
+          }
+          setRecommendations(recMap);
         }
       }
     } catch (err) {
@@ -222,7 +256,9 @@ export const BettingPage = () => {
 
       if (data?.prediction) {
         setPredictions((prev) => new Map(prev).set(matchId, data.prediction as BettingPrediction));
-        toast({ title: 'Analys klar', description: 'AI-prediktion genererad.' });
+        await supabase.functions.invoke('recommend_bets', { body: { match_id: matchId } });
+        await loadMatches();
+        toast({ title: 'Analys klar', description: 'AI-prediktion + marknadsrekommendationer genererade.' });
       }
     } catch (err) {
       toast({
@@ -333,10 +369,16 @@ export const BettingPage = () => {
   const upcomingMatchesRaw = filteredMatches
     .filter(m => !isMatchPlayed(m))
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime());
+  const hasSelectedMarketEdge = (matchId: string) => {
+    const recs = recommendations.get(matchId) || [];
+    const marketRecs = selectedMarket === 'ALL' ? recs : recs.filter((r) => r.market === selectedMarket);
+    return marketRecs.some((r) => r.is_valid);
+  };
+
   const upcomingMatches = showOnlyValueBets
-    ? upcomingMatchesRaw.filter(m => predictions.get(m.id)?.is_value_bet === true)
+    ? upcomingMatchesRaw.filter((m) => hasSelectedMarketEdge(m.id) || predictions.get(m.id)?.is_value_bet === true)
     : upcomingMatchesRaw;
-  const valueBetCount = upcomingMatchesRaw.filter(m => predictions.get(m.id)?.is_value_bet === true).length;
+  const valueBetCount = upcomingMatchesRaw.filter((m) => hasSelectedMarketEdge(m.id)).length;
   const finishedMatches = filteredMatches
     .filter(m => isMatchPlayed(m))
     .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime());
@@ -447,19 +489,8 @@ export const BettingPage = () => {
               {selectedSport === 'football' ? 'Fotbollsmatcher' : 'UFC / MMA-matcher'}
             </h2>
             <div className="flex items-center gap-3">
-              {valueBetCount > 0 && (
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="value-filter"
-                    checked={showOnlyValueBets}
-                    onCheckedChange={setShowOnlyValueBets}
-                  />
-                  <Label htmlFor="value-filter" className="text-xs flex items-center gap-1 cursor-pointer whitespace-nowrap">
-                    <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-                    Value ({valueBetCount})
-                  </Label>
-                </div>
-              )}
+              <MarketPicker value={selectedMarket} onChange={setSelectedMarket} />
+              {valueBetCount > 0 && <ValueFilter checked={showOnlyValueBets} onCheckedChange={setShowOnlyValueBets} />}
               {isAutoSyncing && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -499,17 +530,26 @@ export const BettingPage = () => {
             <>
               {upcomingMatches.length > 0 && (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {upcomingMatches.map((match) => (
-                    <MatchCard
-                      key={match.id}
-                      match={match}
-                      prediction={predictions.get(match.id)}
-                      isAnalyzing={analyzingId === match.id}
-                      onAnalyze={() => handleAnalyze(match.id)}
-                      onSave={() => handleSaveMatch(match.id, predictions.get(match.id)?.id)}
-                      isLoggedIn={!!user}
-                    />
-                  ))}
+                  {upcomingMatches.map((match) => {
+                    const recs = recommendations.get(match.id) || [];
+                    const filteredRecs = (selectedMarket === 'ALL' ? recs : recs.filter((r) => r.market === selectedMarket))
+                      .filter((r) => !showOnlyValueBets || r.is_valid);
+                    return (
+                      <div key={match.id} className="space-y-3">
+                        <MatchCard
+                          match={match}
+                          prediction={predictions.get(match.id)}
+                          isAnalyzing={analyzingId === match.id}
+                          onAnalyze={() => handleAnalyze(match.id)}
+                          onSave={() => handleSaveMatch(match.id, predictions.get(match.id)?.id)}
+                          isLoggedIn={!!user}
+                        />
+                        {filteredRecs.map((rec) => (
+                          <BettingCard key={`${match.id}-${rec.market}`} match={match} recommendation={rec} />
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {upcomingMatches.length === 0 && finishedMatches.length > 0 && (
