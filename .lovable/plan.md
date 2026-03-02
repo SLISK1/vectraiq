@@ -1,46 +1,79 @@
 
 
-# Fix: Avslutade matcher begränsade + Backtest slutat uppdatera
+# Betting Winrate-forbattring + Sidomarknader Fix
 
-## Problem 1: Avslutade matcher begränsade till 20 stycken
-**Fil**: `src/pages/BettingPage.tsx`, rad 105-126
+## Nuvarande problem (verifierat med databasanalys)
 
-Frågan som hämtar avslutade matcher har två begränsningar:
-- Tittar bara **7 dagar bakåt** (`7 * 24 * 60 * 60 * 1000`)
-- Har ett **tak på 20 matcher** (`.limit(20)`)
+### Problem 1: Sidomarknader har NOLL data
+Kolumnen `predicted_winner` ar `NOT NULL` i `betting_predictions`. Nar `analyze-match` infogar side bets (OU_GOALS, BTTS etc.) inkluderas INTE `predicted_winner` -- inserten misslyckas tyst. Darfor finns 0 rader med `market != '1X2'`.
 
-Det innebär att du aldrig kan se fler än 20 avslutade matcher, och matcher äldre än en vecka försvinner helt.
+### Problem 2: 50% traffsakerhet (1X2)
+Databasanalys visar:
+- **Home**: 28/46 ratt = **60.9%** -- bra!
+- **Away**: 16/32 ratt = **50%** -- OK
+- **Draw**: 9/27 ratt = **33%** -- katastrofalt
+- Draw-prediktioners genomsnittliga edge: **-14.9%** (marknaden sager "nej")
+- Modellen forutsager draw 25.7% av gangerna men traffar bara 33% av dem
 
-**Fix**: Utöka till 30 dagar bakåt och höj limiten till 100.
+Oavgjort-prediktionerna drar ner hela winrate fran ~57% (home+away) till 50.5%.
 
-## Problem 2: Backtest fastnar på 40 (1X2)
-**Fil**: `supabase/functions/score-predictions/index.ts`, rad 82-89
+---
 
-`score-predictions`-funktionen hämtar matcher som saknar resultat med `.limit(60)`. Men den viktigare begränsningen är att den bara letar 30 dagar bakåt efter resultat via football-data.org (3 x 10-dagarsintervall). Matcher äldre än 30 dagar som missade scoring förblir ospårade.
+## Forbattringsplan
 
-Dessutom hittar den bara matcher där `home_score IS NULL` -- om en match aldrig fick sitt resultat uppdaterat under de första 30 dagarna, scorar den aldrig.
+### Steg 1: Fixa sidomarknader (databasandring)
+Gor `predicted_winner` nullable sa att side bet-rader kan infogas utan att ange vinnare.
 
-**Fix**:
-- Utöka till 60 dagars bakåtsökning (6 x 10-dagarsintervall)
-- Höj limiten från 60 till 200 stale matches
-- Gör att score-predictions inte filtrerar bort side bets (market != '1X2') vid outcome-scoring -- de ska bara hanteras av betting-settle
+```sql
+ALTER TABLE betting_predictions ALTER COLUMN predicted_winner DROP NOT NULL;
+```
 
-## Problem 3: Sidomarknader (0 sidospel) uppdateras inte
-**Fil**: `supabase/functions/score-predictions/index.ts`
+### Steg 2: Uppdatera side bet-inserten
+I `analyze-match/index.ts`, lagg till `predicted_winner: null` explicit pa alla side bet-rader (rad 926-1005) for att undvika framtida problem.
 
-`score-predictions` sätter `outcome`-fältet på ALLA betting_predictions (inklusive side bets). Men backtest-panelen hämtar side bets via `bet_outcome`-fältet (som sätts av `betting-settle`). Problemet: `score-predictions` sätter `outcome` till 'home_win'/'away_win'/'draw' på side bets -- men sedan hoppar `betting-settle` över dem eftersom den bara tittar efter `bet_outcome IS NULL`, inte `outcome IS NULL`.
+### Steg 3: Draw-avoidance strategi (storsta winrate-effekten)
+I `analyze-match/index.ts`, implementera bevisbaserade regler som anvands av framgangsrika bettingsystem:
 
-Tittar man på `betting-settle` rad 86-91 hämtas predictions med `.is("bet_outcome", null)` -- detta borde fungera. Men `score-predictions` (rad 169-173) har redan kört och satt `outcome` utan att filtrera ut side bets. Det skapar ingen direkt konflikt, men det visar att `betting-settle` faktiskt kör men hittar antingen inga finished matches eller att matcherna saknar score.
+**3a: Draw-filter med evidens-gating**
+- Om modellen forutsager "draw" OCH `model_edge < 0.03` (3%) -- avvisa prediktionen och valj nast basta alternativ (home/away)
+- Om modellen forutsager "draw" OCH det saknas H2H-data + standings -- byt till home (hemmaplanfordel)
+- Motivering: Draw ar den svaraste marknaden att forutsaga. Professionella modeller (Pinnacle, Betfair) visar att draws kraver >3% edge for att vara lonsamma
 
-Den verkliga orsaken: `betting-settle` kräver att matchen har `status = 'FINISHED'` (rad ~108, case-sensitive check: `m.status === "FINISHED" || m.status === "finished"`). Men `score-predictions` sätter status till lowercase `'finished'` (rad 145). Om matchen aldrig gick igenom `score-predictions` först, har den fortfarande `status: 'upcoming'` och `betting-settle` hittar inga matcher att settla.
+**3b: Home advantage bias-korrektion**
+- Om tabellplacering saknas: fallback till hemmavinst med `predicted_prob = 0.42` (ligagenomsnitt)
+- Anledning: I top-5-ligor vinner hemmalaget ~46% av matcherna; draw ar bara ~26%
 
-**Fix**: I `betting-settle`, matcha även mot matcher som har scores satta (home_score/away_score NOT NULL) oavsett status-texten. Alternativt: lägg till en explicit kontroll i score-predictions som skippar side bets (market != '1X2') när den sätter outcome.
+**3c: Confidence-weighted value filter**
+- Lata prediktioner med `confidence_capped < 45` ELLER `model_edge < -0.05` default:a till marknadens favorit istallet for modellens gissning
+- Detta hindrar lagkonfidensguesswork fran att ra vinst
 
-## Sammanfattning av ändringar
+### Steg 4: Poisson-forbattring for side markets
+Forbattra Poisson-modellens precision genom att inkludera:
+- **Home/Away-split**: Anvand hemma-/borta-specifik malstatistik istallet for overlag (manga lag ar starka hemma men svaga borta)
+- **Form-viktning**: Senaste 5 matchers malsnitt viktas 60/40 mot sasongssnittet
+- Nuvarande implementation anvander redan Poisson men med oversall-snitt (rad 1288-1325)
 
-| Fil | Ändring |
+### Steg 5: Closing Line Value-feedback till prompten
+Ge AI:n feedback om historisk prestation per marknad i prompten:
+- "Din historiska traffsakerhet for HOME: 61%, AWAY: 50%, DRAW: 33%. Undvik draw-prediktioner om du inte har stark statistisk grund."
+- Detta ger LLM:en implicit kalibrering
+
+### Steg 6: Retroaktivt skapa side bets for avslutade matcher
+Kor en engangsmigration som skapar side bet-rader fran redan sparade `key_factors.side_predictions` i befintliga 1X2-rader (om de finns). Sedan kor `betting-settle` for att settla dem.
+
+---
+
+## Sammanfattning av filandringar
+
+| Fil | Andring |
 |-----|---------|
-| `src/pages/BettingPage.tsx` | Utöka finished-query till 30 dagar + limit 100 |
-| `supabase/functions/score-predictions/index.ts` | 6 chunks (60 dagar), limit 200, filtrera bort side bets vid outcome-scoring |
-| `supabase/functions/betting-settle/index.ts` | Matcha finished matches bredare (home_score NOT NULL istället för bara status-check) |
+| **Migration SQL** | `ALTER TABLE predicted_winner DROP NOT NULL` |
+| **`analyze-match/index.ts`** | 1) Draw-filter med edge-gating. 2) Explicit `predicted_winner: null` pa side bets. 3) Home advantage fallback. 4) Historisk traffsakerhet i prompt. |
+| **`score-predictions/index.ts`** | Liten justering: logga side bet-scoring |
+| **Engangsskript (SQL)** | Aterskap side bet-rader fran befintliga 1X2-prediktioners `key_factors->side_predictions` |
+
+## Forvantad effekt
+- **1X2 winrate**: Fran 50.5% till uppskattningsvis 55-58% (genom att eliminera 18 felaktiga draw-prediktioner)
+- **Sidomarknader**: Fran 0 rader till ~400+ settleable side bets (4 marknader x 105 matcher)
+- **ROI**: Forvantad forbattring fran +43% till stabilare genom att undvika negativ-edge bets
 
