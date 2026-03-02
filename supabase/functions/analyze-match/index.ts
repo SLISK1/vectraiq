@@ -607,6 +607,13 @@ Deno.serve(async (req) => {
 
     const prompt = `You are an evidence-based football prediction AI. Use the provided statistical data to calculate probabilities using Poisson distribution logic. Weight table position, form, and H2H history.
 
+IMPORTANT CALIBRATION FEEDBACK (based on historical performance of this model):
+- HOME predictions: ~61% accuracy — your best market. Favor home when data supports it.
+- AWAY predictions: ~50% accuracy — decent but selective.
+- DRAW predictions: ~33% accuracy — VERY POOR. Only predict draw if you have OVERWHELMING statistical evidence (e.g. both teams in bottom-3 form, H2H shows 40%+ draws, AND model edge > 3%).
+- In top-5 European leagues, home teams win ~46% of matches, draws occur ~26%, away wins ~28%.
+- If uncertain between draw and home/away, ALWAYS prefer home or away.
+
 MATCH: ${match.home_team} vs ${match.away_team}
 COMPETITION: ${match.league}
 DATE: ${new Date(match.match_date).toLocaleDateString("sv-SE")}
@@ -792,8 +799,57 @@ INSTRUKTIONER:
     const confidenceCapped = Math.min(confidenceRaw, cap);
     const capReason = capReasons.length > 0 ? capReasons.join("; ") : null;
 
-    const predictedProb = Math.min(1, Math.max(0, aiResult.predicted_prob || 0.5));
-    const predictedWinner = aiResult.predicted_winner || "draw";
+    let predictedProb = Math.min(1, Math.max(0, aiResult.predicted_prob || 0.5));
+    let predictedWinner = aiResult.predicted_winner || "draw";
+
+    // === DRAW-AVOIDANCE STRATEGY (evidence-based) ===
+    // Draws are the hardest market to predict. Historical data shows 33% hit rate on draws.
+    // Professional models (Pinnacle, Betfair) require >3% edge for draws to be profitable.
+    if (predictedWinner === "draw") {
+      const drawMarketImplied = marketImpliedProbDraw ?? 0.28;
+      const drawEdge = predictedProb - drawMarketImplied;
+      const hasH2H = h2hCount >= 3;
+      const hasStandingsData = !!(liveStandings?.home && liveStandings?.away);
+
+      // 3a: Draw-filter with edge-gating — reject draws with <3% edge
+      if (drawEdge < 0.03) {
+        console.log(`Draw-avoidance: draw predicted with edge ${(drawEdge * 100).toFixed(1)}% < 3% threshold. Switching to market favorite.`);
+        // Choose market favorite (home or away)
+        if (marketImpliedProbHome !== null && marketImpliedProbAway !== null) {
+          if (marketImpliedProbHome >= marketImpliedProbAway) {
+            predictedWinner = "home";
+            predictedProb = Math.max(predictedProb, marketImpliedProbHome);
+          } else {
+            predictedWinner = "away";
+            predictedProb = Math.max(predictedProb, marketImpliedProbAway);
+          }
+        } else {
+          // 3b: No odds available — fallback to home advantage (46% league average)
+          predictedWinner = "home";
+          predictedProb = 0.42;
+        }
+      }
+
+      // 3b: Draw without H2H + standings → force home advantage
+      if (predictedWinner === "draw" && !hasH2H && !hasStandingsData) {
+        console.log("Draw-avoidance: no H2H/standings data for draw. Defaulting to home.");
+        predictedWinner = "home";
+        predictedProb = 0.42;
+      }
+    }
+
+    // 3c: Confidence-weighted value filter — low-confidence guesses default to market favorite
+    if (confidenceCapped < 45 || (modelEdge !== null && modelEdge < -0.05)) {
+      if (marketImpliedProbHome !== null && marketImpliedProbAway !== null) {
+        const marketFav = marketImpliedProbHome >= marketImpliedProbAway ? "home" : "away";
+        const marketFavProb = marketImpliedProbHome >= marketImpliedProbAway ? marketImpliedProbHome : marketImpliedProbAway;
+        if (predictedWinner !== marketFav) {
+          console.log(`Low-confidence filter: confidence=${confidenceCapped}, edge=${modelEdge?.toFixed(3)}. Switching from ${predictedWinner} to market favorite ${marketFav}.`);
+          predictedWinner = marketFav;
+          predictedProb = marketFavProb;
+        }
+      }
+    }
 
     // Calculate market_implied_prob for the predicted winner specifically
     let marketImpliedProb: number | null = null;
@@ -929,8 +985,9 @@ INSTRUKTIONER:
         sideBetRows.push({
           match_id,
           market: "OU_GOALS",
+          predicted_winner: null,
           line: sidePredictions.total_goals.line ?? 2.5,
-          selection: sidePredictions.total_goals.prediction, // 'over' | 'under'
+          selection: sidePredictions.total_goals.prediction,
           predicted_prob: sidePredictions.total_goals.prob,
           confidence_raw: confidenceRaw,
           confidence_capped: confidenceCapped,
@@ -942,8 +999,9 @@ INSTRUKTIONER:
         sideBetRows.push({
           match_id,
           market: "BTTS",
+          predicted_winner: null,
           line: null,
-          selection: sidePredictions.btts.prediction, // 'yes' | 'no'
+          selection: sidePredictions.btts.prediction,
           predicted_prob: sidePredictions.btts.prob,
           confidence_raw: confidenceRaw,
           confidence_capped: confidenceCapped,
@@ -955,6 +1013,7 @@ INSTRUKTIONER:
         sideBetRows.push({
           match_id,
           market: "CORNERS_OU",
+          predicted_winner: null,
           line: sidePredictions.corners.line ?? 9.5,
           selection: sidePredictions.corners.prediction,
           predicted_prob: sidePredictions.corners.prob,
@@ -968,6 +1027,7 @@ INSTRUKTIONER:
         sideBetRows.push({
           match_id,
           market: "CARDS_OU",
+          predicted_winner: null,
           line: sidePredictions.cards.line ?? 3.5,
           selection: sidePredictions.cards.prediction,
           predicted_prob: sidePredictions.cards.prob,
@@ -981,6 +1041,7 @@ INSTRUKTIONER:
         sideBetRows.push({
           match_id,
           market: "HT_OU_GOALS",
+          predicted_winner: null,
           line: sidePredictions.first_half_goals.line ?? 1.5,
           selection: sidePredictions.first_half_goals.prediction,
           predicted_prob: sidePredictions.first_half_goals.prob,
@@ -994,8 +1055,9 @@ INSTRUKTIONER:
         sideBetRows.push({
           match_id,
           market: "FIRST_TO_SCORE",
+          predicted_winner: null,
           line: null,
-          selection: sidePredictions.first_to_score.prediction, // 'home' | 'away' | 'none'
+          selection: sidePredictions.first_to_score.prediction,
           predicted_prob: sidePredictions.first_to_score.prob,
           confidence_raw: confidenceRaw,
           confidence_capped: confidenceCapped,
@@ -1291,10 +1353,49 @@ function computePoissonPRaw(home: any, away: any): PoissonPRaw {
     return NULL_RESULT;
   }
 
-  const homeGF = home.goalsFor / home.playedGames;
-  const homeGA = home.goalsAgainst / home.playedGames;
-  const awayGF = away.goalsFor / away.playedGames;
-  const awayGA = away.goalsAgainst / away.playedGames;
+  // === IMPROVED: Form-weighted goal rates ===
+  // Use season averages as base, then blend with recent form (last 5 matches)
+  const homeGF_season = home.goalsFor / home.playedGames;
+  const homeGA_season = home.goalsAgainst / home.playedGames;
+  const awayGF_season = away.goalsFor / away.playedGames;
+  const awayGA_season = away.goalsAgainst / away.playedGames;
+
+  // Extract recent form goals if available (from form string like "WDLWW")
+  // Weight: 60% recent form, 40% season average (if form data exists)
+  const FORM_WEIGHT = 0.6;
+  const SEASON_WEIGHT = 0.4;
+
+  // Estimate recent scoring from form string (W≈1.8 goals, D≈1.1, L≈0.6 per game)
+  const formToGoalRate = (formStr: string | null, seasonRate: number): number => {
+    if (!formStr || formStr.length < 3) return seasonRate;
+    const chars = formStr.split('').slice(-5);
+    let totalEst = 0;
+    for (const c of chars) {
+      if (c === 'W') totalEst += 1.8;
+      else if (c === 'D') totalEst += 1.1;
+      else if (c === 'L') totalEst += 0.6;
+    }
+    const formRate = totalEst / chars.length;
+    return FORM_WEIGHT * formRate + SEASON_WEIGHT * seasonRate;
+  };
+
+  const formToDefenseRate = (formStr: string | null, seasonRate: number): number => {
+    if (!formStr || formStr.length < 3) return seasonRate;
+    const chars = formStr.split('').slice(-5);
+    let totalEst = 0;
+    for (const c of chars) {
+      if (c === 'W') totalEst += 0.7;
+      else if (c === 'D') totalEst += 1.1;
+      else if (c === 'L') totalEst += 1.7;
+    }
+    const formRate = totalEst / chars.length;
+    return FORM_WEIGHT * formRate + SEASON_WEIGHT * seasonRate;
+  };
+
+  const homeGF = formToGoalRate(home.form, homeGF_season);
+  const homeGA = formToDefenseRate(home.form, homeGA_season);
+  const awayGF = formToGoalRate(away.form, awayGF_season);
+  const awayGA = formToDefenseRate(away.form, awayGA_season);
 
   // Geometric mean of attack × opposition defense, with home advantage factor
   const HOME_ADV = 1.15;
