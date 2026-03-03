@@ -163,7 +163,7 @@ export const BettingPage = () => {
             .in('match_id', ids)
             .order('created_at', { ascending: false }),
           supabase
-            .from('coupon_recommendations')
+            .from('coupon_recommendations' as any)
             .select('*')
             .in('match_id', ids)
             .order('generated_at', { ascending: false }),
@@ -181,7 +181,7 @@ export const BettingPage = () => {
 
         if (recs) {
           const recMap = new Map<string, CouponRecommendation[]>();
-          for (const rec of recs as CouponRecommendation[]) {
+          for (const rec of (recs as unknown as CouponRecommendation[])) {
             const list = recMap.get(rec.match_id) || [];
             if (!list.find((x) => x.market === rec.market)) list.push(rec);
             recMap.set(rec.match_id, list);
