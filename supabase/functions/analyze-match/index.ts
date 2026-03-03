@@ -838,6 +838,17 @@ INSTRUKTIONER:
       }
     }
 
+    // Calculate market_implied_prob for the predicted winner specifically
+    let marketImpliedProb: number | null = null;
+    if (predictedWinner === "home" && marketImpliedProbHome !== null) {
+      marketImpliedProb = marketImpliedProbHome;
+    } else if (predictedWinner === "away" && marketImpliedProbAway !== null) {
+      marketImpliedProb = marketImpliedProbAway;
+    } else if (predictedWinner === "draw" && marketImpliedProbDraw !== null) {
+      marketImpliedProb = marketImpliedProbDraw;
+    }
+    const modelEdge = marketImpliedProb !== null ? predictedProb - marketImpliedProb : null;
+
     // 3c: Confidence-weighted value filter — low-confidence guesses default to market favorite
     if (confidenceCapped < 45 || (modelEdge !== null && modelEdge < -0.05)) {
       if (marketImpliedProbHome !== null && marketImpliedProbAway !== null) {
@@ -850,17 +861,6 @@ INSTRUKTIONER:
         }
       }
     }
-
-    // Calculate market_implied_prob for the predicted winner specifically
-    let marketImpliedProb: number | null = null;
-    if (predictedWinner === "home" && marketImpliedProbHome !== null) {
-      marketImpliedProb = marketImpliedProbHome;
-    } else if (predictedWinner === "away" && marketImpliedProbAway !== null) {
-      marketImpliedProb = marketImpliedProbAway;
-    } else if (predictedWinner === "draw" && marketImpliedProbDraw !== null) {
-      marketImpliedProb = marketImpliedProbDraw;
-    }
-    const modelEdge = marketImpliedProb !== null ? predictedProb - marketImpliedProb : null;
 
     // === VALUE BET DETECTION ===
     const VALUE_EDGE_THRESHOLD = 0.05; // 5%
