@@ -190,6 +190,71 @@ export type Database = {
           },
         ]
       }
+      bets_log: {
+        Row: {
+          edge: number | null
+          id: string
+          market: string
+          match_id: string
+          odds: number
+          p_cal: number | null
+          p_proxy: number | null
+          p_raw: number | null
+          phase: number
+          placed_at: string
+          pnl: number | null
+          result: string | null
+          roi: number | null
+          selection: string
+          settled_at: string | null
+          stake: number
+        }
+        Insert: {
+          edge?: number | null
+          id?: string
+          market: string
+          match_id: string
+          odds: number
+          p_cal?: number | null
+          p_proxy?: number | null
+          p_raw?: number | null
+          phase?: number
+          placed_at?: string
+          pnl?: number | null
+          result?: string | null
+          roi?: number | null
+          selection: string
+          settled_at?: string | null
+          stake?: number
+        }
+        Update: {
+          edge?: number | null
+          id?: string
+          market?: string
+          match_id?: string
+          odds?: number
+          p_cal?: number | null
+          p_proxy?: number | null
+          p_raw?: number | null
+          phase?: number
+          placed_at?: string
+          pnl?: number | null
+          result?: string | null
+          roi?: number | null
+          selection?: string
+          settled_at?: string | null
+          stake?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bets_log_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "betting_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       betting_matches: {
         Row: {
           away_score: number | null
@@ -423,6 +488,30 @@ export type Database = {
         }
         Relationships: []
       }
+      calibration_buckets: {
+        Row: {
+          bucket_idx: number
+          market: string
+          n_hits: number
+          n_samples: number
+          updated_at: string
+        }
+        Insert: {
+          bucket_idx: number
+          market: string
+          n_hits?: number
+          n_samples?: number
+          updated_at?: string
+        }
+        Update: {
+          bucket_idx?: number
+          market?: string
+          n_hits?: number
+          n_samples?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       calibration_stats: {
         Row: {
           actual_up_count: number | null
@@ -467,6 +556,80 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      coupon_recommendations: {
+        Row: {
+          card_heat: number | null
+          chaos_score: number | null
+          corner_pressure: number | null
+          edge: number | null
+          generated_at: string
+          goal_chaos: number | null
+          id: string
+          implied_prob: number | null
+          is_valid: boolean
+          market: string
+          match_id: string
+          p_cal: number | null
+          p_proxy: number | null
+          p_raw: number | null
+          phase: number
+          reason: string | null
+          selection: string
+          suggested_stake_pct: number | null
+          volatility: number | null
+        }
+        Insert: {
+          card_heat?: number | null
+          chaos_score?: number | null
+          corner_pressure?: number | null
+          edge?: number | null
+          generated_at?: string
+          goal_chaos?: number | null
+          id?: string
+          implied_prob?: number | null
+          is_valid?: boolean
+          market: string
+          match_id: string
+          p_cal?: number | null
+          p_proxy?: number | null
+          p_raw?: number | null
+          phase?: number
+          reason?: string | null
+          selection: string
+          suggested_stake_pct?: number | null
+          volatility?: number | null
+        }
+        Update: {
+          card_heat?: number | null
+          chaos_score?: number | null
+          corner_pressure?: number | null
+          edge?: number | null
+          generated_at?: string
+          goal_chaos?: number | null
+          id?: string
+          implied_prob?: number | null
+          is_valid?: boolean
+          market?: string
+          match_id?: string
+          p_cal?: number | null
+          p_proxy?: number | null
+          p_raw?: number | null
+          phase?: number
+          reason?: string | null
+          selection?: string
+          suggested_stake_pct?: number | null
+          volatility?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupon_recommendations_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "betting_matches"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       features: {
         Row: {
@@ -613,6 +776,62 @@ export type Database = {
           url?: string | null
         }
         Relationships: []
+      }
+      odds_snapshots: {
+        Row: {
+          cache_expires_at: string | null
+          fetched_at: string
+          id: string
+          implied_open: number | null
+          implied_pre_match: number | null
+          market: string
+          match_id: string
+          odds_open: number | null
+          odds_pre_match: number | null
+          overround_open: number | null
+          overround_pre_match: number | null
+          selection: string
+          source: string | null
+        }
+        Insert: {
+          cache_expires_at?: string | null
+          fetched_at?: string
+          id?: string
+          implied_open?: number | null
+          implied_pre_match?: number | null
+          market: string
+          match_id: string
+          odds_open?: number | null
+          odds_pre_match?: number | null
+          overround_open?: number | null
+          overround_pre_match?: number | null
+          selection: string
+          source?: string | null
+        }
+        Update: {
+          cache_expires_at?: string | null
+          fetched_at?: string
+          id?: string
+          implied_open?: number | null
+          implied_pre_match?: number | null
+          market?: string
+          match_id?: string
+          odds_open?: number | null
+          odds_pre_match?: number | null
+          overround_open?: number | null
+          overround_pre_match?: number | null
+          selection?: string
+          source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "odds_snapshots_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "betting_matches"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       outcomes: {
         Row: {
@@ -1399,6 +1618,92 @@ export type Database = {
           },
         ]
       }
+      stock_calibration_buckets: {
+        Row: {
+          avg_realized_return: number | null
+          avg_score: number | null
+          bucket: number
+          count: number
+          horizon: string
+          id: string
+          updated_at: string
+          win_rate: number | null
+        }
+        Insert: {
+          avg_realized_return?: number | null
+          avg_score?: number | null
+          bucket: number
+          count?: number
+          horizon: string
+          id?: string
+          updated_at?: string
+          win_rate?: number | null
+        }
+        Update: {
+          avg_realized_return?: number | null
+          avg_score?: number | null
+          bucket?: number
+          count?: number
+          horizon?: string
+          id?: string
+          updated_at?: string
+          win_rate?: number | null
+        }
+        Relationships: []
+      }
+      stock_prediction_outcomes: {
+        Row: {
+          asset_id: string
+          entry_price: number
+          evaluated_at: string | null
+          exit_price: number | null
+          horizon: string
+          id: string
+          predicted_at: string
+          predicted_direction: string
+          predicted_return: number | null
+          prediction_id: string | null
+          realized_direction: string | null
+          realized_return: number | null
+        }
+        Insert: {
+          asset_id: string
+          entry_price: number
+          evaluated_at?: string | null
+          exit_price?: number | null
+          horizon: string
+          id?: string
+          predicted_at?: string
+          predicted_direction: string
+          predicted_return?: number | null
+          prediction_id?: string | null
+          realized_direction?: string | null
+          realized_return?: number | null
+        }
+        Update: {
+          asset_id?: string
+          entry_price?: number
+          evaluated_at?: string | null
+          exit_price?: number | null
+          horizon?: string
+          id?: string
+          predicted_at?: string
+          predicted_direction?: string
+          predicted_return?: number | null
+          prediction_id?: string | null
+          realized_direction?: string | null
+          realized_return?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_prediction_outcomes_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       strategy_automation_jobs: {
         Row: {
           analysis_rows_fetched: number | null
@@ -1805,6 +2110,71 @@ export type Database = {
         }
         Relationships: []
       }
+      team_rates_cache: {
+        Row: {
+          away_btts_rate: number
+          away_crd_o35_rate: number
+          away_crn_o95_rate: number
+          away_o25_rate: number
+          away_team: string
+          home_btts_rate: number
+          home_crd_o35_rate: number
+          home_crn_o95_rate: number
+          home_o25_rate: number
+          home_team: string
+          match_id: string
+          p_raw_btts: number | null
+          p_raw_crd_o35: number | null
+          p_raw_crn_o95: number | null
+          p_raw_o25: number | null
+          updated_at: string
+        }
+        Insert: {
+          away_btts_rate?: number
+          away_crd_o35_rate?: number
+          away_crn_o95_rate?: number
+          away_o25_rate?: number
+          away_team: string
+          home_btts_rate?: number
+          home_crd_o35_rate?: number
+          home_crn_o95_rate?: number
+          home_o25_rate?: number
+          home_team: string
+          match_id: string
+          p_raw_btts?: number | null
+          p_raw_crd_o35?: number | null
+          p_raw_crn_o95?: number | null
+          p_raw_o25?: number | null
+          updated_at?: string
+        }
+        Update: {
+          away_btts_rate?: number
+          away_crd_o35_rate?: number
+          away_crn_o95_rate?: number
+          away_o25_rate?: number
+          away_team?: string
+          home_btts_rate?: number
+          home_crd_o35_rate?: number
+          home_crn_o95_rate?: number
+          home_o25_rate?: number
+          home_team?: string
+          match_id?: string
+          p_raw_btts?: number | null
+          p_raw_crd_o35?: number | null
+          p_raw_crn_o95?: number | null
+          p_raw_o25?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_rates_cache_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: true
+            referencedRelation: "betting_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       universe_cache: {
         Row: {
           cache_key: string
@@ -1927,7 +2297,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      upsert_betting_cal_bucket: {
+        Args: {
+          p_bucket_idx: number
+          p_market: string
+          p_n_bets_delta: number
+          p_n_wins_delta: number
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       asset_type: "stock" | "crypto" | "metal" | "fund"

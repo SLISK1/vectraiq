@@ -51,5 +51,20 @@ verify_jwt = false
 [functions.score-outcomes]
 verify_jwt = false
 
+[functions.fetch-match-stats]
+verify_jwt = false
+
+[functions.compute_p_raw]
+verify_jwt = false
+
+[functions.odds_caching]
+verify_jwt = false
+
+[functions.recommend_bets]
+verify_jwt = false
+
+[functions.calibration_buckets]
+verify_jwt = false
+
 [functions.update-calibration]
 verify_jwt = false
