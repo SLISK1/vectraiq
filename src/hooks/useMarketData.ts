@@ -157,7 +157,7 @@ const transformToRankedAsset = async (
     marketCap: marketCapValue,
     marketCapCategory: getMarketCapCategory(marketCapValue),
     totalScore: analysis.totalScore,
-    direction: analysis.direction === 'NEUTRAL' ? filterDirection : analysis.direction,
+    direction: analysis.direction,
     confidence: analysis.confidence,
     confidenceBreakdown: analysis.confidenceBreakdown,
     signals: analysis.signals,
