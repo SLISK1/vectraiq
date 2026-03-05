@@ -172,9 +172,13 @@ export const BettingPage = () => {
         if (preds) {
           const predMap = new Map<string, BettingPrediction>();
           for (const p of preds) {
+            // Show 1X2 predictions as the primary prediction per match
+            // but don't filter out side markets — they're shown via recommendations
             const market = (p as any).market;
-            if (market !== null && market !== undefined && market !== '1X2') continue;
-            if (!predMap.has(p.match_id)) predMap.set(p.match_id, p as BettingPrediction);
+            const is1x2 = market === null || market === undefined || market === '1X2';
+            if (is1x2 && !predMap.has(p.match_id)) {
+              predMap.set(p.match_id, p as BettingPrediction);
+            }
           }
           setPredictions(predMap);
         }
