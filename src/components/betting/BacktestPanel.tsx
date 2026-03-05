@@ -424,14 +424,14 @@ export const BacktestPanel = () => {
                   {/* KPI cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Prediktioner</p>
-                      <p className="text-xl font-bold font-mono">{predictions.length}</p>
+                      <p className="text-xs text-muted-foreground">ROI (1X2)</p>
+                      <p className={`text-xl font-bold font-mono ${(roi ?? 0) > 0 ? 'text-primary' : 'text-destructive'}`}>
+                        {roi !== null ? `${roi > 0 ? '+' : ''}${roi.toFixed(1)}%` : '—'}
+                      </p>
                     </div>
                     <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Träffsäkerhet</p>
-                      <p className={`text-xl font-bold font-mono ${overallAccuracy > 50 ? 'text-primary' : 'text-destructive'}`}>
-                        {overallAccuracy.toFixed(1)}%
-                      </p>
+                      <p className="text-xs text-muted-foreground">Prediktioner</p>
+                      <p className="text-xl font-bold font-mono">{predictions.length}</p>
                     </div>
                     <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
                       <p className="text-xs text-muted-foreground">Rätt / Fel</p>
@@ -442,9 +442,9 @@ export const BacktestPanel = () => {
                       </p>
                     </div>
                     <div className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
-                      <p className="text-xs text-muted-foreground">ROI</p>
-                      <p className={`text-xl font-bold font-mono ${(roi ?? 0) > 0 ? 'text-primary' : 'text-destructive'}`}>
-                        {roi !== null ? `${roi > 0 ? '+' : ''}${roi.toFixed(1)}%` : '—'}
+                      <p className="text-xs text-muted-foreground">Träffsäkerhet</p>
+                      <p className={`text-xl font-bold font-mono ${overallAccuracy > 50 ? 'text-primary' : 'text-destructive'}`}>
+                        {overallAccuracy.toFixed(1)}%
                       </p>
                     </div>
                   </div>
