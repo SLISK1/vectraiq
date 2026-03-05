@@ -124,7 +124,9 @@ const transformToRankedAsset = async (
   
   const analysis = runAnalysis(context);
   
-  if (analysis.direction !== filterDirection && analysis.direction !== 'NEUTRAL') {
+  // NEUTRAL assets should NOT appear in directional lists — only show assets
+  // whose analysis direction matches the requested filterDirection
+  if (analysis.direction !== filterDirection) {
     return null;
   }
   
