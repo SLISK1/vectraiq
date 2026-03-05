@@ -52,6 +52,33 @@ export type Database = {
           },
         ]
       }
+      api_cache: {
+        Row: {
+          cache_key: string
+          fetched_at: string
+          id: string
+          payload: Json
+          provider: string | null
+          ttl_seconds: number
+        }
+        Insert: {
+          cache_key: string
+          fetched_at?: string
+          id?: string
+          payload?: Json
+          provider?: string | null
+          ttl_seconds?: number
+        }
+        Update: {
+          cache_key?: string
+          fetched_at?: string
+          id?: string
+          payload?: Json
+          provider?: string | null
+          ttl_seconds?: number
+        }
+        Relationships: []
+      }
       api_usage_tracker: {
         Row: {
           category: string

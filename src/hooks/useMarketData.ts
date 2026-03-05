@@ -124,7 +124,9 @@ const transformToRankedAsset = async (
   
   const analysis = runAnalysis(context);
   
-  if (analysis.direction !== filterDirection && analysis.direction !== 'NEUTRAL') {
+  // NEUTRAL assets should NOT appear in directional lists — only show assets
+  // whose analysis direction matches the requested filterDirection
+  if (analysis.direction !== filterDirection) {
     return null;
   }
   
@@ -155,7 +157,7 @@ const transformToRankedAsset = async (
     marketCap: marketCapValue,
     marketCapCategory: getMarketCapCategory(marketCapValue),
     totalScore: analysis.totalScore,
-    direction: analysis.direction === 'NEUTRAL' ? filterDirection : analysis.direction,
+    direction: analysis.direction,
     confidence: analysis.confidence,
     confidenceBreakdown: analysis.confidenceBreakdown,
     signals: analysis.signals,
