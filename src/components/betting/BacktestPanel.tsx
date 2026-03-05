@@ -374,7 +374,7 @@ export const BacktestPanel = () => {
       <CollapsibleTrigger className="flex items-center justify-between w-full glass-card rounded-xl p-4 hover:border-primary/30 transition-all">
         <div className="flex items-center gap-2">
           <BarChart3 className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-semibold">Backtest & Träffsäkerhet</h3>
+          <h3 className="text-sm font-semibold">ROI & Backtest</h3>
           {predictions.length > 0 && (
             <span className="text-xs text-muted-foreground">({predictions.length} 1X2 | {settledSideBets} sidospel)</span>
           )}
