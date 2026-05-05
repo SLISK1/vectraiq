@@ -12,6 +12,12 @@ import { fetchPriceHistory, triggerHistoryFetch, getHistoryDaysForHorizon, type 
 import { Horizon, RankedAsset, Direction } from '@/types/market';
 import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
 import { runAnalysis, createAnalysisContext, PriceData } from '@/lib/analysis';
+import type {
+  NewsSentimentData,
+  UpcomingEvent,
+  RelativeStrengthData,
+  EventSignalData,
+} from '@/lib/analysis/types';
 import { supabase } from '@/integrations/supabase/client';
 import { initMacroCache } from '@/lib/analysis/macro';
 
@@ -77,11 +83,12 @@ const computeZScores = (assets: RankedAsset[]): Map<string, number> => {
 
 // Transform database symbols to RankedAsset format with real analysis
 const transformToRankedAsset = async (
-  symbol: SymbolWithPrice, 
-  horizon: Horizon, 
+  symbol: SymbolWithPrice,
+  horizon: Horizon,
   filterDirection: 'UP' | 'DOWN',
   priceHistoryCache: Map<string, PriceData[]>,
-  avCacheMap?: Map<string, { indicator_type: string; data: any }[]>
+  avCacheMap?: Map<string, { indicator_type: string; data: any }[]>,
+  enrichments?: SymbolEnrichments
 ): Promise<RankedAsset | null> => {
   const price = symbol.latestPrice;
   const currentPrice = price ? Number(price.price) : 0;
@@ -109,7 +116,10 @@ const transformToRankedAsset = async (
   }
   
   const avCache = avCacheMap?.get(symbol.id);
-  
+  const symbolEnrichments = enrichments
+    ? buildEnrichmentsForSymbol(symbol, enrichments)
+    : undefined;
+
   const context = createAnalysisContext(
     symbol.ticker,
     symbol.name,
@@ -119,9 +129,10 @@ const transformToRankedAsset = async (
     priceHistory,
     horizon,
     symbol.fundamentals,
-    avCache
+    avCache,
+    symbolEnrichments
   );
-  
+
   const analysis = runAnalysis(context);
   
   // NEUTRAL assets should NOT appear in directional lists — only show assets
@@ -167,6 +178,235 @@ const transformToRankedAsset = async (
     predictedReturns: analysis.predictedReturns,
     trendPrediction: analysis.trendPrediction,
     aiSummary: analysis.aiSummary,
+  };
+};
+
+// ====================================================================
+// Signal-quality enrichments (added 2026-03-06)
+// Pre-fetches data for: news sentiment, event calendar, earnings surprises,
+// analyst revisions, insider trades, sector & index returns. All cached in
+// memory per useRankedAssets call so each ticker's runAnalysis() runs sync.
+// ====================================================================
+
+interface SymbolEnrichments {
+  newsSentimentByTicker: Map<string, NewsSentimentData>;
+  eventsByTicker: Map<string, UpcomingEvent[]>;
+  marketWideEvents: UpcomingEvent[];
+  eventSignalsByTicker: Map<string, EventSignalData>;
+  sectorReturns: Map<string, number | null>;   // key: "sector|asset_type|days"
+  indexReturns: Map<string, number | null>;    // key: "index_ticker|asset_type|days"
+}
+
+const benchmarkFor = (assetType: string, exchange?: string | null): string => {
+  if (assetType === 'crypto') return 'BTC';
+  if (assetType === 'metal') return 'XAU';
+  if (assetType === 'fund') return 'SPY';
+  if (exchange?.includes('Stockholm') || exchange?.includes('OMX')) return 'OMXS30';
+  if (exchange?.includes('Oslo')) return 'OBX';
+  if (exchange?.includes('Helsinki')) return 'OMXH25';
+  if (exchange?.includes('Copenhagen')) return 'OMXC25';
+  return 'SPY';
+};
+
+const daysSince = (iso: string | null | undefined): number => {
+  if (!iso) return 999;
+  return (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24);
+};
+
+const fetchAllEnrichments = async (
+  symbols: SymbolWithPrice[]
+): Promise<SymbolEnrichments> => {
+  const tickers = symbols.map(s => s.ticker);
+  const sb: any = supabase; // tables are migration-defined; types may lag
+
+  const [
+    sentimentRes,
+    eventsRes,
+    surprisesRes,
+    revisionsRes,
+    insiderRes,
+    sectorRes,
+    indexRes,
+  ] = await Promise.allSettled([
+    sb.from('news_sentiment_cache').select('*').in('ticker', tickers),
+    sb.from('event_calendar').select('*')
+      .gte('event_date', new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString())
+      .lte('event_date', new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString()),
+    sb.from('earnings_surprises').select('ticker, period, surprise_pct, reported_at')
+      .in('ticker', tickers).order('reported_at', { ascending: false }),
+    sb.from('analyst_revisions').select('*').in('ticker', tickers),
+    sb.from('insider_trades').select('ticker, transaction_type, value_usd, transaction_date')
+      .in('ticker', tickers)
+      .gte('transaction_date', new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString().split('T')[0]),
+    sb.from('sector_returns_cache').select('*'),
+    sb.from('index_returns_cache').select('*'),
+  ]);
+
+  const newsSentimentByTicker = new Map<string, NewsSentimentData>();
+  if (sentimentRes.status === 'fulfilled' && sentimentRes.value.data) {
+    for (const row of sentimentRes.value.data) {
+      newsSentimentByTicker.set(row.ticker, {
+        score: Number(row.score || 0),
+        magnitude: Number(row.magnitude || 0),
+        articleCount: row.article_count || 0,
+        positiveCount: row.positive_count || 0,
+        negativeCount: row.negative_count || 0,
+        topThemes: Array.isArray(row.top_themes) ? row.top_themes : [],
+        updatedAt: row.updated_at,
+      });
+    }
+  }
+
+  const eventsByTicker = new Map<string, UpcomingEvent[]>();
+  const marketWideEvents: UpcomingEvent[] = [];
+  if (eventsRes.status === 'fulfilled' && eventsRes.value.data) {
+    const now = Date.now();
+    for (const row of eventsRes.value.data) {
+      const evDate = new Date(row.event_date).getTime();
+      const daysAway = Math.round((evDate - now) / (1000 * 60 * 60 * 24));
+      const ev: UpcomingEvent = {
+        type: row.event_type,
+        date: row.event_date,
+        daysAway,
+        importance: row.importance ?? 1,
+        isMarketWide: !row.ticker,
+      };
+      if (row.ticker) {
+        const arr = eventsByTicker.get(row.ticker) || [];
+        arr.push(ev);
+        eventsByTicker.set(row.ticker, arr);
+      } else {
+        marketWideEvents.push(ev);
+      }
+    }
+  }
+
+  // Build per-ticker EventSignalData from surprises + revisions + insider
+  const eventSignalsByTicker = new Map<string, EventSignalData>();
+  if (surprisesRes.status === 'fulfilled' && surprisesRes.value.data) {
+    // Take only the most recent surprise per ticker (first row after order desc)
+    const seen = new Set<string>();
+    for (const row of surprisesRes.value.data) {
+      if (seen.has(row.ticker)) continue;
+      seen.add(row.ticker);
+      if (row.surprise_pct == null) continue;
+      const existing = eventSignalsByTicker.get(row.ticker) || {};
+      existing.recentSurprise = {
+        period: row.period,
+        surprisePct: Number(row.surprise_pct),
+        daysSinceReport: Math.round(daysSince(row.reported_at)),
+      };
+      eventSignalsByTicker.set(row.ticker, existing);
+    }
+  }
+  if (revisionsRes.status === 'fulfilled' && revisionsRes.value.data) {
+    for (const row of revisionsRes.value.data) {
+      const existing = eventSignalsByTicker.get(row.ticker) || {};
+      const symbol = symbols.find(s => s.ticker === row.ticker);
+      const currentPrice = symbol?.latestPrice ? Number(symbol.latestPrice.price) : null;
+      const targetUpside = (row.mean_target && currentPrice && currentPrice > 0)
+        ? ((Number(row.mean_target) - currentPrice) / currentPrice) * 100
+        : null;
+      existing.analystRevisions = {
+        netRevisions30d: (row.num_revisions_up_30d || 0) - (row.num_revisions_down_30d || 0),
+        consensus: row.consensus || undefined,
+        targetPctUpside: targetUpside ?? undefined,
+      };
+      eventSignalsByTicker.set(row.ticker, existing);
+    }
+  }
+  if (insiderRes.status === 'fulfilled' && insiderRes.value.data) {
+    const aggByTicker = new Map<string, { netBuys: number; netValue: number }>();
+    for (const row of insiderRes.value.data) {
+      const agg = aggByTicker.get(row.ticker) || { netBuys: 0, netValue: 0 };
+      const sign = row.transaction_type === 'buy' ? 1 : -1;
+      agg.netBuys += sign;
+      agg.netValue += sign * Number(row.value_usd || 0);
+      aggByTicker.set(row.ticker, agg);
+    }
+    for (const [ticker, agg] of aggByTicker) {
+      const existing = eventSignalsByTicker.get(ticker) || {};
+      existing.insiderActivity = {
+        netBuysLast90d: agg.netBuys,
+        netValueUsdLast90d: agg.netValue,
+      };
+      eventSignalsByTicker.set(ticker, existing);
+    }
+  }
+
+  const sectorReturns = new Map<string, number | null>();
+  if (sectorRes.status === 'fulfilled' && sectorRes.value.data) {
+    for (const row of sectorRes.value.data) {
+      const key = `${row.sector}|${row.asset_type}|${row.period_days}`;
+      sectorReturns.set(key, Number(row.return_pct));
+    }
+  }
+
+  const indexReturns = new Map<string, number | null>();
+  if (indexRes.status === 'fulfilled' && indexRes.value.data) {
+    for (const row of indexRes.value.data) {
+      const key = `${row.index_ticker}|${row.asset_type}|${row.period_days}`;
+      indexReturns.set(key, Number(row.return_pct));
+    }
+  }
+
+  console.log(
+    `Enrichments fetched: sentiment=${newsSentimentByTicker.size}, ` +
+    `events=${eventsByTicker.size} (+${marketWideEvents.length} market-wide), ` +
+    `signals=${eventSignalsByTicker.size}, sectors=${sectorReturns.size}, indices=${indexReturns.size}`
+  );
+
+  return {
+    newsSentimentByTicker,
+    eventsByTicker,
+    marketWideEvents,
+    eventSignalsByTicker,
+    sectorReturns,
+    indexReturns,
+  };
+};
+
+const buildEnrichmentsForSymbol = (
+  symbol: SymbolWithPrice,
+  enrichments: SymbolEnrichments
+) => {
+  const ticker = symbol.ticker;
+  const sector = symbol.sector || 'Unknown';
+  const assetType = symbol.asset_type as string;
+  const benchmark = benchmarkFor(assetType, symbol.exchange);
+
+  // Combine ticker-specific events with market-wide events. Macro events affect
+  // all assets — earnings only the ticker.
+  const tickerEvents = enrichments.eventsByTicker.get(ticker) || [];
+  const upcomingEvents: UpcomingEvent[] = [
+    ...tickerEvents,
+    ...enrichments.marketWideEvents,
+  ];
+
+  const sector1m = enrichments.sectorReturns.get(`${sector}|${assetType}|21`) ?? null;
+  const sector3m = enrichments.sectorReturns.get(`${sector}|${assetType}|63`) ?? null;
+  const sector6m = enrichments.sectorReturns.get(`${sector}|${assetType}|126`) ?? null;
+  const index1m = enrichments.indexReturns.get(`${benchmark}|${assetType}|21`) ?? null;
+  const index3m = enrichments.indexReturns.get(`${benchmark}|${assetType}|63`) ?? null;
+
+  const relativeStrength: RelativeStrengthData = {
+    rs1m: null, rs3m: null, rs6m: null, vsIndex1m: null, vsIndex3m: null,
+    sectorReturn1m: sector1m,
+    indexReturn1m: index1m,
+    benchmark,
+  };
+  // RS values are computed inside analyzeRelativeStrength using own returns;
+  // we just supply the baselines here. Multi-period baselines stored in metadata
+  // for potential future use.
+  void sector3m; void sector6m; void index3m;
+
+  return {
+    newsSentiment: enrichments.newsSentimentByTicker.get(ticker),
+    upcomingEvents: upcomingEvents.length > 0 ? upcomingEvents : undefined,
+    relativeStrength,
+    eventSignals: enrichments.eventSignalsByTicker.get(ticker),
+    sector: symbol.sector || undefined,
+    exchange: symbol.exchange || undefined,
   };
 };
 
@@ -251,7 +491,7 @@ export const useRankedAssets = (horizon: Horizon, direction: 'UP' | 'DOWN') => {
           .select('symbol_id, indicator_type, data')
           .in('symbol_id', symbols.map(s => s.id))
           .gt('valid_until', new Date().toISOString());
-        
+
         if (avData && avData.length > 0) {
           avCacheMap = new Map();
           for (const row of avData) {
@@ -264,14 +504,23 @@ export const useRankedAssets = (horizon: Horizon, direction: 'UP' | 'DOWN') => {
       } catch (e) {
         console.log('AV cache fetch failed (non-critical):', e);
       }
-      
+
+      // Pre-fetch all signal-quality enrichments (news sentiment, events,
+      // earnings surprises, insider trades, sector/index returns).
+      let enrichments: SymbolEnrichments | undefined;
+      try {
+        enrichments = await fetchAllEnrichments(symbols);
+      } catch (e) {
+        console.log('Enrichments fetch failed (non-critical):', e);
+      }
+
       // Transform symbols with concurrency limit to avoid browser thread saturation
       const CONCURRENCY = 10;
       const results: (RankedAsset | null)[] = [];
       for (let i = 0; i < symbols.length; i += CONCURRENCY) {
         const batch = symbols.slice(i, i + CONCURRENCY);
         const batchResults = await Promise.all(
-          batch.map(s => transformToRankedAsset(s, horizon, direction, priceHistoryCache, avCacheMap))
+          batch.map(s => transformToRankedAsset(s, horizon, direction, priceHistoryCache, avCacheMap, enrichments))
         );
         results.push(...batchResults);
       }

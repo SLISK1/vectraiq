@@ -139,16 +139,21 @@ export interface HorizonWeights {
   seasonal: number;
   orderFlow: number;
   ml: number;
+  events: number;           // earnings surprises + insider trades + analyst revisions
+  relativeStrength: number; // RS vs sector & benchmark index
 }
 
+// Weights sum to 100 per horizon. New modules added 2026-03-06: events, relativeStrength.
+// Weights re-balanced by reducing technical/quant overweighting in shorter horizons
+// and reducing fundamental in longer horizons (events captures forward-looking signal better).
 export const DEFAULT_WEIGHTS: Record<Horizon, HorizonWeights> = {
-  '1s': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0 },
-  '1m': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0 },
-  '1h': { technical: 28, fundamental: 2, sentiment: 15, measuredMoves: 0, quant: 18, macro: 5, volatility: 18, seasonal: 2, orderFlow: 12, ml: 0 },
-  '1d': { technical: 22, fundamental: 5, sentiment: 12, measuredMoves: 8, quant: 15, macro: 10, volatility: 13, seasonal: 3, orderFlow: 10, ml: 2 },
-  '1w': { technical: 18, fundamental: 15, sentiment: 12, measuredMoves: 10, quant: 18, macro: 10, volatility: 8, seasonal: 5, orderFlow: 2, ml: 2 },
-  '1mo': { technical: 12, fundamental: 25, sentiment: 8, measuredMoves: 12, quant: 18, macro: 15, volatility: 8, seasonal: 2, orderFlow: 0, ml: 0 },
-  '1y': { technical: 5, fundamental: 32, sentiment: 5, measuredMoves: 10, quant: 18, macro: 18, volatility: 5, seasonal: 7, orderFlow: 0, ml: 0 },
+  '1s': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0, events: 0, relativeStrength: 0 },
+  '1m': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0, events: 0, relativeStrength: 0 },
+  '1h': { technical: 26, fundamental: 2, sentiment: 12, measuredMoves: 0, quant: 16, macro: 5, volatility: 16, seasonal: 2, orderFlow: 11, ml: 0, events: 5, relativeStrength: 5 },
+  '1d': { technical: 18, fundamental: 5, sentiment: 10, measuredMoves: 8, quant: 13, macro: 10, volatility: 11, seasonal: 3, orderFlow: 8, ml: 2, events: 5, relativeStrength: 7 },
+  '1w': { technical: 14, fundamental: 12, sentiment: 10, measuredMoves: 10, quant: 14, macro: 10, volatility: 7, seasonal: 4, orderFlow: 2, ml: 2, events: 7, relativeStrength: 8 },
+  '1mo': { technical: 10, fundamental: 20, sentiment: 7, measuredMoves: 10, quant: 14, macro: 13, volatility: 6, seasonal: 2, orderFlow: 0, ml: 0, events: 10, relativeStrength: 8 },
+  '1y': { technical: 4, fundamental: 28, sentiment: 4, measuredMoves: 8, quant: 14, macro: 16, volatility: 4, seasonal: 6, orderFlow: 0, ml: 0, events: 10, relativeStrength: 6 },
 };
 
 export const HORIZON_LABELS: Record<Horizon, string> = {
@@ -182,4 +187,6 @@ export const MODULE_NAMES: Record<string, string> = {
   seasonal: 'Säsongsmönster',
   orderFlow: 'Orderflöde',
   ml: 'ML / Statistik',
+  events: 'Events & Insider',
+  relativeStrength: 'Relativ Styrka',
 };

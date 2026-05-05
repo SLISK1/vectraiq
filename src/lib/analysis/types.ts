@@ -117,6 +117,52 @@ export interface MLPrediction {
   prediction90d?: number;
 }
 
+export interface NewsSentimentData {
+  score: number;            // -1 (very bearish) .. +1 (very bullish)
+  magnitude: number;        // 0..1 emotional intensity
+  articleCount: number;
+  positiveCount: number;
+  negativeCount: number;
+  topThemes?: { word: string; count: number; polarity: number }[];
+  updatedAt: string;
+}
+
+export interface UpcomingEvent {
+  type: string;             // earnings | cpi | fed | ecb | riksbank | nfp | gdp | dividend
+  date: string;             // ISO timestamp
+  daysAway: number;         // negative if just past, positive if upcoming
+  importance: number;       // 1..3
+  isMarketWide: boolean;
+}
+
+export interface RelativeStrengthData {
+  rs1m: number | null;      // ticker return - sector return, last ~21 trading days, in pct
+  rs3m: number | null;      // ~63 days
+  rs6m: number | null;      // ~126 days
+  vsIndex1m: number | null; // ticker return - benchmark index return
+  vsIndex3m: number | null;
+  sectorReturn1m: number | null;
+  indexReturn1m: number | null;
+  benchmark: string;
+}
+
+export interface EventSignalData {
+  recentSurprise?: {
+    period: string;
+    surprisePct: number;     // (actual-est)/|est|
+    daysSinceReport: number;
+  };
+  analystRevisions?: {
+    netRevisions30d: number; // up - down
+    consensus?: string;
+    targetPctUpside?: number;
+  };
+  insiderActivity?: {
+    netBuysLast90d: number;  // buy count - sell count
+    netValueUsdLast90d: number;
+  };
+}
+
 export interface AnalysisContext {
   ticker: string;
   name: string;
@@ -128,6 +174,13 @@ export interface AnalysisContext {
   fundamentals?: FundamentalMetrics;
   macro?: MacroData;
   avCache?: { indicator_type: string; data: any }[];
+  // Pre-fetched signal-quality enrichments (added 2026-03-06)
+  newsSentiment?: NewsSentimentData;
+  upcomingEvents?: UpcomingEvent[];
+  relativeStrength?: RelativeStrengthData;
+  eventSignals?: EventSignalData;
+  sector?: string;
+  exchange?: string;
 }
 
 // Metadata structure stored in symbols.metadata
