@@ -1,9 +1,20 @@
-// Sentiment Analysis Module (AI-powered)
+// Sentiment Analysis Module
+//
+// Reads pre-fetched news sentiment from AnalysisContext.newsSentiment, which is
+// populated by the compute-news-sentiment edge function from news_cache.
+//
+// IMPORTANT: The previous version (analyzeSentimentSync) used a price-momentum
+// proxy as "sentiment". That was double-counting momentum already covered by the
+// technical & quant modules, leading to false confluence signals. This version
+// uses ONLY news-derived sentiment. When news data is missing, the module returns
+// NEUTRAL with low coverage so it doesn't bias the aggregate.
 
-import { AnalysisResult, SentimentData } from './types';
+import { AnalysisResult, AnalysisContext, NewsSentimentData } from './types';
 import { Direction, Horizon, Evidence } from '@/types/market';
 import { supabase } from '@/integrations/supabase/client';
 import { getCacheKey, getFromCache, setInCache } from './cache';
+
+const SENTIMENT_CACHE_TTL = 5 * 60 * 1000;
 
 export interface SentimentAnalysisResult {
   direction: Direction;
@@ -15,10 +26,140 @@ export interface SentimentAnalysisResult {
   evidence: Evidence[];
 }
 
-// Cache TTL: 5 minutes for sentiment
-const SENTIMENT_CACHE_TTL = 5 * 60 * 1000;
+// Convert news sentiment score (-1..+1) to module signal.
+// Mapping is intentionally conservative: even strong news (|score| ~ 0.6) only
+// produces strength ~75. News overreacts in the short term and mean-reverts.
+function newsToSignal(news: NewsSentimentData, horizon: Horizon, ticker: string): AnalysisResult {
+  const evidence: Evidence[] = [];
+  const ageHours = (Date.now() - new Date(news.updatedAt).getTime()) / 3_600_000;
 
-// Call AI for sentiment analysis
+  // Direction
+  let direction: Direction = 'NEUTRAL';
+  if (news.score > 0.08) direction = 'UP';
+  else if (news.score < -0.08) direction = 'DOWN';
+
+  // Strength: |score| in [0,1] → strength in [50,90]
+  const strength = Math.round(50 + Math.abs(news.score) * 40);
+
+  // Confidence depends on article count (more sources = more reliable signal)
+  // and recency (older sentiment is stale)
+  const countFactor = Math.min(1, news.articleCount / 5);   // 5+ articles = full credit
+  const recencyFactor = Math.max(0.3, Math.pow(0.9, ageHours / 12)); // halves every ~3 days
+  const magnitudeFactor = 0.5 + 0.5 * news.magnitude;       // weak intensity dampens
+  let confidence = Math.round(40 + 40 * countFactor * recencyFactor * magnitudeFactor);
+
+  // Horizon adjustment: news matters most at 1d-1w. Less for 1y.
+  const horizonMul: Record<Horizon, number> = {
+    '1s': 0.6, '1m': 0.7, '1h': 0.9, '1d': 1.0, '1w': 0.95, '1mo': 0.8, '1y': 0.55,
+  };
+  confidence = Math.round(confidence * horizonMul[horizon]);
+
+  // Coverage: high if we have ≥3 articles less than 48h old
+  const coverage = Math.min(85, 30 + news.articleCount * 8 + (ageHours < 48 ? 15 : 0));
+
+  evidence.push({
+    type: 'news_sentiment',
+    description: `Nyhetssentiment ${direction === 'UP' ? 'positivt' : direction === 'DOWN' ? 'negativt' : 'neutralt'}`,
+    value: `${news.score >= 0 ? '+' : ''}${(news.score * 100).toFixed(0)}% (${news.articleCount} artiklar)`,
+    timestamp: news.updatedAt,
+    source: 'News Sentiment Cache',
+  });
+
+  if (news.positiveCount + news.negativeCount > 0) {
+    evidence.push({
+      type: 'article_split',
+      description: 'Positiva vs negativa artiklar',
+      value: `${news.positiveCount}↑ / ${news.negativeCount}↓`,
+      timestamp: news.updatedAt,
+      source: 'GNews + Lexicon',
+    });
+  }
+
+  if (news.topThemes && news.topThemes.length > 0) {
+    const topTheme = news.topThemes[0];
+    evidence.push({
+      type: 'theme',
+      description: 'Mest frekvent ord',
+      value: `"${topTheme.word}" (${topTheme.count}x, polaritet ${topTheme.polarity > 0 ? '+' : ''}${topTheme.polarity.toFixed(2)})`,
+      timestamp: news.updatedAt,
+      source: 'Theme Extraction',
+    });
+  }
+
+  if (ageHours > 48) {
+    evidence.push({
+      type: 'stale',
+      description: 'Sentimentdata är inte färsk',
+      value: `${Math.round(ageHours)}h gammal`,
+      timestamp: news.updatedAt,
+      source: 'System',
+    });
+  }
+
+  return {
+    module: 'sentiment',
+    direction,
+    strength: Math.max(35, Math.min(90, strength)),
+    confidence: Math.max(20, Math.min(80, confidence)),
+    coverage: Math.max(0, Math.min(85, coverage)),
+    evidence,
+    metadata: {
+      source: 'news_cache',
+      ticker,
+      score: news.score,
+      magnitude: news.magnitude,
+      articleCount: news.articleCount,
+    },
+  };
+}
+
+// No-data fallback: NEUTRAL with very low coverage so the module barely contributes.
+function noDataResult(reason: string): AnalysisResult {
+  return {
+    module: 'sentiment',
+    direction: 'NEUTRAL',
+    strength: 50,
+    confidence: 25,
+    coverage: 10, // Low coverage → reliability shrinkage will down-weight further
+    evidence: [{
+      type: 'no_data',
+      description: 'Ingen nyhetsdata tillgänglig',
+      value: reason,
+      timestamp: new Date().toISOString(),
+      source: 'System',
+    }],
+    metadata: { source: 'no_data', reason },
+  };
+}
+
+// Main entry — sync, reads from pre-fetched context.
+// REPLACES the old analyzeSentimentSync which used momentum as a sentiment proxy.
+export const analyzeSentimentFromContext = (context: AnalysisContext): AnalysisResult => {
+  const news = context.newsSentiment;
+  if (!news || news.articleCount === 0) {
+    return noDataResult('news_sentiment_cache miss');
+  }
+  return newsToSignal(news, context.horizon, context.ticker);
+};
+
+// Backward-compatibility wrapper — returns NEUTRAL low-coverage when called
+// without enriched context. Existing call sites (e.g. ScreenerDetailModal that
+// pass only ticker/name without context) get a safe fallback rather than the
+// old momentum-proxy bug.
+export const analyzeSentimentSync = (
+  ticker: string,
+  _name: string,
+  _assetType: 'stock' | 'crypto' | 'metal' | 'fund',
+  _horizon: Horizon,
+  _priceHistory?: { price: number; close?: number; timestamp: string }[]
+): AnalysisResult => {
+  // Without an AnalysisContext we can't access the pre-fetched newsSentiment.
+  // Return no-data instead of the old momentum-proxy that double-counted technical.
+  return noDataResult(`no enriched context for ${ticker}`);
+};
+
+// Async fetch — kept for future on-demand use (e.g. detail modal).
+// Calls the existing ai-analysis edge function which uses Firecrawl.
 export const fetchAISentiment = async (
   ticker: string,
   name: string,
@@ -27,44 +168,25 @@ export const fetchAISentiment = async (
   currentPrice?: number
 ): Promise<SentimentAnalysisResult | null> => {
   try {
-    // Check cache first
     const cacheKey = getCacheKey('sentiment', ticker, horizon);
     const cached = getFromCache<SentimentAnalysisResult>(cacheKey, SENTIMENT_CACHE_TTL);
-    if (cached) {
-      return cached;
-    }
+    if (cached) return cached;
 
-    // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      console.log('AI sentiment: No session, using fallback');
-      return null;
-    }
+    if (!session) return null;
 
     const { data, error } = await supabase.functions.invoke('ai-analysis', {
-      body: {
-        type: 'sentiment',
-        ticker,
-        name,
-        assetType,
-        horizon,
-        currentPrice,
-      },
+      body: { type: 'sentiment', ticker, name, assetType, horizon, currentPrice },
     });
 
     if (error) {
       console.error('AI sentiment error:', error);
       return null;
     }
-
     if (data?.success && data?.result) {
-      console.log(`AI sentiment received for ${ticker}:`, data.result.direction, data.result.confidence);
-      // Cache the result
       setInCache(cacheKey, data.result);
       return data.result;
     }
-
     return null;
   } catch (err) {
     console.error('Failed to fetch AI sentiment:', err);
@@ -72,7 +194,8 @@ export const fetchAISentiment = async (
   }
 };
 
-// Main sentiment analysis function
+// Async version that combines pre-fetched cache + on-demand AI top-up.
+// Used by the detail modal where we can afford the latency.
 export const analyzeSentiment = async (
   ticker: string,
   name: string,
@@ -80,223 +203,22 @@ export const analyzeSentiment = async (
   horizon: Horizon,
   currentPrice?: number
 ): Promise<AnalysisResult> => {
-  const evidence: Evidence[] = [];
-  
-  // Try to get AI sentiment
-  const aiSentiment = await fetchAISentiment(ticker, name, assetType, horizon, currentPrice);
-  
-  if (aiSentiment) {
-    // Use AI-generated sentiment
-    evidence.push(...aiSentiment.evidence.map(e => ({
-      ...e,
-      timestamp: new Date().toISOString(),
-    })));
-    
-    if (aiSentiment.analystRating) {
-      const ratingLabels: Record<string, string> = {
-        strong_buy: 'Stark Köp',
-        buy: 'Köp',
-        hold: 'Behåll',
-        sell: 'Sälj',
-        strong_sell: 'Stark Sälj',
-      };
-      evidence.push({
-        type: 'analyst',
-        description: 'Analytikerbetyg',
-        value: ratingLabels[aiSentiment.analystRating],
-        timestamp: new Date().toISOString(),
-        source: 'AI Sentiment Analysis',
-      });
-    }
-    
+  const ai = await fetchAISentiment(ticker, name, assetType, horizon, currentPrice);
+  if (ai) {
     return {
       module: 'sentiment',
-      direction: aiSentiment.direction,
-      strength: aiSentiment.strength,
-      confidence: aiSentiment.confidence,
-      coverage: 70, // AI provides reasonable coverage
-      evidence,
+      direction: ai.direction,
+      strength: ai.strength,
+      confidence: ai.confidence,
+      coverage: 70,
+      evidence: ai.evidence.map(e => ({ ...e, timestamp: new Date().toISOString() })),
       metadata: {
-        newsScore: aiSentiment.newsScore,
-        socialScore: aiSentiment.socialScore,
-        analystRating: aiSentiment.analystRating,
         source: 'AI',
+        newsScore: ai.newsScore,
+        socialScore: ai.socialScore,
+        analystRating: ai.analystRating,
       },
     };
   }
-  
-  // Fallback to basic sentiment estimation
-  evidence.push({
-    type: 'fallback',
-    description: 'AI-sentiment ej tillgängligt',
-    value: 'Använder basestimering',
-    timestamp: new Date().toISOString(),
-    source: 'System',
-  });
-  
-  // Basic market-sentiment based on asset type
-  let baseDirection: Direction = 'NEUTRAL';
-  let baseStrength = 50;
-  
-  if (assetType === 'crypto') {
-    // Crypto - neutral base when no data available
-    baseStrength = 50;
-    baseDirection = 'NEUTRAL';
-  } else if (assetType === 'metal') {
-    // Metals (especially gold) often seen as safe haven
-    baseStrength = 55;
-    baseDirection = 'UP';
-  } else {
-    // Stocks - neutral base
-    baseStrength = 50;
-  }
-  
-  return {
-    module: 'sentiment',
-    direction: baseDirection,
-    strength: Math.round(baseStrength),
-    confidence: 35, // Low confidence for fallback
-    coverage: 20, // Limited data
-    evidence,
-    metadata: { source: 'fallback' },
-  };
-};
-
-// Synchronous version - uses momentum proxy when price data is available
-export const analyzeSentimentSync = (
-  ticker: string,
-  name: string,
-  assetType: 'stock' | 'crypto' | 'metal' | 'fund',
-  horizon: Horizon,
-  priceHistory?: { price: number; close?: number; timestamp: string }[]
-): AnalysisResult => {
-  const evidence: Evidence[] = [];
-  
-  let direction: Direction = 'NEUTRAL';
-  let strength = 50;
-  let confidence = 40; // Base confidence higher than before
-  let coverage = 35; // Base coverage
-  
-  // If we have price history, calculate momentum-based sentiment proxy
-  if (priceHistory && priceHistory.length >= 5) {
-    const prices = priceHistory.map(p => p.close ?? p.price);
-    const recentPrices = prices.slice(-10);
-    
-    // Calculate short-term momentum (5-day)
-    const shortTermReturns: number[] = [];
-    for (let i = 1; i < Math.min(6, recentPrices.length); i++) {
-      shortTermReturns.push((recentPrices[recentPrices.length - i] - recentPrices[recentPrices.length - i - 1]) / recentPrices[recentPrices.length - i - 1]);
-    }
-    const avgShortReturn = shortTermReturns.length > 0
-      ? shortTermReturns.reduce((a, b) => a + b, 0) / shortTermReturns.length
-      : 0;
-    
-    // Calculate medium-term momentum if we have enough data
-    let avgMediumReturn = 0;
-    if (prices.length >= 20) {
-      const mediumReturns: number[] = [];
-      for (let i = 1; i < Math.min(20, prices.length); i++) {
-        mediumReturns.push((prices[prices.length - i] - prices[prices.length - i - 1]) / prices[prices.length - i - 1]);
-      }
-      avgMediumReturn = mediumReturns.reduce((a, b) => a + b, 0) / mediumReturns.length;
-    }
-    
-    // Combine short and medium term momentum
-    const combinedMomentum = avgShortReturn * 0.6 + avgMediumReturn * 0.4;
-    
-    // Determine direction and strength based on momentum
-    if (combinedMomentum > 0.008) {
-      direction = 'UP';
-      strength = Math.min(80, 55 + combinedMomentum * 400);
-      confidence = 50;
-    } else if (combinedMomentum < -0.008) {
-      direction = 'DOWN';
-      strength = Math.min(80, 55 + Math.abs(combinedMomentum) * 400);
-      confidence = 50;
-    } else {
-      // Weak or no momentum
-      direction = 'NEUTRAL';
-      strength = 50;
-      confidence = 45;
-    }
-    
-    // Check for momentum consistency (all same direction = higher confidence)
-    const positiveReturns = shortTermReturns.filter(r => r > 0).length;
-    const consistencyRatio = shortTermReturns.length > 0
-      ? Math.max(positiveReturns, shortTermReturns.length - positiveReturns) / shortTermReturns.length
-      : 0.5;
-    
-    if (consistencyRatio > 0.8) {
-      confidence += 8;
-      evidence.push({
-        type: 'consistency',
-        description: 'Konsistent prisrörelse',
-        value: `${Math.round(consistencyRatio * 100)}% dagar i samma riktning`,
-        timestamp: new Date().toISOString(),
-        source: 'Momentum Proxy',
-      });
-    }
-    
-    evidence.push({
-      type: 'momentum_proxy',
-      description: 'Sentiment baserat på prismomentum',
-      value: `${combinedMomentum >= 0 ? '+' : ''}${(combinedMomentum * 100).toFixed(2)}%`,
-      timestamp: new Date().toISOString(),
-      source: 'Price Momentum Proxy',
-    });
-    
-    coverage = Math.min(60, 35 + Math.floor(priceHistory.length / 5));
-  } else {
-    evidence.push({
-      type: 'limitation',
-      description: 'Begränsad prisdata för sentimentproxy',
-      value: 'Använder basestimering',
-      timestamp: new Date().toISOString(),
-      source: 'System',
-    });
-  }
-  
-  // Asset type adjustments
-  if (assetType === 'crypto') {
-    confidence -= 5; // Crypto sentiment is less predictable
-    evidence.push({
-      type: 'asset_adjustment',
-      description: 'Krypto har högre sentimentvolatilitet',
-      value: '-5% konfidensjustering',
-      timestamp: new Date().toISOString(),
-      source: 'Asset Analysis',
-    });
-  } else if (assetType === 'metal') {
-    confidence += 5; // Metals tend to have more stable sentiment patterns
-    evidence.push({
-      type: 'asset_adjustment',
-      description: 'Ädelmetaller har stabilare sentiment',
-      value: '+5% konfidensjustering',
-      timestamp: new Date().toISOString(),
-      source: 'Asset Analysis',
-    });
-  }
-  
-  // Horizon adjustment - sentiment is more reliable for shorter horizons
-  const horizonMultiplier = horizon === '1d' ? 1.1 : horizon === '1w' ? 1.0 : horizon === '1mo' ? 0.9 : 0.85;
-  confidence = Math.round(confidence * horizonMultiplier);
-
-  // Dampen strength toward neutral since this is a momentum proxy, not real sentiment.
-  // This avoids double-counting with technical/fundamental modules that also use price data.
-  const proxyDamping = 0.5;
-  const dampenedStrength = Math.round(50 + (strength - 50) * proxyDamping);
-
-  return {
-    module: 'sentiment',
-    direction,
-    strength: Math.max(35, Math.min(65, dampenedStrength)),
-    confidence: Math.max(25, Math.min(55, confidence)),
-    coverage: Math.min(coverage, 40), // Cap coverage — proxy data is inherently limited
-    evidence,
-    metadata: {
-      source: 'momentum_proxy',
-      isMomentumProxy: true,
-      method: priceHistory && priceHistory.length >= 5 ? 'price_momentum' : 'base_estimate',
-    },
-  };
+  return noDataResult('AI sentiment unavailable');
 };

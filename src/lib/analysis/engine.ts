@@ -11,8 +11,10 @@ import { analyzeFundamental } from './fundamental';
 import { analyzeMacro } from './macro';
 import { analyzeOrderFlow } from './orderflow';
 import { analyzeMeasuredMoves } from './measuredmoves';
-import { analyzeSentimentSync } from './sentiment';
+import { analyzeSentimentFromContext } from './sentiment';
 import { analyzeMLSync } from './ml';
+import { analyzeEvents, detectEventBlackout } from './events';
+import { analyzeRelativeStrength } from './relativestrength';
 import { calculateTrendPrediction } from './trendPrediction';
 
 export interface PredictedReturns {
@@ -41,15 +43,16 @@ export interface FullAnalysis {
   aiSummary: string;
 }
 
-// Crypto-specific horizon weights
+// Crypto-specific horizon weights — includes events & relativeStrength (2026-03-06)
+// Crypto has no earnings, so `events` weight is 0; relative strength vs BTC is meaningful.
 export const CRYPTO_WEIGHTS: Record<Horizon, HorizonWeights> = {
-  '1s': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0 },
-  '1m': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0 },
-  '1h': { technical: 32, fundamental: 0, sentiment: 20, measuredMoves: 0, quant: 22, macro: 0, volatility: 20, seasonal: 0, orderFlow: 6, ml: 0 },
-  '1d': { technical: 28, fundamental: 0, sentiment: 22, measuredMoves: 8, quant: 20, macro: 0, volatility: 18, seasonal: 2, orderFlow: 2, ml: 0 },
-  '1w': { technical: 25, fundamental: 5, sentiment: 20, measuredMoves: 12, quant: 22, macro: 5, volatility: 8, seasonal: 3, orderFlow: 0, ml: 0 },
-  '1mo': { technical: 18, fundamental: 10, sentiment: 15, measuredMoves: 15, quant: 22, macro: 10, volatility: 8, seasonal: 2, orderFlow: 0, ml: 0 },
-  '1y': { technical: 8, fundamental: 20, sentiment: 10, measuredMoves: 12, quant: 20, macro: 15, volatility: 5, seasonal: 5, orderFlow: 0, ml: 5 },
+  '1s': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0, events: 0, relativeStrength: 0 },
+  '1m': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0, events: 0, relativeStrength: 0 },
+  '1h': { technical: 30, fundamental: 0, sentiment: 18, measuredMoves: 0, quant: 20, macro: 0, volatility: 18, seasonal: 0, orderFlow: 6, ml: 0, events: 0, relativeStrength: 8 },
+  '1d': { technical: 24, fundamental: 0, sentiment: 18, measuredMoves: 8, quant: 18, macro: 0, volatility: 16, seasonal: 2, orderFlow: 2, ml: 0, events: 2, relativeStrength: 10 },
+  '1w': { technical: 20, fundamental: 4, sentiment: 16, measuredMoves: 12, quant: 18, macro: 5, volatility: 7, seasonal: 3, orderFlow: 0, ml: 0, events: 3, relativeStrength: 12 },
+  '1mo': { technical: 14, fundamental: 8, sentiment: 12, measuredMoves: 14, quant: 18, macro: 10, volatility: 7, seasonal: 2, orderFlow: 0, ml: 0, events: 5, relativeStrength: 10 },
+  '1y': { technical: 6, fundamental: 16, sentiment: 8, measuredMoves: 10, quant: 18, macro: 14, volatility: 4, seasonal: 4, orderFlow: 0, ml: 4, events: 8, relativeStrength: 8 },
 };
 
 import { DEFAULT_WEIGHTS } from '@/types/market';
@@ -205,7 +208,8 @@ const calculateConfidenceBreakdown = (
 const calculateTotalConfidence = (
   breakdown: ConfidenceBreakdown,
   assetType?: string,
-  cryptoHighVol?: boolean
+  cryptoHighVol?: boolean,
+  eventBlackoutActive?: boolean
 ): number => {
   let confidence = Math.round(
     0.15 * breakdown.freshness +
@@ -214,14 +218,20 @@ const calculateTotalConfidence = (
     0.25 * breakdown.signalStrength +
     0.10 * (100 - breakdown.regimeRisk)
   );
-  
+
   if (breakdown.coverage < 40) confidence = Math.min(confidence, 55);
   if (breakdown.agreement < 50) confidence = Math.max(0, confidence - 10);
-  
+
   if (assetType === 'crypto' && cryptoHighVol) {
     confidence = Math.round(confidence * 0.85);
   }
-  
+
+  // Event blackout: hard cap confidence ±2 trading days around earnings
+  // (or ±1 day around macro events). Don't let the model bet through events.
+  if (eventBlackoutActive) {
+    confidence = Math.min(confidence, 30);
+  }
+
   return confidence;
 };
 
@@ -355,6 +365,8 @@ export const calculateObjectiveCoverage = (
     measuredMoves: 20,
     sentiment: 5,
     ml: 20,
+    events: 5,
+    relativeStrength: 22, // needs at least 1m of price history for own return
   };
   
   const minRequired = minDataByModule[moduleName] || 20;
@@ -427,10 +439,19 @@ export const runAnalysis = (
     results.push(analyzeMeasuredMoves(priceHistory, currentPrice, horizon));
   }
   if (baseWeights.sentiment > 0) {
-    results.push(analyzeSentimentSync(ticker, name, assetType, horizon, priceHistory));
+    // Uses pre-fetched newsSentiment from context (replaces old momentum-proxy bug)
+    results.push(analyzeSentimentFromContext(context));
   }
   if (baseWeights.ml > 0 && priceHistory.length >= 20) {
     results.push(analyzeMLSync(priceHistory, currentPrice, horizon));
+  }
+  if (baseWeights.events > 0) {
+    // Earnings surprises (PEAD) + insider trades + analyst revisions + event blackout
+    results.push(analyzeEvents(context));
+  }
+  if (baseWeights.relativeStrength > 0 && priceHistory.length >= 22) {
+    // Cross-sectional momentum vs sector/index
+    results.push(analyzeRelativeStrength(context));
   }
   
   // === F: Override self-reported coverage with objective calculation ===
@@ -504,7 +525,14 @@ export const runAnalysis = (
     confidenceBreakdown.lowSampleWarning = anyLowSample;
   }
   
-  const confidence = calculateTotalConfidence(confidenceBreakdown, assetType, cryptoHighVol);
+  // Detect event blackout (earnings within ±2d, macro within ±1d)
+  const blackout = detectEventBlackout(context);
+  const confidence = calculateTotalConfidence(
+    confidenceBreakdown,
+    assetType,
+    cryptoHighVol,
+    blackout.active
+  );
   
   // === H: Top contributors — consistent with signed scoring ===
   let topContributors: { module: string; contribution: number }[];
@@ -567,7 +595,15 @@ export const createAnalysisContext = (
   priceHistory: PriceData[],
   horizon: Horizon,
   fundamentals?: import('./types').FundamentalMetrics,
-  avCache?: { indicator_type: string; data: any }[]
+  avCache?: { indicator_type: string; data: any }[],
+  enrichments?: {
+    newsSentiment?: import('./types').NewsSentimentData;
+    upcomingEvents?: import('./types').UpcomingEvent[];
+    relativeStrength?: import('./types').RelativeStrengthData;
+    eventSignals?: import('./types').EventSignalData;
+    sector?: string;
+    exchange?: string;
+  }
 ): AnalysisContext => ({
   ticker,
   name,
@@ -578,4 +614,10 @@ export const createAnalysisContext = (
   priceHistory,
   fundamentals,
   avCache,
+  newsSentiment: enrichments?.newsSentiment,
+  upcomingEvents: enrichments?.upcomingEvents,
+  relativeStrength: enrichments?.relativeStrength,
+  eventSignals: enrichments?.eventSignals,
+  sector: enrichments?.sector,
+  exchange: enrichments?.exchange,
 });

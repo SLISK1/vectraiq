@@ -68,3 +68,15 @@ verify_jwt = false
 
 [functions.update-calibration]
 verify_jwt = false
+
+[functions.compute-news-sentiment]
+verify_jwt = false
+
+[functions.fetch-events]
+verify_jwt = false
+
+[functions.compute-sector-returns]
+verify_jwt = false
+
+[functions.fetch-earnings-events]
+verify_jwt = false

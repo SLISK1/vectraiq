@@ -11,4 +11,6 @@ export * from './orderflow';
 export * from './measuredmoves';
 export * from './sentiment';
 export * from './ml';
+export * from './events';
+export * from './relativestrength';
 export * from './engine';
