@@ -656,10 +656,10 @@ Deno.serve(async (req) => {
     
     if (unmatchedSymbols.length > 0) {
       console.log(`Catch-all: fetching ${unmatchedSymbols.length} unmatched symbols via FMP/Yahoo`);
-      for (const s of unmatchedSymbols) {
+      await pMap(unmatchedSymbols, 8, async (s) => {
         let fetched = false;
         const tickerForQuery = s.ticker; // Already has .ST/.OL suffix if Nordic
-        
+
         // Try FMP first
         if (FMP_API_KEY && !fetched) {
           try {
@@ -675,10 +675,9 @@ Deno.serve(async (req) => {
               console.log(`✓ Catch-all FMP ${s.ticker}: ${q.price}`);
               fetched = true;
             }
-            await new Promise(r => setTimeout(r, 150));
           } catch (e) { console.error(`Catch-all FMP error ${s.ticker}:`, e); }
         }
-        
+
         // Yahoo fallback
         if (!fetched) {
           try {
@@ -694,14 +693,13 @@ Deno.serve(async (req) => {
               console.log(`✓ Catch-all Yahoo ${s.ticker}: ${q.price}`);
               fetched = true;
             }
-            await new Promise(r => setTimeout(r, 200));
           } catch (e) { errors.push(`Catch-all Yahoo ${s.ticker}: ${e}`); }
         }
-        
+
         if (!fetched) {
           errors.push(`${s.ticker}: no price from any source`);
         }
-      }
+      });
     }
 
     // Log final missing
