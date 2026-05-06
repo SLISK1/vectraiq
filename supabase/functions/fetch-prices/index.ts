@@ -568,7 +568,7 @@ Deno.serve(async (req) => {
 
     if (nordicFmpRecords.length > 0) {
       console.log(`Cross-validating ${nordicFmpRecords.length} Nordic FMP prices with Yahoo`);
-      for (const rec of nordicFmpRecords) {
+      await pMap(nordicFmpRecords, 6, async (rec) => {
         const ticker = idToTicker.get(rec.symbol_id)!;
         const yahooSymbol = NORDIC_STOCKS[ticker];
         try {
@@ -588,9 +588,8 @@ Deno.serve(async (req) => {
               rec.source = 'yahoo_validated';
             }
           }
-          await new Promise(r => setTimeout(r, 200));
         } catch {}
-      }
+      });
     }
 
     // Finnhub third-source validation for US stocks (unchanged)
