@@ -343,7 +343,7 @@ Deno.serve(async (req) => {
     // Yahoo fallback for failed US stocks
     if (fmpFailed.length > 0) {
       console.log(`Yahoo fallback for ${fmpFailed.length} US stocks: ${fmpFailed.map(s => s.ticker).join(',')}`);
-      for (const s of fmpFailed) {
+      await pMap(fmpFailed, 8, async (s) => {
         try {
           const q = await fetchYahooQuote(s.ticker);
           if (q && q.price > 0) {
@@ -358,9 +358,8 @@ Deno.serve(async (req) => {
           } else {
             errors.push(`${s.ticker}: no data from FMP or Yahoo`);
           }
-          await new Promise(r => setTimeout(r, 200));
         } catch (e) { errors.push(`Yahoo fallback ${s.ticker}: ${e}`); }
-      }
+      });
     }
 
     // ========== 3. NORDIC STOCKS: FMP primary -> Yahoo fallback ==========
