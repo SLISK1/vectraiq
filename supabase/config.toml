@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.analyze-thesis]
 verify_jwt = false
+
+[functions.trigger-pipeline]
+verify_jwt = false
