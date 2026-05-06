@@ -88,7 +88,17 @@ export interface TrendPrediction {
   reversalRisk: number; // 0-100
 }
 
-export type MarketCapCategory = 'small' | 'medium' | 'large' | 'all' | 'rocket';
+export type MarketCapCategory = 'nano' | 'micro' | 'small' | 'medium' | 'large' | 'all' | 'rocket';
+
+export interface RaketScore {
+  total: number;          // 0-100 composite score
+  insider: number;        // 0-20 (net insider buying)
+  pead: number;           // 0-20 (post-earnings drift)
+  breakout: number;       // 0-20 (50d high + volume spike)
+  growth: number;         // 0-20 (revenue + earnings growth)
+  relativeStrength: number; // 0-20 (vs sector/index)
+  reasons: string[];      // human-readable triggers
+}
 
 export interface RankedAsset extends Asset {
   totalScore: number;
@@ -103,6 +113,7 @@ export interface RankedAsset extends Asset {
   trendPrediction?: TrendPrediction;
   aiSummary?: string;
   marketCapCategory?: MarketCapCategory;
+  raketScore?: RaketScore;
 }
 
 export interface WatchlistCase {

@@ -285,23 +285,16 @@ const Index = () => {
   const filteredTopUp = useMemo(() => {
     if (!topUp) return [];
     
-    // Special "rocket" filter: Top 10 by confidence * predicted growth
+    // Special "rocket" filter: Top 10 by composite raket-score
+    // Uses concrete forward-looking signals: insider buying, PEAD,
+    // breakout, growth, relative strength.
+    // Requires raketScore.total >= 25 to qualify (otherwise no real raket).
     if (selectedMarketCap === 'rocket') {
-      const allAssets = [...(topUp || [])];
-      // Sort by confidence * predicted month/year return
-      return allAssets
+      return (topUp || [])
         .filter(a => selectedAssetType === 'all' || a.type === selectedAssetType)
-        .map(a => ({
-          asset: a,
-          // Calculate rocket score: confidence * max of month/year predicted return
-          rocketScore: a.confidence * Math.max(
-            Math.abs(a.predictedReturns?.year1 || 0),
-            Math.abs((a.predictedReturns?.week1 || 0) * 4) // Extrapolate week to month
-          )
-        }))
-        .sort((a, b) => b.rocketScore - a.rocketScore)
-        .slice(0, 10)
-        .map(r => r.asset);
+        .filter(a => (a.raketScore?.total ?? 0) >= 25)
+        .sort((a, b) => (b.raketScore?.total ?? 0) - (a.raketScore?.total ?? 0))
+        .slice(0, 10);
     }
     
     return topUp.filter(a => {

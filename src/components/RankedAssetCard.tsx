@@ -3,7 +3,7 @@ import { ScoreRing } from './ScoreRing';
 import { DirectionBadge } from './DirectionBadge';
 import { AssetTypeBadge } from './AssetTypeBadge';
 import { cn } from '@/lib/utils';
-import { ChevronRight, Star, AlertTriangle, ShoppingCart } from 'lucide-react';
+import { ChevronRight, Star, AlertTriangle, ShoppingCart, Rocket } from 'lucide-react';
 
 interface RankedAssetCardProps {
   asset: RankedAsset;
@@ -54,13 +54,29 @@ export const RankedAssetCard = ({ asset, rank, dbRank, onAddToWatchlist, onClick
 
         {/* Main Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="font-semibold text-lg truncate">{asset.ticker}</h3>
             <AssetTypeBadge type={asset.type} />
             <DirectionBadge direction={asset.direction} size="sm" />
             {dbRank && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono">
                 Rankad {dbRank.rank}/{dbRank.total}
+              </span>
+            )}
+            {asset.raketScore && asset.raketScore.total >= 25 && (
+              <span
+                className={cn(
+                  "text-xs px-1.5 py-0.5 rounded font-mono flex items-center gap-1",
+                  asset.raketScore.total >= 60
+                    ? "bg-gradient-to-r from-orange-500 to-red-500 text-white"
+                    : asset.raketScore.total >= 40
+                    ? "bg-orange-500/20 text-orange-500 border border-orange-500/30"
+                    : "bg-yellow-500/15 text-yellow-600 border border-yellow-500/30"
+                )}
+                title={asset.raketScore.reasons.join(' · ')}
+              >
+                <Rocket className="w-3 h-3" />
+                {asset.raketScore.total}
               </span>
             )}
           </div>
@@ -76,6 +92,14 @@ export const RankedAssetCard = ({ asset, rank, dbRank, onAddToWatchlist, onClick
               {formatChange(asset.changePercent24h)}
             </span>
           </div>
+
+          {/* Raket reasons (only when score is meaningful) */}
+          {asset.raketScore && asset.raketScore.total >= 25 && asset.raketScore.reasons.length > 0 && (
+            <div className="mt-2 text-xs text-orange-500/90 flex items-start gap-1.5">
+              <Rocket className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <span className="truncate">{asset.raketScore.reasons.slice(0, 2).join(' · ')}</span>
+            </div>
+          )}
 
           {/* Predicted Returns + Z-score */}
           {asset.predictedReturns && (
