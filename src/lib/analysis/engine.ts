@@ -15,6 +15,7 @@ import { analyzeSentimentFromContext } from './sentiment';
 import { analyzeMLSync } from './ml';
 import { analyzeEvents, detectEventBlackout } from './events';
 import { analyzeRelativeStrength } from './relativestrength';
+import { analyzeThesis, getRiskClassMultiplier } from './thesis';
 import { calculateTrendPrediction } from './trendPrediction';
 
 export interface PredictedReturns {
@@ -43,16 +44,15 @@ export interface FullAnalysis {
   aiSummary: string;
 }
 
-// Crypto-specific horizon weights — includes events & relativeStrength (2026-03-06)
-// Crypto has no earnings, so `events` weight is 0; relative strength vs BTC is meaningful.
+// Crypto-specific horizon weights — thesis weight 0 (crypto has no "company" to analyze)
 export const CRYPTO_WEIGHTS: Record<Horizon, HorizonWeights> = {
-  '1s': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0, events: 0, relativeStrength: 0 },
-  '1m': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0, events: 0, relativeStrength: 0 },
-  '1h': { technical: 30, fundamental: 0, sentiment: 18, measuredMoves: 0, quant: 20, macro: 0, volatility: 18, seasonal: 0, orderFlow: 6, ml: 0, events: 0, relativeStrength: 8 },
-  '1d': { technical: 24, fundamental: 0, sentiment: 18, measuredMoves: 8, quant: 18, macro: 0, volatility: 16, seasonal: 2, orderFlow: 2, ml: 0, events: 2, relativeStrength: 10 },
-  '1w': { technical: 20, fundamental: 4, sentiment: 16, measuredMoves: 12, quant: 18, macro: 5, volatility: 7, seasonal: 3, orderFlow: 0, ml: 0, events: 3, relativeStrength: 12 },
-  '1mo': { technical: 14, fundamental: 8, sentiment: 12, measuredMoves: 14, quant: 18, macro: 10, volatility: 7, seasonal: 2, orderFlow: 0, ml: 0, events: 5, relativeStrength: 10 },
-  '1y': { technical: 6, fundamental: 16, sentiment: 8, measuredMoves: 10, quant: 18, macro: 14, volatility: 4, seasonal: 4, orderFlow: 0, ml: 4, events: 8, relativeStrength: 8 },
+  '1s': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0, events: 0, relativeStrength: 0, thesis: 0 },
+  '1m': { technical: 35, fundamental: 0, sentiment: 15, measuredMoves: 0, quant: 25, macro: 0, volatility: 25, seasonal: 0, orderFlow: 0, ml: 0, events: 0, relativeStrength: 0, thesis: 0 },
+  '1h': { technical: 30, fundamental: 0, sentiment: 18, measuredMoves: 0, quant: 20, macro: 0, volatility: 18, seasonal: 0, orderFlow: 6, ml: 0, events: 0, relativeStrength: 8, thesis: 0 },
+  '1d': { technical: 24, fundamental: 0, sentiment: 18, measuredMoves: 8, quant: 18, macro: 0, volatility: 16, seasonal: 2, orderFlow: 2, ml: 0, events: 2, relativeStrength: 10, thesis: 0 },
+  '1w': { technical: 20, fundamental: 4, sentiment: 16, measuredMoves: 12, quant: 18, macro: 5, volatility: 7, seasonal: 3, orderFlow: 0, ml: 0, events: 3, relativeStrength: 12, thesis: 0 },
+  '1mo': { technical: 14, fundamental: 8, sentiment: 12, measuredMoves: 14, quant: 18, macro: 10, volatility: 7, seasonal: 2, orderFlow: 0, ml: 0, events: 5, relativeStrength: 10, thesis: 0 },
+  '1y': { technical: 6, fundamental: 16, sentiment: 8, measuredMoves: 10, quant: 18, macro: 14, volatility: 4, seasonal: 4, orderFlow: 0, ml: 4, events: 8, relativeStrength: 8, thesis: 0 },
 };
 
 import { DEFAULT_WEIGHTS } from '@/types/market';
@@ -209,7 +209,8 @@ const calculateTotalConfidence = (
   breakdown: ConfidenceBreakdown,
   assetType?: string,
   cryptoHighVol?: boolean,
-  eventBlackoutActive?: boolean
+  eventBlackoutActive?: boolean,
+  riskClass?: string
 ): number => {
   let confidence = Math.round(
     0.15 * breakdown.freshness +
@@ -230,6 +231,15 @@ const calculateTotalConfidence = (
   // (or ±1 day around macro events). Don't let the model bet through events.
   if (eventBlackoutActive) {
     confidence = Math.min(confidence, 30);
+  }
+
+  // Risk-class cap — model has limited ability to evaluate speculative names.
+  // Pre-revenue: 55% cap. Spotlight/NGM: 65%. First North/growth: 85%.
+  // This is intellectual honesty: the model SHOULDN'T look as confident on
+  // pre-revenue cleantech as on Volvo.
+  const riskMul = getRiskClassMultiplier(riskClass);
+  if (riskMul < 1.0) {
+    confidence = Math.round(confidence * riskMul);
   }
 
   return confidence;
@@ -366,7 +376,8 @@ export const calculateObjectiveCoverage = (
     sentiment: 5,
     ml: 20,
     events: 5,
-    relativeStrength: 22, // needs at least 1m of price history for own return
+    relativeStrength: 22,
+    thesis: 5, // thesis works without much price history
   };
   
   const minRequired = minDataByModule[moduleName] || 20;
@@ -453,6 +464,10 @@ export const runAnalysis = (
     // Cross-sectional momentum vs sector/index
     results.push(analyzeRelativeStrength(context));
   }
+  if (baseWeights.thesis > 0) {
+    // LLM-based strategic thesis (only meaningful for stocks/funds, not crypto)
+    results.push(analyzeThesis(context));
+  }
   
   // === F: Override self-reported coverage with objective calculation ===
   const objectiveResults = results.map(r => ({
@@ -531,7 +546,8 @@ export const runAnalysis = (
     confidenceBreakdown,
     assetType,
     cryptoHighVol,
-    blackout.active
+    blackout.active,
+    context.riskClass
   );
   
   // === H: Top contributors — consistent with signed scoring ===
@@ -603,6 +619,10 @@ export const createAnalysisContext = (
     eventSignals?: import('./types').EventSignalData;
     sector?: string;
     exchange?: string;
+    strategicThesis?: import('./types').StrategicThesisData;
+    riskClass?: import('./types').RiskClass;
+    listingDate?: string;
+    theme?: string;
   }
 ): AnalysisContext => ({
   ticker,
@@ -620,4 +640,8 @@ export const createAnalysisContext = (
   eventSignals: enrichments?.eventSignals,
   sector: enrichments?.sector,
   exchange: enrichments?.exchange,
+  strategicThesis: enrichments?.strategicThesis,
+  riskClass: enrichments?.riskClass,
+  listingDate: enrichments?.listingDate,
+  theme: enrichments?.theme,
 });

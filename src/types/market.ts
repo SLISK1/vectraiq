@@ -114,6 +114,16 @@ export interface RankedAsset extends Asset {
   aiSummary?: string;
   marketCapCategory?: MarketCapCategory;
   raketScore?: RaketScore;
+  // Strategic thesis & classification (added 2026-03-07)
+  thesisScore?: number;
+  thesisSummary?: string;
+  thesisThemes?: string[];
+  thesisMarketSize?: string;
+  thesisCatalysts?: string[];
+  thesisRisks?: string[];
+  riskClass?: string;
+  theme?: string;
+  listingDate?: string;
 }
 
 export interface WatchlistCase {
@@ -150,21 +160,21 @@ export interface HorizonWeights {
   seasonal: number;
   orderFlow: number;
   ml: number;
-  events: number;           // earnings surprises + insider trades + analyst revisions
-  relativeStrength: number; // RS vs sector & benchmark index
+  events: number;            // earnings surprises + insider trades + analyst revisions
+  relativeStrength: number;  // RS vs sector & benchmark index
+  thesis: number;            // LLM-based strategic positioning (added 2026-03-07)
 }
 
-// Weights sum to 100 per horizon. New modules added 2026-03-06: events, relativeStrength.
-// Weights re-balanced by reducing technical/quant overweighting in shorter horizons
-// and reducing fundamental in longer horizons (events captures forward-looking signal better).
+// Weights sum to 100 per horizon. Thesis module added 2026-03-07 — strongest weight
+// on long horizons (1y) where strategic positioning matters most. Minimal on intraday.
 export const DEFAULT_WEIGHTS: Record<Horizon, HorizonWeights> = {
-  '1s': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0, events: 0, relativeStrength: 0 },
-  '1m': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0, events: 0, relativeStrength: 0 },
-  '1h': { technical: 26, fundamental: 2, sentiment: 12, measuredMoves: 0, quant: 16, macro: 5, volatility: 16, seasonal: 2, orderFlow: 11, ml: 0, events: 5, relativeStrength: 5 },
-  '1d': { technical: 18, fundamental: 5, sentiment: 10, measuredMoves: 8, quant: 13, macro: 10, volatility: 11, seasonal: 3, orderFlow: 8, ml: 2, events: 5, relativeStrength: 7 },
-  '1w': { technical: 14, fundamental: 12, sentiment: 10, measuredMoves: 10, quant: 14, macro: 10, volatility: 7, seasonal: 4, orderFlow: 2, ml: 2, events: 7, relativeStrength: 8 },
-  '1mo': { technical: 10, fundamental: 20, sentiment: 7, measuredMoves: 10, quant: 14, macro: 13, volatility: 6, seasonal: 2, orderFlow: 0, ml: 0, events: 10, relativeStrength: 8 },
-  '1y': { technical: 4, fundamental: 28, sentiment: 4, measuredMoves: 8, quant: 14, macro: 16, volatility: 4, seasonal: 6, orderFlow: 0, ml: 0, events: 10, relativeStrength: 6 },
+  '1s': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0, events: 0, relativeStrength: 0, thesis: 0 },
+  '1m': { technical: 30, fundamental: 0, sentiment: 10, measuredMoves: 0, quant: 20, macro: 0, volatility: 20, seasonal: 0, orderFlow: 20, ml: 0, events: 0, relativeStrength: 0, thesis: 0 },
+  '1h': { technical: 26, fundamental: 2, sentiment: 12, measuredMoves: 0, quant: 16, macro: 5, volatility: 16, seasonal: 2, orderFlow: 11, ml: 0, events: 5, relativeStrength: 5, thesis: 0 },
+  '1d': { technical: 17, fundamental: 5, sentiment: 10, measuredMoves: 8, quant: 12, macro: 9, volatility: 10, seasonal: 3, orderFlow: 7, ml: 2, events: 5, relativeStrength: 7, thesis: 5 },
+  '1w': { technical: 12, fundamental: 11, sentiment: 9, measuredMoves: 9, quant: 13, macro: 9, volatility: 6, seasonal: 4, orderFlow: 2, ml: 2, events: 7, relativeStrength: 8, thesis: 8 },
+  '1mo': { technical: 8, fundamental: 17, sentiment: 6, measuredMoves: 9, quant: 12, macro: 11, volatility: 5, seasonal: 2, orderFlow: 0, ml: 0, events: 9, relativeStrength: 7, thesis: 14 },
+  '1y': { technical: 3, fundamental: 22, sentiment: 3, measuredMoves: 7, quant: 11, macro: 13, volatility: 3, seasonal: 5, orderFlow: 0, ml: 0, events: 9, relativeStrength: 5, thesis: 19 },
 };
 
 export const HORIZON_LABELS: Record<Horizon, string> = {
@@ -200,4 +210,5 @@ export const MODULE_NAMES: Record<string, string> = {
   ml: 'ML / Statistik',
   events: 'Events & Insider',
   relativeStrength: 'Relativ Styrka',
+  thesis: 'Strategisk Tes',
 };

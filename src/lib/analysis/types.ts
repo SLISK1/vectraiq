@@ -163,6 +163,24 @@ export interface EventSignalData {
   };
 }
 
+export interface StrategicThesisData {
+  thesisScore: number;       // 0-100 composite
+  uniquenessScore: number;   // 0-10 product uniqueness
+  moatScore: number;         // 0-10 competitive moat
+  marketSize: 'small' | 'medium' | 'large' | 'massive';
+  themes: string[];          // matched secular trends
+  thesisSummary: string;     // 1-2 paragraph human-readable
+  keyRisks: string[];
+  catalysts: string[];
+  modelUsed: string;
+  updatedAt: string;
+}
+
+// Risk class affects how much we trust the model's confidence on a given asset.
+// Higher risk classes get tighter caps to prevent the model from looking too sure
+// on speculative names where data quality is poor.
+export type RiskClass = 'main' | 'first_north' | 'spotlight' | 'ngm' | 'growth' | 'pre_revenue' | 'high_risk';
+
 export interface AnalysisContext {
   ticker: string;
   name: string;
@@ -181,6 +199,11 @@ export interface AnalysisContext {
   eventSignals?: EventSignalData;
   sector?: string;
   exchange?: string;
+  // Strategic thesis & risk classification (added 2026-03-07)
+  strategicThesis?: StrategicThesisData;
+  riskClass?: RiskClass;
+  listingDate?: string;
+  theme?: string;
 }
 
 // Metadata structure stored in symbols.metadata

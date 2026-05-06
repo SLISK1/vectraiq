@@ -12,6 +12,7 @@ import { AddToWatchlistModal } from '@/components/AddToWatchlistModal';
 import { AuthModal } from '@/components/AuthModal';
 import { MarketCapFilter } from '@/components/MarketCapFilter';
 import { AssetTypeFilter } from '@/components/AssetTypeFilter';
+import { ThemeFilter, type ThemeFilterValue } from '@/components/ThemeFilter';
 import { SearchAssets } from '@/components/SearchAssets';
 import { PortfolioView } from '@/components/PortfolioView';
 import { ScreenerPage } from '@/pages/ScreenerPage';
@@ -34,6 +35,7 @@ const Index = () => {
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>('1w');
   const [selectedMarketCap, setSelectedMarketCap] = useState<MarketCapCategory>('all');
   const [selectedAssetType, setSelectedAssetType] = useState<AssetType | 'all'>('all');
+  const [selectedTheme, setSelectedTheme] = useState<ThemeFilterValue>('all');
   const [selectedAsset, setSelectedAsset] = useState<RankedAsset | null>(null);
   const [assetForWatchlist, setAssetForWatchlist] = useState<RankedAsset | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -286,12 +288,10 @@ const Index = () => {
     if (!topUp) return [];
     
     // Special "rocket" filter: Top 10 by composite raket-score
-    // Uses concrete forward-looking signals: insider buying, PEAD,
-    // breakout, growth, relative strength.
-    // Requires raketScore.total >= 25 to qualify (otherwise no real raket).
     if (selectedMarketCap === 'rocket') {
       return (topUp || [])
         .filter(a => selectedAssetType === 'all' || a.type === selectedAssetType)
+        .filter(a => selectedTheme === 'all' || a.theme === selectedTheme)
         .filter(a => (a.raketScore?.total ?? 0) >= 25)
         .sort((a, b) => (b.raketScore?.total ?? 0) - (a.raketScore?.total ?? 0))
         .slice(0, 10);
@@ -300,9 +300,10 @@ const Index = () => {
     return topUp.filter(a => {
       const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
       const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
-      return matchesMarketCap && matchesAssetType;
+      const matchesTheme = selectedTheme === 'all' || a.theme === selectedTheme;
+      return matchesMarketCap && matchesAssetType && matchesTheme;
     }).slice(0, 10);
-  }, [topUp, selectedMarketCap, selectedAssetType]);
+  }, [topUp, selectedMarketCap, selectedAssetType, selectedTheme]);
 
   const filteredTopDown = useMemo(() => {
     if (!topDown) return [];
@@ -315,9 +316,10 @@ const Index = () => {
     return topDown.filter(a => {
       const matchesMarketCap = selectedMarketCap === 'all' || a.marketCapCategory === selectedMarketCap;
       const matchesAssetType = selectedAssetType === 'all' || a.type === selectedAssetType;
-      return matchesMarketCap && matchesAssetType;
+      const matchesTheme = selectedTheme === 'all' || a.theme === selectedTheme;
+      return matchesMarketCap && matchesAssetType && matchesTheme;
     }).slice(0, 10);
-  }, [topDown, selectedMarketCap, selectedAssetType]);
+  }, [topDown, selectedMarketCap, selectedAssetType, selectedTheme]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -378,6 +380,10 @@ const Index = () => {
               <div>
                 <h2 className="text-sm font-medium text-muted-foreground mb-3">Filtrera på tillgångstyp</h2>
                 <AssetTypeFilter selected={selectedAssetType} onSelect={setSelectedAssetType} />
+              </div>
+              <div>
+                <h2 className="text-sm font-medium text-muted-foreground mb-3">Filtrera på sekulärt tema</h2>
+                <ThemeFilter selected={selectedTheme} onSelect={setSelectedTheme} />
               </div>
             </div>
 
