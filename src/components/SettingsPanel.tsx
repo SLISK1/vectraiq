@@ -5,6 +5,7 @@ import { Settings, RotateCcw, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
+import { AdminPanel } from './AdminPanel';
 
 const editableHorizons: Horizon[] = ['1d', '1w', '1mo', '1y'];
 const modules = ['technical', 'fundamental', 'sentiment', 'measuredMoves', 'quant', 'macro', 'volatility', 'seasonal', 'orderFlow', 'ml'] as const;
@@ -55,9 +56,12 @@ export const SettingsPanel = () => {
         </div>
         <div>
           <h2 className="text-lg font-semibold">Inställningar</h2>
-          <p className="text-sm text-muted-foreground">Anpassa viktningen per horisont</p>
+          <p className="text-sm text-muted-foreground">Admin + viktning per horisont</p>
         </div>
       </div>
+
+      {/* Admin panel — pipeline triggers + status */}
+      <AdminPanel />
 
       {/* Horizon Tabs */}
       <div className="flex gap-2 flex-wrap">
