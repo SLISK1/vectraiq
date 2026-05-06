@@ -598,7 +598,7 @@ Deno.serve(async (req) => {
         const t = idToTicker.get(p.symbol_id);
         return t && US_STOCKS.includes(t) && (p.source === 'fmp' || p.source === 'yahoo_validated' || p.source === 'yahoo_fallback');
       });
-      for (const rec of usRecords) {
+      await pMap(usRecords, 8, async (rec) => {
         const ticker = idToTicker.get(rec.symbol_id)!;
         try {
           const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_API_KEY}`);
@@ -619,9 +619,8 @@ Deno.serve(async (req) => {
               }
             }
           }
-          await new Promise(r => setTimeout(r, 100));
         } catch {}
-      }
+      });
     }
 
     if (crossValidationResults.length > 0) {
