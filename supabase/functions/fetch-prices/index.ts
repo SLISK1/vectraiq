@@ -424,10 +424,9 @@ Deno.serve(async (req) => {
     const metalSymbols = symbols.filter(s => METALS.includes(s.ticker));
     console.log(`Fetching ${metalSymbols.length} metals — FMP/Yahoo`);
 
-    for (const s of metalSymbols) {
+    await pMap(metalSymbols, 4, async (s) => {
       let metalFetched = false;
 
-      // Try FMP commodity quote
       if (FMP_API_KEY) {
         const fmpTicker = `${s.ticker}USD`;
         try {
@@ -442,11 +441,9 @@ Deno.serve(async (req) => {
             console.log(`✓ FMP metal ${s.ticker}: $${q.price} (${q.changePercent.toFixed(2)}%)`);
             metalFetched = true;
           }
-          await new Promise(r => setTimeout(r, 150));
         } catch (e) { console.error(`FMP metal error ${s.ticker}:`, e); }
       }
 
-      // Yahoo futures fallback
       if (!metalFetched && METAL_YAHOO_PRICES[s.ticker]) {
         try {
           const q = await fetchYahooQuote(METAL_YAHOO_PRICES[s.ticker]);
@@ -460,14 +457,13 @@ Deno.serve(async (req) => {
             console.log(`✓ Yahoo metal ${s.ticker}: $${q.price} (${q.changePercent.toFixed(2)}%)`);
             metalFetched = true;
           }
-          await new Promise(r => setTimeout(r, 300));
         } catch (e) { errors.push(`Yahoo metal ${s.ticker}: ${e}`); }
       }
 
       if (!metalFetched) {
         errors.push(`${s.ticker}: no metal price from FMP or Yahoo`);
       }
-    }
+    });
 
     // ========== 5. SWEDISH FUNDS via proxy ETF (read from metadata) ==========
     const FUND_PROXY_PRICES: Record<string, string> = {
