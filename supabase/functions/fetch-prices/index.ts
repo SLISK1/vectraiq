@@ -369,8 +369,8 @@ Deno.serve(async (req) => {
     const nordicFmpFailed: typeof nordicStockSymbols = [];
 
     if (FMP_API_KEY) {
-      for (const s of nordicStockSymbols) {
-        const fmpTicker = NORDIC_STOCKS[s.ticker]; // e.g. VOLV-B.ST
+      await pMap(nordicStockSymbols, 5, async (s) => {
+        const fmpTicker = NORDIC_STOCKS[s.ticker];
         try {
           const q = await fetchFmpSingleQuote(fmpTicker, FMP_API_KEY);
           if (q && q.price > 0) {
@@ -385,12 +385,11 @@ Deno.serve(async (req) => {
           } else {
             nordicFmpFailed.push(s);
           }
-          await new Promise(r => setTimeout(r, 150)); // FMP rate limit
         } catch (e) {
           nordicFmpFailed.push(s);
           console.error(`FMP Nordic error ${s.ticker}:`, e);
         }
-      }
+      });
     } else {
       nordicFmpFailed.push(...nordicStockSymbols);
     }
