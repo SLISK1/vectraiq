@@ -9,13 +9,15 @@ interface MarketCapFilterProps {
 
 const categories: { value: MarketCapCategory; label: string; description: string; icon?: React.ReactNode }[] = [
   { value: 'all', label: 'Alla', description: 'Alla tillgångar' },
-  { value: 'large', label: 'Large Cap', description: '>$10B' },
-  { value: 'medium', label: 'Mid Cap', description: '$2B-$10B' },
-  { value: 'small', label: 'Small Cap', description: '<$2B' },
-  { 
-    value: 'rocket', 
-    label: 'Raket', 
-    description: 'Top 10 med högst konfidens & tillväxtpotential',
+  { value: 'large', label: 'Large Cap', description: '>10 Md' },
+  { value: 'medium', label: 'Mid Cap', description: '2-10 Md' },
+  { value: 'small', label: 'Small Cap', description: '500 Mkr - 2 Md' },
+  { value: 'micro', label: 'Micro Cap', description: '100 - 500 Mkr (högre tillväxtpotential)' },
+  { value: 'nano', label: 'Nano Cap', description: '<100 Mkr (spekulativt — låg datatäckning)' },
+  {
+    value: 'rocket',
+    label: 'Raket',
+    description: 'Bolag med konkreta raket-mönster (insider, breakout, PEAD, growth, RS)',
     icon: <Rocket className="w-4 h-4" />
   },
 ];
@@ -45,10 +47,14 @@ export const MarketCapFilter = ({ selected, onSelect }: MarketCapFilterProps) =>
   );
 };
 
-// Helper to categorize by market cap
+// Helper to categorize by market cap. Thresholds in SEK (or local currency
+// used by the symbol — most are SEK for Nordic stocks, USD for US stocks).
+// 'rocket' is not produced here — it's a virtual filter computed from raketScore.
 export const getMarketCapCategory = (marketCap?: number): MarketCapCategory => {
   if (!marketCap) return 'small';
-  if (marketCap >= 10_000_000_000) return 'large';
-  if (marketCap >= 2_000_000_000) return 'medium';
-  return 'small';
+  if (marketCap >= 10_000_000_000) return 'large';     // >10 Md
+  if (marketCap >= 2_000_000_000) return 'medium';      // 2-10 Md
+  if (marketCap >= 500_000_000) return 'small';         // 500 Mkr - 2 Md
+  if (marketCap >= 100_000_000) return 'micro';         // 100 - 500 Mkr
+  return 'nano';                                        // <100 Mkr
 };

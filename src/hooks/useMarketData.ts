@@ -18,6 +18,7 @@ import type {
   RelativeStrengthData,
   EventSignalData,
 } from '@/lib/analysis/types';
+import { calculateRaketScore } from '@/lib/analysis/raketScore';
 import { supabase } from '@/integrations/supabase/client';
 import { initMacroCache } from '@/lib/analysis/macro';
 
@@ -141,11 +142,15 @@ const transformToRankedAsset = async (
     return null;
   }
   
-  const getMarketCapCategory = (marketCap?: number): 'small' | 'medium' | 'large' => {
+  // Use shared categorizer (includes micro/nano) — keep in sync with MarketCapFilter.
+  // Inlined here to avoid component import in hook.
+  const getMarketCapCategory = (marketCap?: number): 'large' | 'medium' | 'small' | 'micro' | 'nano' => {
     if (!marketCap) return 'small';
     if (marketCap >= 10_000_000_000) return 'large';
     if (marketCap >= 2_000_000_000) return 'medium';
-    return 'small';
+    if (marketCap >= 500_000_000) return 'small';
+    if (marketCap >= 100_000_000) return 'micro';
+    return 'nano';
   };
 
   const marketCapValue = price?.market_cap
@@ -153,7 +158,17 @@ const transformToRankedAsset = async (
     : symbol.fundamentals?.marketCap
       ? Number(symbol.fundamentals.marketCap)
       : undefined;
-  
+
+  // Compute raket-score from the same enriched context. Only meaningful for
+  // UP-direction analyses (a "raket" is by definition a bullish breakout).
+  const raketScore = analysis.direction === 'UP'
+    ? calculateRaketScore({
+        context,
+        marketCap: marketCapValue,
+        fundamentals: symbol.fundamentals,
+      })
+    : undefined;
+
   return {
     ticker: symbol.ticker,
     name: symbol.name,
@@ -167,6 +182,7 @@ const transformToRankedAsset = async (
     volume24h: price ? Number(price.volume || 0) : 0,
     marketCap: marketCapValue,
     marketCapCategory: getMarketCapCategory(marketCapValue),
+    raketScore,
     totalScore: analysis.totalScore,
     direction: analysis.direction,
     confidence: analysis.confidence,
