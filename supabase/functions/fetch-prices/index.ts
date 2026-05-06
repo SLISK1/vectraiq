@@ -5,6 +5,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Bounded-parallel map to avoid 150s edge-function timeout when iterating
+// hundreds of sequential network calls.
+async function pMap<T, R>(items: T[], concurrency: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const idx = i++;
+      if (idx >= items.length) return;
+      try { results[idx] = await fn(items[idx], idx); }
+      catch (e) { results[idx] = e as R; }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // Crypto ticker to CoinGecko ID mapping
 const CRYPTO_IDS: Record<string, string> = {
   'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'ripple',
@@ -326,7 +343,7 @@ Deno.serve(async (req) => {
     // Yahoo fallback for failed US stocks
     if (fmpFailed.length > 0) {
       console.log(`Yahoo fallback for ${fmpFailed.length} US stocks: ${fmpFailed.map(s => s.ticker).join(',')}`);
-      for (const s of fmpFailed) {
+      await pMap(fmpFailed, 8, async (s) => {
         try {
           const q = await fetchYahooQuote(s.ticker);
           if (q && q.price > 0) {
@@ -341,9 +358,8 @@ Deno.serve(async (req) => {
           } else {
             errors.push(`${s.ticker}: no data from FMP or Yahoo`);
           }
-          await new Promise(r => setTimeout(r, 200));
         } catch (e) { errors.push(`Yahoo fallback ${s.ticker}: ${e}`); }
-      }
+      });
     }
 
     // ========== 3. NORDIC STOCKS: FMP primary -> Yahoo fallback ==========
@@ -382,7 +398,7 @@ Deno.serve(async (req) => {
     // Yahoo fallback for failed Nordic stocks
     if (nordicFmpFailed.length > 0) {
       console.log(`Yahoo fallback for ${nordicFmpFailed.length} Nordic stocks`);
-      for (const s of nordicFmpFailed) {
+      await pMap(nordicFmpFailed, 8, async (s) => {
         try {
           const yahooSymbol = NORDIC_STOCKS[s.ticker];
           const q = await fetchYahooQuote(yahooSymbol);
@@ -398,9 +414,8 @@ Deno.serve(async (req) => {
           } else {
             errors.push(`${s.ticker}: no data from FMP or Yahoo`);
           }
-          await new Promise(r => setTimeout(r, 200));
         } catch (e) { errors.push(`Yahoo fallback ${s.ticker}: ${e}`); }
-      }
+      });
     }
 
     // ========== 4. METALS via FMP primary -> Yahoo futures fallback ==========
@@ -528,7 +543,7 @@ Deno.serve(async (req) => {
 
     if (usFmpRecords.length > 0) {
       console.log(`Cross-validating ${usFmpRecords.length} US FMP prices with Yahoo`);
-      for (const rec of usFmpRecords) {
+      await pMap(usFmpRecords, 6, async (rec) => {
         const ticker = idToTicker.get(rec.symbol_id)!;
         try {
           const yq = await fetchYahooQuote(ticker);
@@ -550,9 +565,8 @@ Deno.serve(async (req) => {
               rec.source = 'yahoo_validated';
             }
           }
-          await new Promise(r => setTimeout(r, 200));
         } catch {}
-      }
+      });
     }
 
     // Cross-validate FMP-sourced Nordic stocks with Yahoo (sample 15)
@@ -642,10 +656,10 @@ Deno.serve(async (req) => {
     
     if (unmatchedSymbols.length > 0) {
       console.log(`Catch-all: fetching ${unmatchedSymbols.length} unmatched symbols via FMP/Yahoo`);
-      for (const s of unmatchedSymbols) {
+      await pMap(unmatchedSymbols, 8, async (s) => {
         let fetched = false;
         const tickerForQuery = s.ticker; // Already has .ST/.OL suffix if Nordic
-        
+
         // Try FMP first
         if (FMP_API_KEY && !fetched) {
           try {
@@ -661,10 +675,9 @@ Deno.serve(async (req) => {
               console.log(`✓ Catch-all FMP ${s.ticker}: ${q.price}`);
               fetched = true;
             }
-            await new Promise(r => setTimeout(r, 150));
           } catch (e) { console.error(`Catch-all FMP error ${s.ticker}:`, e); }
         }
-        
+
         // Yahoo fallback
         if (!fetched) {
           try {
@@ -680,14 +693,13 @@ Deno.serve(async (req) => {
               console.log(`✓ Catch-all Yahoo ${s.ticker}: ${q.price}`);
               fetched = true;
             }
-            await new Promise(r => setTimeout(r, 200));
           } catch (e) { errors.push(`Catch-all Yahoo ${s.ticker}: ${e}`); }
         }
-        
+
         if (!fetched) {
           errors.push(`${s.ticker}: no price from any source`);
         }
-      }
+      });
     }
 
     // Log final missing
