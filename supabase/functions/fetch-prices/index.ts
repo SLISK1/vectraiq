@@ -480,11 +480,10 @@ Deno.serve(async (req) => {
     }
     const fundSymbols = symbols.filter(s => FUND_PROXY_PRICES[s.ticker]);
     console.log(`Fetching ${fundSymbols.length} fund proxy prices`);
-    for (const s of fundSymbols) {
+    await pMap(fundSymbols, 5, async (s) => {
       const proxyTicker = FUND_PROXY_PRICES[s.ticker];
       let fundFetched = false;
 
-      // Try FMP for proxy ETF quote
       if (FMP_API_KEY) {
         try {
           const q = await fetchFmpSingleQuote(proxyTicker, FMP_API_KEY);
@@ -498,11 +497,9 @@ Deno.serve(async (req) => {
             console.log(`✓ FMP proxy fund ${s.ticker} (${proxyTicker}): $${q.price}`);
             fundFetched = true;
           }
-          await new Promise(r => setTimeout(r, 150));
         } catch (e) { console.error(`FMP fund proxy error ${s.ticker}:`, e); }
       }
 
-      // Yahoo fallback
       if (!fundFetched) {
         try {
           const q = await fetchYahooQuote(proxyTicker);
@@ -516,14 +513,13 @@ Deno.serve(async (req) => {
             console.log(`✓ Yahoo proxy fund ${s.ticker} (${proxyTicker}): $${q.price}`);
             fundFetched = true;
           }
-          await new Promise(r => setTimeout(r, 300));
         } catch (e) { errors.push(`Yahoo fund proxy ${s.ticker}: ${e}`); }
       }
 
       if (!fundFetched) {
         errors.push(`${s.ticker}: no fund proxy price`);
       }
-    }
+    });
 
     // ========== 6. CROSS-VALIDATION: Yahoo validates FMP prices ==========
     const DEVIATION_THRESHOLD = 0.03;
