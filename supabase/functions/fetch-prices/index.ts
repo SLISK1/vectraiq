@@ -5,6 +5,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Bounded-parallel map to avoid 150s edge-function timeout when iterating
+// hundreds of sequential network calls.
+async function pMap<T, R>(items: T[], concurrency: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const idx = i++;
+      if (idx >= items.length) return;
+      try { results[idx] = await fn(items[idx], idx); }
+      catch (e) { results[idx] = e as R; }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // Crypto ticker to CoinGecko ID mapping
 const CRYPTO_IDS: Record<string, string> = {
   'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'ripple',
