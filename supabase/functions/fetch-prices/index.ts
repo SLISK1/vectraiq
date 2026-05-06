@@ -369,8 +369,8 @@ Deno.serve(async (req) => {
     const nordicFmpFailed: typeof nordicStockSymbols = [];
 
     if (FMP_API_KEY) {
-      for (const s of nordicStockSymbols) {
-        const fmpTicker = NORDIC_STOCKS[s.ticker]; // e.g. VOLV-B.ST
+      await pMap(nordicStockSymbols, 5, async (s) => {
+        const fmpTicker = NORDIC_STOCKS[s.ticker];
         try {
           const q = await fetchFmpSingleQuote(fmpTicker, FMP_API_KEY);
           if (q && q.price > 0) {
@@ -385,12 +385,11 @@ Deno.serve(async (req) => {
           } else {
             nordicFmpFailed.push(s);
           }
-          await new Promise(r => setTimeout(r, 150)); // FMP rate limit
         } catch (e) {
           nordicFmpFailed.push(s);
           console.error(`FMP Nordic error ${s.ticker}:`, e);
         }
-      }
+      });
     } else {
       nordicFmpFailed.push(...nordicStockSymbols);
     }
@@ -425,10 +424,9 @@ Deno.serve(async (req) => {
     const metalSymbols = symbols.filter(s => METALS.includes(s.ticker));
     console.log(`Fetching ${metalSymbols.length} metals — FMP/Yahoo`);
 
-    for (const s of metalSymbols) {
+    await pMap(metalSymbols, 4, async (s) => {
       let metalFetched = false;
 
-      // Try FMP commodity quote
       if (FMP_API_KEY) {
         const fmpTicker = `${s.ticker}USD`;
         try {
@@ -443,11 +441,9 @@ Deno.serve(async (req) => {
             console.log(`✓ FMP metal ${s.ticker}: $${q.price} (${q.changePercent.toFixed(2)}%)`);
             metalFetched = true;
           }
-          await new Promise(r => setTimeout(r, 150));
         } catch (e) { console.error(`FMP metal error ${s.ticker}:`, e); }
       }
 
-      // Yahoo futures fallback
       if (!metalFetched && METAL_YAHOO_PRICES[s.ticker]) {
         try {
           const q = await fetchYahooQuote(METAL_YAHOO_PRICES[s.ticker]);
@@ -461,14 +457,13 @@ Deno.serve(async (req) => {
             console.log(`✓ Yahoo metal ${s.ticker}: $${q.price} (${q.changePercent.toFixed(2)}%)`);
             metalFetched = true;
           }
-          await new Promise(r => setTimeout(r, 300));
         } catch (e) { errors.push(`Yahoo metal ${s.ticker}: ${e}`); }
       }
 
       if (!metalFetched) {
         errors.push(`${s.ticker}: no metal price from FMP or Yahoo`);
       }
-    }
+    });
 
     // ========== 5. SWEDISH FUNDS via proxy ETF (read from metadata) ==========
     const FUND_PROXY_PRICES: Record<string, string> = {
@@ -485,11 +480,10 @@ Deno.serve(async (req) => {
     }
     const fundSymbols = symbols.filter(s => FUND_PROXY_PRICES[s.ticker]);
     console.log(`Fetching ${fundSymbols.length} fund proxy prices`);
-    for (const s of fundSymbols) {
+    await pMap(fundSymbols, 5, async (s) => {
       const proxyTicker = FUND_PROXY_PRICES[s.ticker];
       let fundFetched = false;
 
-      // Try FMP for proxy ETF quote
       if (FMP_API_KEY) {
         try {
           const q = await fetchFmpSingleQuote(proxyTicker, FMP_API_KEY);
@@ -503,11 +497,9 @@ Deno.serve(async (req) => {
             console.log(`✓ FMP proxy fund ${s.ticker} (${proxyTicker}): $${q.price}`);
             fundFetched = true;
           }
-          await new Promise(r => setTimeout(r, 150));
         } catch (e) { console.error(`FMP fund proxy error ${s.ticker}:`, e); }
       }
 
-      // Yahoo fallback
       if (!fundFetched) {
         try {
           const q = await fetchYahooQuote(proxyTicker);
@@ -521,14 +513,13 @@ Deno.serve(async (req) => {
             console.log(`✓ Yahoo proxy fund ${s.ticker} (${proxyTicker}): $${q.price}`);
             fundFetched = true;
           }
-          await new Promise(r => setTimeout(r, 300));
         } catch (e) { errors.push(`Yahoo fund proxy ${s.ticker}: ${e}`); }
       }
 
       if (!fundFetched) {
         errors.push(`${s.ticker}: no fund proxy price`);
       }
-    }
+    });
 
     // ========== 6. CROSS-VALIDATION: Yahoo validates FMP prices ==========
     const DEVIATION_THRESHOLD = 0.03;
@@ -577,7 +568,7 @@ Deno.serve(async (req) => {
 
     if (nordicFmpRecords.length > 0) {
       console.log(`Cross-validating ${nordicFmpRecords.length} Nordic FMP prices with Yahoo`);
-      for (const rec of nordicFmpRecords) {
+      await pMap(nordicFmpRecords, 6, async (rec) => {
         const ticker = idToTicker.get(rec.symbol_id)!;
         const yahooSymbol = NORDIC_STOCKS[ticker];
         try {
@@ -597,9 +588,8 @@ Deno.serve(async (req) => {
               rec.source = 'yahoo_validated';
             }
           }
-          await new Promise(r => setTimeout(r, 200));
         } catch {}
-      }
+      });
     }
 
     // Finnhub third-source validation for US stocks (unchanged)
@@ -608,7 +598,7 @@ Deno.serve(async (req) => {
         const t = idToTicker.get(p.symbol_id);
         return t && US_STOCKS.includes(t) && (p.source === 'fmp' || p.source === 'yahoo_validated' || p.source === 'yahoo_fallback');
       });
-      for (const rec of usRecords) {
+      await pMap(usRecords, 8, async (rec) => {
         const ticker = idToTicker.get(rec.symbol_id)!;
         try {
           const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_API_KEY}`);
@@ -629,9 +619,8 @@ Deno.serve(async (req) => {
               }
             }
           }
-          await new Promise(r => setTimeout(r, 100));
         } catch {}
-      }
+      });
     }
 
     if (crossValidationResults.length > 0) {
