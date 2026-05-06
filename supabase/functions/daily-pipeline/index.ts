@@ -365,6 +365,97 @@ Deno.serve(async (req) => {
         details: { error: analyzeResult.data?.error },
       });
     }
+    await updateRun('running');
+
+    // ==================== STEP 7: FETCH NEWS ====================
+    // Pulls fresh news per ticker into news_cache (GNews API).
+    console.log('=== Step 7: fetch-news ===');
+    const newsResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-news', { limit: 30 });
+    stepResults.push({
+      step: 'fetch-news',
+      status: newsResult.ok ? 'success' : 'failed',
+      duration_ms: newsResult.duration_ms,
+      details: newsResult.ok
+        ? { inserted: newsResult.data?.inserted || 0, tickers: newsResult.data?.tickers || 0 }
+        : { error: newsResult.data?.error || `HTTP ${newsResult.status}` },
+    });
+    if (!newsResult.ok) errors.push({ step: 'fetch-news', error: newsResult.data?.error || `HTTP ${newsResult.status}` });
+    await updateRun('running');
+
+    // ==================== STEP 8: COMPUTE NEWS SENTIMENT ====================
+    // Lexicon-based scoring of news_cache → news_sentiment_cache.
+    // Replaces the old momentum-proxy that was double-counting technical signals.
+    console.log('=== Step 8: compute-news-sentiment ===');
+    const sentResult = await callEdgeFunction(supabaseUrl, serviceKey, 'compute-news-sentiment', {});
+    stepResults.push({
+      step: 'compute-news-sentiment',
+      status: sentResult.ok ? 'success' : 'failed',
+      duration_ms: sentResult.duration_ms,
+      details: sentResult.ok ? sentResult.data : { error: sentResult.data?.error },
+    });
+    if (!sentResult.ok) errors.push({ step: 'compute-news-sentiment', error: sentResult.data?.error || `HTTP ${sentResult.status}` });
+    await updateRun('running');
+
+    // ==================== STEP 9: FETCH EVENT CALENDAR ====================
+    // Earnings + macro events (CPI, Fed, ECB, Riksbank, NFP) for blackout module.
+    console.log('=== Step 9: fetch-events ===');
+    const eventsResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-events', {});
+    stepResults.push({
+      step: 'fetch-events',
+      status: eventsResult.ok ? 'success' : 'failed',
+      duration_ms: eventsResult.duration_ms,
+      details: eventsResult.ok ? eventsResult.data : { error: eventsResult.data?.error },
+    });
+    if (!eventsResult.ok) errors.push({ step: 'fetch-events', error: eventsResult.data?.error || `HTTP ${eventsResult.status}` });
+    await updateRun('running');
+
+    // ==================== STEP 10: COMPUTE SECTOR RETURNS ====================
+    // Aggregates sector & index returns from price_history for relative strength.
+    console.log('=== Step 10: compute-sector-returns ===');
+    const sectorResult = await callEdgeFunction(supabaseUrl, serviceKey, 'compute-sector-returns', {});
+    stepResults.push({
+      step: 'compute-sector-returns',
+      status: sectorResult.ok ? 'success' : 'failed',
+      duration_ms: sectorResult.duration_ms,
+      details: sectorResult.ok ? sectorResult.data : { error: sectorResult.data?.error },
+    });
+    if (!sectorResult.ok) errors.push({ step: 'compute-sector-returns', error: sectorResult.data?.error || `HTTP ${sectorResult.status}` });
+    await updateRun('running');
+
+    // ==================== STEP 11: FETCH EARNINGS EVENTS (weekly) ====================
+    // Earnings surprises + analyst revisions + insider trades (FMP).
+    // Throttled: only run once per week to stay within FMP free-tier limits.
+    // Day-of-week 1 = Monday.
+    if (new Date().getUTCDay() === 1) {
+      console.log('=== Step 11: fetch-earnings-events (weekly) ===');
+      const earnResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-earnings-events', { limit: 25 });
+      stepResults.push({
+        step: 'fetch-earnings-events',
+        status: earnResult.ok ? 'success' : 'failed',
+        duration_ms: earnResult.duration_ms,
+        details: earnResult.ok ? earnResult.data : { error: earnResult.data?.error },
+      });
+      if (!earnResult.ok) errors.push({ step: 'fetch-earnings-events', error: earnResult.data?.error || `HTTP ${earnResult.status}` });
+    } else {
+      stepResults.push({
+        step: 'fetch-earnings-events', status: 'skipped',
+        duration_ms: 0,
+        details: { reason: 'runs Mondays only to respect FMP free-tier' },
+      });
+    }
+    await updateRun('running');
+
+    // ==================== STEP 12: PAPER PORTFOLIO SNAPSHOT ====================
+    // Records daily marks for paper portfolio so the chart updates.
+    console.log('=== Step 12: paper-snapshot ===');
+    const paperResult = await callEdgeFunction(supabaseUrl, serviceKey, 'paper-snapshot', {});
+    stepResults.push({
+      step: 'paper-snapshot',
+      status: paperResult.ok ? 'success' : 'failed',
+      duration_ms: paperResult.duration_ms,
+      details: paperResult.ok ? paperResult.data : { error: paperResult.data?.error },
+    });
+    if (!paperResult.ok) errors.push({ step: 'paper-snapshot', error: paperResult.data?.error || `HTTP ${paperResult.status}` });
 
     // ==================== FINALIZE ====================
     const finalStatus = errors.length === 0 ? 'completed' : (stepResults.some(s => s.status === 'success') ? 'completed' : 'failed');
