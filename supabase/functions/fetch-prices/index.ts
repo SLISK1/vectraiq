@@ -543,7 +543,7 @@ Deno.serve(async (req) => {
 
     if (usFmpRecords.length > 0) {
       console.log(`Cross-validating ${usFmpRecords.length} US FMP prices with Yahoo`);
-      for (const rec of usFmpRecords) {
+      await pMap(usFmpRecords, 6, async (rec) => {
         const ticker = idToTicker.get(rec.symbol_id)!;
         try {
           const yq = await fetchYahooQuote(ticker);
@@ -565,9 +565,8 @@ Deno.serve(async (req) => {
               rec.source = 'yahoo_validated';
             }
           }
-          await new Promise(r => setTimeout(r, 200));
         } catch {}
-      }
+      });
     }
 
     // Cross-validate FMP-sourced Nordic stocks with Yahoo (sample 15)
