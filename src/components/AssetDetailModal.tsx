@@ -194,6 +194,76 @@ export const AssetDetailModal = ({ asset, isOpen, onClose, onAddToWatchlist, onS
             </div>
           )}
 
+          {/* Strategic Thesis (LLM) */}
+          {typeof asset.thesisScore === 'number' && asset.thesisSummary && (
+            <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-sm text-purple-400 flex items-center gap-2">
+                  ✨ Strategisk Tes
+                </h3>
+                <span className={cn(
+                  "px-2 py-0.5 rounded font-mono font-bold text-sm",
+                  asset.thesisScore >= 80 ? "bg-purple-500 text-white"
+                  : asset.thesisScore >= 65 ? "bg-purple-500/30 text-purple-300"
+                  : asset.thesisScore >= 50 ? "bg-muted text-muted-foreground"
+                  : "bg-red-500/20 text-red-400"
+                )}>
+                  {asset.thesisScore}/100
+                </span>
+              </div>
+              <p className="text-sm mb-3">{asset.thesisSummary}</p>
+
+              {asset.thesisThemes && asset.thesisThemes.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {asset.thesisThemes.map((t) => (
+                    <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/20">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                {asset.thesisCatalysts && asset.thesisCatalysts.length > 0 && (
+                  <div>
+                    <div className="font-semibold text-up mb-1">Triggers framåt</div>
+                    <ul className="space-y-0.5 text-muted-foreground">
+                      {asset.thesisCatalysts.slice(0, 3).map((c, i) => (
+                        <li key={i}>· {c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {asset.thesisRisks && asset.thesisRisks.length > 0 && (
+                  <div>
+                    <div className="font-semibold text-down mb-1">Främsta risker</div>
+                    <ul className="space-y-0.5 text-muted-foreground">
+                      {asset.thesisRisks.slice(0, 3).map((r, i) => (
+                        <li key={i}>· {r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {asset.thesisMarketSize && (
+                <div className="mt-3 pt-3 border-t border-purple-500/20 text-xs text-muted-foreground">
+                  Marknadsstorlek: <span className="font-semibold text-foreground">{asset.thesisMarketSize}</span>
+                </div>
+              )}
+
+              {asset.riskClass && asset.riskClass !== 'main' && (
+                <div className="mt-2 text-xs text-yellow-500 flex items-start gap-1.5">
+                  <span>⚠️</span>
+                  <span>
+                    Risk-klass: <strong>{asset.riskClass}</strong> — modellens confidence är{' '}
+                    cap:ad eftersom datakvalitet är begränsad för denna typ av bolag.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Predicted Returns Grid */}
           {asset.predictedReturns && (
             <div className="grid grid-cols-5 gap-3">

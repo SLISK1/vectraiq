@@ -13,4 +13,5 @@ export * from './sentiment';
 export * from './ml';
 export * from './events';
 export * from './relativestrength';
+export * from './thesis';
 export * from './engine';

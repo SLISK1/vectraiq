@@ -17,6 +17,8 @@ import type {
   UpcomingEvent,
   RelativeStrengthData,
   EventSignalData,
+  StrategicThesisData,
+  RiskClass,
 } from '@/lib/analysis/types';
 import { calculateRaketScore } from '@/lib/analysis/raketScore';
 import { supabase } from '@/integrations/supabase/client';
@@ -169,6 +171,9 @@ const transformToRankedAsset = async (
       })
     : undefined;
 
+  // Surface thesis fields on the asset for UI rendering
+  const thesis = symbolEnrichments?.strategicThesis;
+
   return {
     ticker: symbol.ticker,
     name: symbol.name,
@@ -183,6 +188,15 @@ const transformToRankedAsset = async (
     marketCap: marketCapValue,
     marketCapCategory: getMarketCapCategory(marketCapValue),
     raketScore,
+    thesisScore: thesis?.thesisScore,
+    thesisSummary: thesis?.thesisSummary,
+    thesisThemes: thesis?.themes,
+    thesisMarketSize: thesis?.marketSize,
+    thesisCatalysts: thesis?.catalysts,
+    thesisRisks: thesis?.keyRisks,
+    riskClass: symbolEnrichments?.riskClass,
+    theme: symbolEnrichments?.theme,
+    listingDate: symbolEnrichments?.listingDate,
     totalScore: analysis.totalScore,
     direction: analysis.direction,
     confidence: analysis.confidence,
@@ -211,6 +225,7 @@ interface SymbolEnrichments {
   eventSignalsByTicker: Map<string, EventSignalData>;
   sectorReturns: Map<string, number | null>;   // key: "sector|asset_type|days"
   indexReturns: Map<string, number | null>;    // key: "index_ticker|asset_type|days"
+  thesisByTicker: Map<string, StrategicThesisData>;
 }
 
 const benchmarkFor = (assetType: string, exchange?: string | null): string => {
@@ -243,6 +258,7 @@ const fetchAllEnrichments = async (
     insiderRes,
     sectorRes,
     indexRes,
+    thesisRes,
   ] = await Promise.allSettled([
     sb.from('news_sentiment_cache').select('*').in('ticker', tickers),
     sb.from('event_calendar').select('*')
@@ -256,6 +272,7 @@ const fetchAllEnrichments = async (
       .gte('transaction_date', new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString().split('T')[0]),
     sb.from('sector_returns_cache').select('*'),
     sb.from('index_returns_cache').select('*'),
+    sb.from('strategic_thesis_cache').select('*').in('ticker', tickers),
   ]);
 
   const newsSentimentByTicker = new Map<string, NewsSentimentData>();
@@ -366,10 +383,29 @@ const fetchAllEnrichments = async (
     }
   }
 
+  const thesisByTicker = new Map<string, StrategicThesisData>();
+  if (thesisRes.status === 'fulfilled' && thesisRes.value.data) {
+    for (const row of thesisRes.value.data) {
+      thesisByTicker.set(row.ticker, {
+        thesisScore: Number(row.thesis_score || 50),
+        uniquenessScore: Number(row.uniqueness_score || 5),
+        moatScore: Number(row.moat_score || 5),
+        marketSize: (row.market_size as 'small' | 'medium' | 'large' | 'massive') || 'medium',
+        themes: Array.isArray(row.themes) ? row.themes : [],
+        thesisSummary: row.thesis_summary || '',
+        keyRisks: Array.isArray(row.key_risks) ? row.key_risks : [],
+        catalysts: Array.isArray(row.catalysts) ? row.catalysts : [],
+        modelUsed: row.model_used || 'unknown',
+        updatedAt: row.updated_at,
+      });
+    }
+  }
+
   console.log(
     `Enrichments fetched: sentiment=${newsSentimentByTicker.size}, ` +
     `events=${eventsByTicker.size} (+${marketWideEvents.length} market-wide), ` +
-    `signals=${eventSignalsByTicker.size}, sectors=${sectorReturns.size}, indices=${indexReturns.size}`
+    `signals=${eventSignalsByTicker.size}, sectors=${sectorReturns.size}, ` +
+    `indices=${indexReturns.size}, thesis=${thesisByTicker.size}`
   );
 
   return {
@@ -379,6 +415,7 @@ const fetchAllEnrichments = async (
     eventSignalsByTicker,
     sectorReturns,
     indexReturns,
+    thesisByTicker,
   };
 };
 
@@ -416,6 +453,13 @@ const buildEnrichmentsForSymbol = (
   // for potential future use.
   void sector3m; void sector6m; void index3m;
 
+  // Risk class & theme come from symbols table (newly added columns,
+  // not yet in supabase types — cast to any for access)
+  const symAny = symbol as unknown as Record<string, unknown>;
+  const riskClass = (symAny.risk_class as RiskClass | undefined) || 'main';
+  const theme = (symAny.theme as string | undefined) || undefined;
+  const listingDate = (symAny.listing_date as string | undefined) || undefined;
+
   return {
     newsSentiment: enrichments.newsSentimentByTicker.get(ticker),
     upcomingEvents: upcomingEvents.length > 0 ? upcomingEvents : undefined,
@@ -423,6 +467,10 @@ const buildEnrichmentsForSymbol = (
     eventSignals: enrichments.eventSignalsByTicker.get(ticker),
     sector: symbol.sector || undefined,
     exchange: symbol.exchange || undefined,
+    strategicThesis: enrichments.thesisByTicker.get(ticker),
+    riskClass,
+    theme,
+    listingDate,
   };
 };
 

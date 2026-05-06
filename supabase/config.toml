@@ -80,3 +80,9 @@ verify_jwt = false
 
 [functions.fetch-earnings-events]
 verify_jwt = false
+
+[functions.seed-extended-universe]
+verify_jwt = false
+
+[functions.analyze-thesis]
+verify_jwt = false

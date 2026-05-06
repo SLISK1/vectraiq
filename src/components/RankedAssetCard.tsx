@@ -3,7 +3,7 @@ import { ScoreRing } from './ScoreRing';
 import { DirectionBadge } from './DirectionBadge';
 import { AssetTypeBadge } from './AssetTypeBadge';
 import { cn } from '@/lib/utils';
-import { ChevronRight, Star, AlertTriangle, ShoppingCart, Rocket } from 'lucide-react';
+import { ChevronRight, Star, AlertTriangle, ShoppingCart, Rocket, Sparkles, Calendar } from 'lucide-react';
 
 interface RankedAssetCardProps {
   asset: RankedAsset;
@@ -79,6 +79,39 @@ export const RankedAssetCard = ({ asset, rank, dbRank, onAddToWatchlist, onClick
                 {asset.raketScore.total}
               </span>
             )}
+            {/* Strategic thesis badge — high-conviction names get a Sparkles icon */}
+            {typeof asset.thesisScore === 'number' && asset.thesisScore >= 65 && (
+              <span
+                className="text-xs px-1.5 py-0.5 rounded font-mono flex items-center gap-1 bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                title={`Strategisk tes ${asset.thesisScore}/100`}
+              >
+                <Sparkles className="w-3 h-3" />
+                Tes {asset.thesisScore}
+              </span>
+            )}
+            {/* Risk class warning — speculative names */}
+            {asset.riskClass && ['spotlight', 'ngm', 'pre_revenue', 'high_risk'].includes(asset.riskClass) && (
+              <span
+                className="text-xs px-1.5 py-0.5 rounded font-mono flex items-center gap-1 bg-red-500/15 text-red-400 border border-red-500/30"
+                title={`Risk-klass: ${asset.riskClass} — modellen har begränsad förmåga att utvärdera detta`}
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Spekulativ
+              </span>
+            )}
+            {/* Recently listed — within 24 months */}
+            {asset.listingDate && (() => {
+              const monthsSinceListing = (Date.now() - new Date(asset.listingDate).getTime()) / (1000 * 60 * 60 * 24 * 30);
+              return monthsSinceListing < 24 ? (
+                <span
+                  className="text-xs px-1.5 py-0.5 rounded font-mono flex items-center gap-1 bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                  title={`Noterad ${asset.listingDate}`}
+                >
+                  <Calendar className="w-3 h-3" />
+                  Ny
+                </span>
+              ) : null;
+            })()}
           </div>
           
           <p className="text-sm text-muted-foreground truncate mb-2">{asset.name}</p>
