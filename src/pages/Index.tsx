@@ -14,11 +14,14 @@ import { MarketCapFilter } from '@/components/MarketCapFilter';
 import { AssetTypeFilter } from '@/components/AssetTypeFilter';
 import { ThemeFilter, type ThemeFilterValue } from '@/components/ThemeFilter';
 import { SearchAssets } from '@/components/SearchAssets';
+import { MarketRegimeBadge } from '@/components/MarketRegimeBadge';
 import { PortfolioView } from '@/components/PortfolioView';
 import { ScreenerPage } from '@/pages/ScreenerPage';
 import { BettingPage } from '@/pages/BettingPage';
 import { PaperPortfolioPage } from '@/components/paper/PaperPortfolioPage';
+import { TaxPanel } from '@/components/tax/TaxPanel';
 import { StrategyPage } from '@/components/strategy/StrategyPage';
+import { JournalPage } from '@/components/journal/JournalPage';
 import { PaperTradeModal } from '@/components/paper/PaperTradeModal';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
 import type { TabId } from '@/components/Header';
@@ -28,7 +31,7 @@ import { usePriceRealtime } from '@/hooks/usePriceRealtime';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Star, History, BarChart3, Loader2, Briefcase, Wallet, Database } from 'lucide-react';
+import { Star, History, BarChart3, Loader2, Briefcase, Wallet, Database, Receipt } from 'lucide-react';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
@@ -329,6 +332,12 @@ const Index = () => {
         {/* Dashboard */}
         {activeTab === 'dashboard' && (
           <>
+            {/* Market-regime banner — broad bull/bear/sideways read on the benchmark index */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h2 className="text-lg font-semibold">Marknadsöversikt</h2>
+              <MarketRegimeBadge />
+            </div>
+
             {/* Reality Check */}
             <RealityCheck />
 
@@ -480,6 +489,13 @@ const Index = () => {
           </div>
         )}
 
+        {/* Journal */}
+        {activeTab === 'journal' && (
+          <div className="max-w-5xl mx-auto">
+            <JournalPage />
+          </div>
+        )}
+
         {/* Portfolio */}
         {activeTab === 'portfolio' && (
           <div className="max-w-4xl mx-auto">
@@ -518,6 +534,22 @@ const Index = () => {
               </div>
             </div>
             <PaperPortfolioPage />
+          </div>
+        )}
+
+        {/* Skatt */}
+        {activeTab === 'tax' && (
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-primary/20">
+                <Receipt className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Skatt</h2>
+                <p className="text-sm text-muted-foreground">Svensk skatt: ISK, KF och depå — schablonskatt och K4</p>
+              </div>
+            </div>
+            <TaxPanel />
           </div>
         )}
 

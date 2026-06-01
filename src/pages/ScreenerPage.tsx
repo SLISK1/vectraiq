@@ -13,6 +13,8 @@ export const ScreenerPage = () => {
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
   const [selectedMarketCap, setSelectedMarketCap] = useState('all');
   const [selectedAssetType, setSelectedAssetType] = useState('all');
+  const [minFScore, setMinFScore] = useState('all');
+  const [altmanZone, setAltmanZone] = useState('all');
   const [selectedSymbol, setSelectedSymbol] = useState<SymbolWithPrice | null>(null);
 
   if (isLoading) {
@@ -49,6 +51,10 @@ export const ScreenerPage = () => {
         onMarketCapChange={setSelectedMarketCap}
         selectedAssetType={selectedAssetType}
         onAssetTypeChange={setSelectedAssetType}
+        minFScore={minFScore}
+        onMinFScoreChange={setMinFScore}
+        altmanZone={altmanZone}
+        onAltmanZoneChange={setAltmanZone}
       />
 
       {/* Table */}
@@ -58,6 +64,8 @@ export const ScreenerPage = () => {
         selectedSector={selectedSector}
         selectedMarketCap={selectedMarketCap}
         selectedAssetType={selectedAssetType}
+        minFScore={minFScore}
+        altmanZone={altmanZone}
         onAssetClick={(s) => setSelectedSymbol(s)}
       />
 

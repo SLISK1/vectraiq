@@ -1,19 +1,29 @@
 import { RankedAsset, Horizon, HORIZON_LABELS, HORIZON_SUPPORT } from '@/types/market';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { DirectionBadge } from './DirectionBadge';
 import { AssetTypeBadge } from './AssetTypeBadge';
 import { cn } from '@/lib/utils';
 import { Star, AlertCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { addDays, addWeeks, addMonths, addYears, format } from 'date-fns';
 import { sv } from 'date-fns/locale';
+import { useAddToWatchlist } from '@/hooks/useMarketData';
+import { useToast } from '@/hooks/use-toast';
 
 interface AddToWatchlistModalProps {
   asset: RankedAsset | null;
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (asset: RankedAsset, horizon: Horizon) => void;
+  /**
+   * Legacy prop kept for backward compatibility. The modal now persists the
+   * case itself (including the user's thesis, stop-loss and target) via the
+   * useAddToWatchlist mutation, so this callback is intentionally NOT invoked
+   * — invoking the page's handler would insert a second, duplicate row.
+   */
+  onConfirm?: (asset: RankedAsset, horizon: Horizon) => void;
 }
 
 const supportedHorizons: Horizon[] = ['1d', '1w', '1mo', '1y'];
@@ -31,12 +41,50 @@ const getTargetDate = (horizon: Horizon): Date => {
 
 export const AddToWatchlistModal = ({ asset, isOpen, onClose, onConfirm }: AddToWatchlistModalProps) => {
   const [selectedHorizon, setSelectedHorizon] = useState<Horizon>(asset?.horizon || '1w');
+  const [thesisNote, setThesisNote] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+  const [targetPrice, setTargetPrice] = useState('');
+  const addToWatchlist = useAddToWatchlist();
+  const { toast } = useToast();
+
+  // Reset the form whenever a new asset is opened
+  useEffect(() => {
+    if (asset) {
+      setSelectedHorizon(asset.horizon || '1w');
+      setThesisNote('');
+      setStopLoss('');
+      setTargetPrice('');
+    }
+  }, [asset]);
 
   if (!asset) return null;
 
-  const handleConfirm = () => {
-    onConfirm(asset, selectedHorizon);
-    onClose();
+  const handleConfirm = async () => {
+    const stopLossNum = stopLoss.trim() ? Number(stopLoss) : null;
+    const targetPriceNum = targetPrice.trim() ? Number(targetPrice) : null;
+
+    try {
+      await addToWatchlist.mutateAsync({
+        asset,
+        horizon: selectedHorizon,
+        thesisNote: thesisNote.trim() || null,
+        stopLoss: stopLossNum,
+        targetPrice: targetPriceNum,
+      });
+      toast({
+        title: 'Tillagd i watchlist',
+        description: `${asset.ticker} har lagts till med horisont ${HORIZON_LABELS[selectedHorizon]}.`,
+      });
+      // NOTE: onConfirm is intentionally not called — the page-level handler
+      // performs its own insert, which would duplicate the row we just saved.
+      onClose();
+    } catch (error) {
+      toast({
+        title: 'Fel',
+        description: 'Kunde inte lägga till i watchlist.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const formatPrice = (price: number, currency: string) => {
@@ -50,7 +98,7 @@ export const AddToWatchlistModal = ({ asset, isOpen, onClose, onConfirm }: AddTo
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Star className="w-5 h-5 text-primary" />
@@ -84,7 +132,7 @@ export const AddToWatchlistModal = ({ asset, isOpen, onClose, onConfirm }: AddTo
               {supportedHorizons.map((horizon) => {
                 const targetDate = getTargetDate(horizon);
                 const isSupported = HORIZON_SUPPORT[horizon] === 'full';
-                
+
                 return (
                   <button
                     key={horizon}
@@ -112,21 +160,64 @@ export const AddToWatchlistModal = ({ asset, isOpen, onClose, onConfirm }: AddTo
             </div>
           </div>
 
+          {/* Thesis (user-written rationale) */}
+          <div>
+            <label htmlFor="thesis-note" className="text-sm font-medium mb-2 block">Tes</label>
+            <Textarea
+              id="thesis-note"
+              value={thesisNote}
+              onChange={(e) => setThesisNote(e.target.value)}
+              placeholder="Varför tror du på det här caset? Skriv din egen tes – t.ex. drivkrafter, katalysatorer och vad som skulle göra dig fel."
+              className="min-h-[90px]"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              En tydlig tes gör det lättare att veta när den är bruten.
+            </p>
+          </div>
+
+          {/* Stop-loss & Target */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="stop-loss" className="text-sm font-medium mb-2 block">Stop-loss</label>
+              <Input
+                id="stop-loss"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                value={stopLoss}
+                onChange={(e) => setStopLoss(e.target.value)}
+                placeholder={`Pris i ${asset.currency}`}
+              />
+            </div>
+            <div>
+              <label htmlFor="target-price" className="text-sm font-medium mb-2 block">Riktkurs</label>
+              <Input
+                id="target-price"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                value={targetPrice}
+                onChange={(e) => setTargetPrice(e.target.value)}
+                placeholder={`Pris i ${asset.currency}`}
+              />
+            </div>
+          </div>
+
           {/* Info Box */}
           <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30 text-sm">
             <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
             <p className="text-muted-foreground">
-              När horisonten är slut kommer resultatet att låsas automatiskt och vi sparar huruvida 
-              prediktionen var korrekt för statistik.
+              När horisonten är slut låses resultatet automatiskt. Sätter du en stop-loss
+              varnar vi dig när tesen bryts.
             </p>
           </div>
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Avbryt</Button>
-          <Button onClick={handleConfirm} className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={addToWatchlist.isPending}>Avbryt</Button>
+          <Button onClick={handleConfirm} className="gap-2" disabled={addToWatchlist.isPending}>
             <Star className="w-4 h-4" />
-            Spara
+            {addToWatchlist.isPending ? 'Sparar…' : 'Spara'}
           </Button>
         </DialogFooter>
       </DialogContent>

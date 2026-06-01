@@ -1,4 +1,4 @@
-import { TrendingUp, BarChart3, Star, Settings, Menu, User, LogOut, Briefcase, LayoutGrid, Trophy, Wallet, Target } from 'lucide-react';
+import { TrendingUp, BarChart3, Star, Settings, Menu, User, LogOut, Briefcase, LayoutGrid, Trophy, Wallet, Target, BookOpen, Receipt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { AuthModal } from './AuthModal';
 
-export type TabId = 'dashboard' | 'watchlist' | 'portfolio' | 'paper' | 'screener' | 'betting' | 'strategy' | 'stats' | 'settings';
+export type TabId = 'dashboard' | 'watchlist' | 'journal' | 'portfolio' | 'paper' | 'tax' | 'screener' | 'betting' | 'strategy' | 'stats' | 'settings';
 
 interface HeaderProps {
   activeTab: TabId;
@@ -20,8 +20,10 @@ const tabs = [
   { id: 'betting' as const, label: 'Betting', icon: Trophy },
   { id: 'strategy' as const, label: 'Strategi', icon: Target },
   { id: 'watchlist' as const, label: 'Watchlist', icon: Star },
+  { id: 'journal' as const, label: 'Dagbok', icon: BookOpen },
   { id: 'portfolio' as const, label: 'Portfolio', icon: Briefcase },
   { id: 'paper' as const, label: 'Paper', icon: Wallet },
+  { id: 'tax' as const, label: 'Skatt', icon: Receipt },
   { id: 'stats' as const, label: 'Statistik', icon: BarChart3 },
   { id: 'settings' as const, label: 'Inställningar', icon: Settings },
 ];

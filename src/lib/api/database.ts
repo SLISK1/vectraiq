@@ -152,9 +152,21 @@ export const fetchSymbolsWithPrices = async (): Promise<SymbolWithPrice[]> => {
   });
 };
 
-// Fetch user's watchlist
-export const fetchWatchlist = async (userId: string): Promise<WatchlistCase[]> => {
-  const { data, error } = await supabase
+// User-authored thesis fields (added 2026-06-01). Generated supabase types
+// lag the migration, so these live as an extension type.
+export interface WatchlistThesisFields {
+  thesis_note: string | null;
+  stop_loss: number | null;
+  target_price: number | null;
+}
+
+export type WatchlistCaseWithThesis = WatchlistCase & Partial<WatchlistThesisFields>;
+
+// Fetch user's watchlist (includes user-authored thesis/stop-loss/target columns)
+export const fetchWatchlist = async (userId: string): Promise<WatchlistCaseWithThesis[]> => {
+  // Columns thesis_note/stop_loss/target_price are migration-defined and may
+  // not yet be in the generated types — cast to any for the select.
+  const { data, error } = await (supabase as any)
     .from('watchlist_cases')
     .select('*')
     .eq('user_id', userId)
@@ -165,12 +177,15 @@ export const fetchWatchlist = async (userId: string): Promise<WatchlistCase[]> =
     throw error;
   }
 
-  return data || [];
+  return (data || []) as WatchlistCaseWithThesis[];
 };
 
-// Add to watchlist
-export const addToWatchlist = async (watchlistCase: Omit<WatchlistCase, 'id' | 'created_at' | 'updated_at'>): Promise<WatchlistCase> => {
-  const { data, error } = await supabase
+// Add to watchlist (optionally with user thesis, stop-loss and target price)
+export const addToWatchlist = async (
+  watchlistCase: Omit<WatchlistCase, 'id' | 'created_at' | 'updated_at'> & Partial<WatchlistThesisFields>
+): Promise<WatchlistCaseWithThesis> => {
+  // thesis_note/stop_loss/target_price are migration-defined; types lag — cast.
+  const { data, error } = await (supabase as any)
     .from('watchlist_cases')
     .insert(watchlistCase)
     .select()
@@ -181,7 +196,7 @@ export const addToWatchlist = async (watchlistCase: Omit<WatchlistCase, 'id' | '
     throw error;
   }
 
-  return data;
+  return data as WatchlistCaseWithThesis;
 };
 
 // Remove from watchlist

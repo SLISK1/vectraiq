@@ -613,17 +613,94 @@ export const useWatchlist = () => {
   });
 };
 
+// User-authored thesis / stop-loss / target per watchlist case.
+// The page-level WatchlistCase mapping (Index.tsx) doesn't carry these, so
+// cards read them here. One query for the whole user, shared via the query
+// cache and keyed by case id.
+export interface WatchlistThesisMeta {
+  thesisNote: string | null;
+  stopLoss: number | null;
+  targetPrice: number | null;
+}
+
+export const useWatchlistThesisMap = () => {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['watchlistThesis', user?.id],
+    queryFn: async () => {
+      const map = new Map<string, WatchlistThesisMeta>();
+      if (!user) return map;
+      const rows = await fetchWatchlist(user.id);
+      for (const row of rows) {
+        map.set(row.id, {
+          thesisNote: row.thesis_note ?? null,
+          stopLoss: row.stop_loss != null ? Number(row.stop_loss) : null,
+          targetPrice: row.target_price != null ? Number(row.target_price) : null,
+        });
+      }
+      return map;
+    },
+    enabled: !!user,
+  });
+};
+
+// Upcoming events (earnings, dividends, …) for a single ticker, from the
+// event_calendar table. Used to surface alerts on each watchlist card.
+export interface UpcomingTickerEvent {
+  type: string;
+  date: string;
+  importance: number;
+}
+
+export const useUpcomingEvents = (ticker: string | undefined) => {
+  return useQuery({
+    queryKey: ['upcomingEvents', ticker],
+    queryFn: async (): Promise<UpcomingTickerEvent[]> => {
+      if (!ticker) return [];
+      // event_calendar is migration-defined; types may lag — cast to any.
+      const sb: any = supabase;
+      const { data, error } = await sb
+        .from('event_calendar')
+        .select('event_type, event_date, importance')
+        .eq('ticker', ticker)
+        .gte('event_date', new Date(Date.now() - 24 * 3600 * 1000).toISOString())
+        .order('event_date', { ascending: true })
+        .limit(5);
+
+      if (error) {
+        console.log(`event_calendar fetch failed for ${ticker} (non-critical):`, error);
+        return [];
+      }
+
+      return (data || []).map((row: { event_type: string; event_date: string; importance: number | null }) => ({
+        type: row.event_type,
+        date: row.event_date,
+        importance: row.importance ?? 1,
+      }));
+    },
+    enabled: !!ticker,
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+};
+
 export const useAddToWatchlist = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
   return useMutation({
-    mutationFn: async ({ 
-      asset, 
-      horizon 
-    }: { 
-      asset: RankedAsset; 
+    mutationFn: async ({
+      asset,
+      horizon,
+      thesisNote,
+      stopLoss,
+      targetPrice,
+    }: {
+      asset: RankedAsset;
       horizon: Horizon;
+      thesisNote?: string | null;
+      stopLoss?: number | null;
+      targetPrice?: number | null;
     }) => {
       if (!user) throw new Error('Must be logged in');
 
@@ -662,10 +739,15 @@ export const useAddToWatchlist = () => {
         baseline_ticker: null,
         baseline_entry_price: null,
         baseline_exit_price: null,
+        // User-authored thesis & alert fields (added 2026-06-01)
+        thesis_note: thesisNote?.trim() ? thesisNote.trim() : null,
+        stop_loss: stopLoss != null && Number.isFinite(stopLoss) ? stopLoss : null,
+        target_price: targetPrice != null && Number.isFinite(targetPrice) ? targetPrice : null,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['watchlist'] });
+      queryClient.invalidateQueries({ queryKey: ['watchlistThesis'] });
     },
   });
 };
@@ -677,6 +759,7 @@ export const useRemoveFromWatchlist = () => {
     mutationFn: removeFromWatchlist,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['watchlist'] });
+      queryClient.invalidateQueries({ queryKey: ['watchlistThesis'] });
     },
   });
 };

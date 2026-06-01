@@ -7,6 +7,8 @@ import { UniverseBuilder } from './UniverseBuilder';
 import { StrategyOverview } from './StrategyOverview';
 import { StrategyRulesForm } from './StrategyRulesForm';
 import { AutomationPanel } from './AutomationPanel';
+import { StrategyBacktestPanel } from './StrategyBacktestPanel';
+import { CorrelationPanel } from './CorrelationPanel';
 
 const DEFAULT_CONFIG = {
   portfolio_value: 100000,
@@ -113,10 +115,12 @@ export function StrategyPage() {
       </div>
 
       <Tabs defaultValue="universe" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 mb-6">
+        <TabsList className="grid w-full grid-cols-6 mb-6">
           <TabsTrigger value="universe">Universum</TabsTrigger>
           <TabsTrigger value="overview">Översikt</TabsTrigger>
+          <TabsTrigger value="correlation">Korrelation</TabsTrigger>
           <TabsTrigger value="rules">Regler</TabsTrigger>
+          <TabsTrigger value="backtest">Backtest</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
         </TabsList>
 
@@ -141,12 +145,24 @@ export function StrategyPage() {
           />
         </TabsContent>
 
+        <TabsContent value="correlation">
+          <CorrelationPanel
+            items={candidates
+              .filter((c) => c.status === 'candidate')
+              .map((c) => ({ ticker: c.ticker, symbol_id: c.symbol_id }))}
+          />
+        </TabsContent>
+
         <TabsContent value="rules">
           <StrategyRulesForm
             config={localConfig}
             onChange={handleChange}
             onReset={handleReset}
           />
+        </TabsContent>
+
+        <TabsContent value="backtest">
+          <StrategyBacktestPanel />
         </TabsContent>
 
         <TabsContent value="automation">
