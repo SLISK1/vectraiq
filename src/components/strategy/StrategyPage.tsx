@@ -7,6 +7,7 @@ import { UniverseBuilder } from './UniverseBuilder';
 import { StrategyOverview } from './StrategyOverview';
 import { StrategyRulesForm } from './StrategyRulesForm';
 import { AutomationPanel } from './AutomationPanel';
+import { StrategyBacktestPanel } from './StrategyBacktestPanel';
 
 const DEFAULT_CONFIG = {
   portfolio_value: 100000,
@@ -113,10 +114,11 @@ export function StrategyPage() {
       </div>
 
       <Tabs defaultValue="universe" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 mb-6">
+        <TabsList className="grid w-full grid-cols-5 mb-6">
           <TabsTrigger value="universe">Universum</TabsTrigger>
           <TabsTrigger value="overview">Översikt</TabsTrigger>
           <TabsTrigger value="rules">Regler</TabsTrigger>
+          <TabsTrigger value="backtest">Backtest</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
         </TabsList>
 
@@ -147,6 +149,10 @@ export function StrategyPage() {
             onChange={handleChange}
             onReset={handleReset}
           />
+        </TabsContent>
+
+        <TabsContent value="backtest">
+          <StrategyBacktestPanel />
         </TabsContent>
 
         <TabsContent value="automation">
