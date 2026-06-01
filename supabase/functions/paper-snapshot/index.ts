@@ -5,6 +5,38 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Benchmark mapping by base currency (mirrors getBenchmarkTicker in score-predictions).
+// NOTE: ^OMXSPI is the price index. A total-return index (OMXSGI) would be a more honest
+// benchmark since it includes dividends — flagged as a follow-up, not implemented here.
+function getBenchmarkTicker(currency: string): string {
+  if (currency === "USD") return "^GSPC";
+  return "^OMXSPI"; // SEK + default
+}
+
+// Fetch index closes from Yahoo Finance for a date range (same approach as score-predictions).
+// entry = nearest valid close on/after fromDate (buy-and-hold entry at inception),
+// exit  = most recent valid close (value "now"). Returns null on any failure so callers
+// can leave benchmark columns NULL without throwing.
+async function fetchYahooPriceRange(ticker: string, fromDate: Date, toDate: Date): Promise<{ entry: number; exit: number } | null> {
+  try {
+    const from = Math.floor(fromDate.getTime() / 1000);
+    const to = Math.floor(toDate.getTime() / 1000);
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${from}&period2=${to}`;
+
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const closes = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+    if (!closes || closes.length < 2) return null;
+
+    const validCloses = closes.filter((c: number | null) => c != null);
+    if (validCloses.length < 2) return null;
+    return { entry: validCloses[0], exit: validCloses[validCloses.length - 1] };
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -62,6 +94,25 @@ Deno.serve(async (req) => {
       const pnlTotal = totalValue - startingCash;
       const pnlPct = startingCash > 0 ? (pnlTotal / startingCash) * 100 : 0;
 
+      // Benchmark = buy-and-hold of the index: if startingCash had been invested in the
+      // index at the portfolio's inception (created_at), what is it worth now?
+      let benchmarkValue: number | null = null;
+      let benchmarkReturnPct: number | null = null;
+      try {
+        const benchmarkTicker = getBenchmarkTicker(portfolio.base_currency);
+        const inception = new Date(portfolio.created_at);
+        const indexData = await fetchYahooPriceRange(benchmarkTicker, inception, new Date());
+        if (indexData && indexData.entry > 0) {
+          const ratio = indexData.exit / indexData.entry;
+          benchmarkValue = Math.round(startingCash * ratio * 100) / 100;
+          benchmarkReturnPct = Math.round((ratio - 1) * 100 * 100) / 100;
+        } else {
+          console.warn(`paper-snapshot: no index data for ${benchmarkTicker} (portfolio ${portfolio.id}); leaving benchmark NULL`);
+        }
+      } catch (benchErr) {
+        console.warn(`paper-snapshot: benchmark computation failed for portfolio ${portfolio.id}:`, benchErr);
+      }
+
       await supabase.from("paper_portfolio_snapshots").insert({
         user_id: portfolio.user_id,
         portfolio_id: portfolio.id,
@@ -70,6 +121,8 @@ Deno.serve(async (req) => {
         total_value: totalValue,
         pnl_total: Math.round(pnlTotal * 100) / 100,
         pnl_pct: Math.round(pnlPct * 100) / 100,
+        benchmark_value: benchmarkValue,
+        benchmark_return_pct: benchmarkReturnPct,
       });
 
       snapshotCount++;

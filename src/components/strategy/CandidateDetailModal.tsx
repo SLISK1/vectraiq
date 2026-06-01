@@ -1,7 +1,10 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { StrategyStatusBadge } from './StrategyStatusBadge';
-import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, Sparkles } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { cn } from '@/lib/utils';
 
 interface CandidateDetailModalProps {
   candidate: any;
@@ -16,6 +19,27 @@ export function CandidateDetailModal({ candidate, open, onClose }: CandidateDeta
   const regime = br.regime || {};
   const metrics = br.metrics || {};
   const moduleKeys = br.moduleKeysSeen || [];
+
+  // Strategic thesis (LLM) — same source as AssetDetailModal: strategic_thesis_cache.
+  // Keyed on ticker; only fetched while the modal is open.
+  const { data: thesis } = useQuery({
+    queryKey: ['candidate-thesis', candidate.ticker],
+    queryFn: async () => {
+      // Cast to any: strategic_thesis_cache is migration-defined; generated types lag.
+      const { data } = await (supabase as any)
+        .from('strategic_thesis_cache')
+        .select('thesis_score, uniqueness_score, moat_score, market_size, themes, thesis_summary, key_risks, catalysts, updated_at')
+        .eq('ticker', candidate.ticker)
+        .maybeSingle();
+      return data as {
+        thesis_score: number; uniqueness_score: number; moat_score: number;
+        market_size: string | null; themes: string[]; thesis_summary: string | null;
+        key_risks: string[]; catalysts: string[]; updated_at: string;
+      } | null;
+    },
+    enabled: open && !!candidate.ticker,
+    staleTime: 1000 * 60 * 10,
+  });
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -50,6 +74,65 @@ export function CandidateDetailModal({ candidate, open, onClose }: CandidateDeta
               ))}
             </div>
           </div>
+
+          {/* Strategic Thesis (LLM) */}
+          {thesis && thesis.thesis_summary && (
+            <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-medium text-purple-400 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4" />
+                  Strategisk Tes
+                </h4>
+                <span className={cn(
+                  "px-2 py-0.5 rounded font-mono font-bold text-xs",
+                  Number(thesis.thesis_score) >= 80 ? "bg-purple-500 text-white"
+                  : Number(thesis.thesis_score) >= 65 ? "bg-purple-500/30 text-purple-300"
+                  : Number(thesis.thesis_score) >= 50 ? "bg-muted text-muted-foreground"
+                  : "bg-red-500/20 text-red-400"
+                )}>
+                  {Math.round(Number(thesis.thesis_score))}/100
+                </span>
+              </div>
+              <p className="text-xs mb-2">{thesis.thesis_summary}</p>
+
+              {Array.isArray(thesis.themes) && thesis.themes.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {(thesis.themes as string[]).map((t) => (
+                    <Badge key={t} variant="outline" className="text-[10px] text-purple-300 border-purple-500/20">{t}</Badge>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {Array.isArray(thesis.catalysts) && thesis.catalysts.length > 0 && (
+                  <div>
+                    <div className="font-medium text-emerald-400 mb-1">Triggers framåt</div>
+                    <ul className="space-y-0.5 text-muted-foreground">
+                      {(thesis.catalysts as string[]).slice(0, 3).map((c, i) => (
+                        <li key={i}>· {c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(thesis.key_risks) && thesis.key_risks.length > 0 && (
+                  <div>
+                    <div className="font-medium text-red-400 mb-1">Främsta risker</div>
+                    <ul className="space-y-0.5 text-muted-foreground">
+                      {(thesis.key_risks as string[]).slice(0, 3).map((r, i) => (
+                        <li key={i}>· {r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-2 pt-2 border-t border-purple-500/20 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+                <span>Unikhet: <span className="font-mono text-foreground">{Math.round(Number(thesis.uniqueness_score))}/10</span></span>
+                <span>Vallgrav: <span className="font-mono text-foreground">{Math.round(Number(thesis.moat_score))}/10</span></span>
+                {thesis.market_size && <span>Marknad: <span className="text-foreground">{thesis.market_size}</span></span>}
+              </div>
+            </div>
+          )}
 
           {/* Block reasons */}
           {(candidate.status === 'blocked' || candidate.status === 'waiting') && (
