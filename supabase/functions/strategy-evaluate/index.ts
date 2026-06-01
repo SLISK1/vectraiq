@@ -376,6 +376,8 @@ Deno.serve(async (req) => {
           mean_reversion_enabled: config.mean_reversion_enabled,
           portfolio_value: config.portfolio_value,
           max_risk_pct: config.max_risk_pct,
+          max_open_pos: config.max_open_pos,
+          max_sector_pct: config.max_sector_pct,
           execution_policy: config.execution_policy,
           debug_force_one_candidate: config.debug_force_one_candidate || false,
         },
@@ -789,6 +791,93 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ============================================================
+    // ---- Portfolio-level risk caps (max_open_pos, max_sector_pct) ----
+    // ============================================================
+    // These config knobs were previously surfaced + stored but NEVER enforced
+    // (false-safety bug). We enforce them here, AFTER per-candidate scoring,
+    // gating and the debug override, but BEFORE finalizing 'candidate' status.
+    //
+    // Rows that get cut are DEMOTED to 'waiting' (kept visible, with a gate
+    // reason) instead of dropped — mirroring the existing waiting/blocked
+    // candidate-row pattern. Both passes are best-first by total_score and
+    // wrapped so they can never throw (fail-open: a thrown error leaves the
+    // already-built candidate rows untouched).
+    try {
+      const maxOpenPos = Number(config.max_open_pos) || 0;
+      const maxSectorPct = Number(config.max_sector_pct) || 0;
+
+      // Helper: demote a candidate row in place to 'waiting' with a reason,
+      // and emit a matching trade-log entry. Keeps run counters honest by
+      // decrementing matchedRegimeCount (it is no longer an actionable match).
+      const demoteToWaiting = (row: any, reasonCode: string, reasonText: string) => {
+        row.status = "waiting";
+        row.block_reasons = row.block_reasons || {};
+        const regimePicked = row.block_reasons.regime?.picked ?? (row.regime || "NONE");
+        const prevFailed: string[] = Array.isArray(row.block_reasons.regime?.failed)
+          ? row.block_reasons.regime.failed
+          : [];
+        row.block_reasons.regime = { picked: regimePicked, failed: [...prevFailed, reasonText] };
+        row.analysis_data = row.analysis_data || {};
+        row.analysis_data.portfolioCap = reasonCode;
+        if (matchedRegimeCount > 0) matchedRegimeCount--;
+        logRows.push({
+          user_id: userId, config_id: config.id, run_id: jobId,
+          action: "evaluate", ticker: row.ticker,
+          details: { regime: row.regime, status: "waiting", demotedBy: reasonCode, reason: reasonText },
+        });
+      };
+
+      // ---- Pass 1: max_open_pos ----
+      // Among rows that would be 'candidate', keep only the top max_open_pos by
+      // total_score; demote the rest to 'waiting'.
+      if (maxOpenPos > 0) {
+        const ranked = candidateRows
+          .filter((r) => r.status === "candidate")
+          .sort((a, b) => (b.total_score ?? 0) - (a.total_score ?? 0));
+        for (let i = maxOpenPos; i < ranked.length; i++) {
+          demoteToWaiting(
+            ranked[i],
+            "max_open_pos_reached",
+            `max_open_pos_reached — maxgräns ${maxOpenPos} öppna positioner nådd (rank ${i + 1})`
+          );
+        }
+      }
+
+      // ---- Pass 2: max_sector_pct ----
+      // Walk surviving candidates best-first, tracking per-sector weight under an
+      // equal-weight assumption: each position takes 100/max_open_pos % of the
+      // book (falls back to 100/candidateCount when max_open_pos is unset). If
+      // adding a candidate would push its sector over max_sector_pct, demote it.
+      // A null sector is treated as its own bucket.
+      if (maxSectorPct > 0) {
+        const survivors = candidateRows
+          .filter((r) => r.status === "candidate")
+          .sort((a, b) => (b.total_score ?? 0) - (a.total_score ?? 0));
+        const perPositionPct =
+          maxOpenPos > 0 ? 100 / maxOpenPos : survivors.length > 0 ? 100 / survivors.length : 0;
+        const sectorWeight = new Map<string, number>();
+        for (const row of survivors) {
+          const sector = symbolMap.get(row.ticker)?.sector ?? "__NONE__";
+          const current = sectorWeight.get(sector) ?? 0;
+          const next = current + perPositionPct;
+          // Round to avoid float dust tripping the boundary (e.g. 30.0000001).
+          if (Math.round(next * 100) / 100 > maxSectorPct) {
+            demoteToWaiting(
+              row,
+              "max_sector_pct_exceeded",
+              `max_sector_pct_exceeded — sektor "${sector}" skulle nå ${Math.round(next)}% > ${maxSectorPct}%`
+            );
+          } else {
+            sectorWeight.set(sector, next);
+          }
+        }
+      }
+    } catch (capErr) {
+      // Fail-open: never let risk-cap enforcement break a run.
+      console.error("Portfolio risk-cap enforcement error:", capErr);
+    }
+
     candidatesUpsertedCount = candidateRows.length;
 
     // Insert candidates in batches
@@ -815,6 +904,8 @@ Deno.serve(async (req) => {
       blockedCount: candidateRows.filter(c => c.status === "blocked").length,
       waitingCount: candidateRows.filter(c => c.status === "waiting").length,
       candidateCount: candidateRows.filter(c => c.status === "candidate").length,
+      demotedByMaxOpenPos: candidateRows.filter(c => c.analysis_data?.portfolioCap === "max_open_pos_reached").length,
+      demotedByMaxSectorPct: candidateRows.filter(c => c.analysis_data?.portfolioCap === "max_sector_pct_exceeded").length,
     };
 
     await adminClient.from("strategy_trade_log").insert({

@@ -14,6 +14,7 @@ import { MarketCapFilter } from '@/components/MarketCapFilter';
 import { AssetTypeFilter } from '@/components/AssetTypeFilter';
 import { ThemeFilter, type ThemeFilterValue } from '@/components/ThemeFilter';
 import { SearchAssets } from '@/components/SearchAssets';
+import { MarketRegimeBadge } from '@/components/MarketRegimeBadge';
 import { PortfolioView } from '@/components/PortfolioView';
 import { ScreenerPage } from '@/pages/ScreenerPage';
 import { BettingPage } from '@/pages/BettingPage';
@@ -330,6 +331,12 @@ const Index = () => {
         {/* Dashboard */}
         {activeTab === 'dashboard' && (
           <>
+            {/* Market-regime banner — broad bull/bear/sideways read on the benchmark index */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h2 className="text-lg font-semibold">Marknadsöversikt</h2>
+              <MarketRegimeBadge />
+            </div>
+
             {/* Reality Check */}
             <RealityCheck />
 

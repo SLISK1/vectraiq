@@ -18,6 +18,36 @@ interface FundamentalData {
   week52Low: number | null;
   lastUpdated: string;
   reportDate?: string | null;  // fiscal period end (YYYY-MM-DD) when the source exposes it
+
+  // ── Raw statement items for deterministic screening models ──────────
+  // (Piotroski F-score, Altman Z-score, Greenblatt Magic Formula — see
+  //  src/lib/analysis/screening.ts). All optional; omitted when unavailable
+  //  so they never overwrite previously-stored values during the merge.
+  // Current annual period:
+  netIncome?: number | null;
+  revenue?: number | null;
+  grossProfit?: number | null;
+  operatingIncome?: number | null;   // EBIT
+  operatingCashFlow?: number | null; // CFO
+  totalAssets?: number | null;
+  totalLiabilities?: number | null;
+  currentAssets?: number | null;
+  currentLiabilities?: number | null;
+  longTermDebt?: number | null;
+  retainedEarnings?: number | null;
+  sharesOutstanding?: number | null;
+  netFixedAssets?: number | null;    // PP&E net (for Magic Formula ROC)
+  workingCapital?: number | null;    // currentAssets - currentLiabilities
+  enterpriseValue?: number | null;   // EV (for Magic Formula earnings yield)
+  // Prior annual period (powers the YoY Piotroski criteria):
+  netIncomePrev?: number | null;
+  revenuePrev?: number | null;
+  grossProfitPrev?: number | null;
+  totalAssetsPrev?: number | null;
+  currentAssetsPrev?: number | null;
+  currentLiabilitiesPrev?: number | null;
+  longTermDebtPrev?: number | null;
+  sharesOutstandingPrev?: number | null;
 }
 
 const num = (v: unknown): number | null => {
@@ -30,12 +60,120 @@ const hasAnyMetric = (d: FundamentalData): boolean =>
   d.peRatio !== null || d.pbRatio !== null || d.roe !== null ||
   d.debtToEquity !== null || d.dividendYield !== null || d.marketCap !== null;
 
+// First finite numeric value among several candidate keys on an object.
+const pick = (obj: Record<string, unknown> | null | undefined, ...keys: string[]): number | null => {
+  if (!obj) return null;
+  for (const k of keys) {
+    const v = num(obj[k]);
+    if (v !== null) return v;
+  }
+  return null;
+};
+
+// Raw statement fields (current + prior annual period) the screening models need.
+// Returned as a partial FundamentalData; every field is optional and only set
+// when the source provides a usable number, so the downstream merge never
+// clobbers good values with nulls. Degrades gracefully and never throws.
+async function fetchFMPStatements(ticker: string, apiKey: string): Promise<Partial<FundamentalData>> {
+  const out: Partial<FundamentalData> = {};
+  try {
+    const base = 'https://financialmodelingprep.com/stable';
+    const q = `symbol=${encodeURIComponent(ticker)}&period=annual&limit=2&apikey=${apiKey}`;
+    // Latest ~2 annual periods from each statement. Run in parallel.
+    const [incRes, balRes, cashRes] = await Promise.all([
+      fetch(`${base}/income-statement?${q}`),
+      fetch(`${base}/balance-sheet-statement?${q}`),
+      fetch(`${base}/cash-flow-statement?${q}`),
+    ]);
+
+    const asArr = async (res: Response): Promise<Record<string, unknown>[]> => {
+      if (!res.ok) return [];
+      const body = await res.json().catch(() => null);
+      return Array.isArray(body) ? (body as Record<string, unknown>[]) : [];
+    };
+
+    const [income, balance, cash] = await Promise.all([asArr(incRes), asArr(balRes), asArr(cashRes)]);
+
+    // FMP returns most-recent-first. [0] = current, [1] = prior year.
+    const inc0 = income[0], inc1 = income[1];
+    const bal0 = balance[0], bal1 = balance[1];
+    const cash0 = cash[0];
+
+    const set = (key: keyof FundamentalData, val: number | null) => {
+      if (val !== null) (out as Record<string, number>)[key] = val;
+    };
+
+    // ── Income statement (current) ──
+    set('netIncome', pick(inc0, 'netIncome'));
+    set('revenue', pick(inc0, 'revenue', 'totalRevenue'));
+    set('grossProfit', pick(inc0, 'grossProfit'));
+    set('operatingIncome', pick(inc0, 'operatingIncome', 'ebit'));
+    // ── Cash-flow statement (current) ──
+    set('operatingCashFlow', pick(cash0, 'operatingCashFlow', 'netCashProvidedByOperatingActivities'));
+    // ── Balance sheet (current) ──
+    const totalAssets = pick(bal0, 'totalAssets');
+    const totalLiabilities = pick(bal0, 'totalLiabilities');
+    const currentAssets = pick(bal0, 'totalCurrentAssets');
+    const currentLiabilities = pick(bal0, 'totalCurrentLiabilities');
+    set('totalAssets', totalAssets);
+    set('totalLiabilities', totalLiabilities);
+    set('currentAssets', currentAssets);
+    set('currentLiabilities', currentLiabilities);
+    set('longTermDebt', pick(bal0, 'longTermDebt'));
+    set('retainedEarnings', pick(bal0, 'retainedEarnings'));
+    set('sharesOutstanding', pick(bal0, 'weightedAverageShsOut', 'weightedAverageShsOutDil') ?? pick(inc0, 'weightedAverageShsOut', 'weightedAverageShsOutDil'));
+    set('netFixedAssets', pick(bal0, 'propertyPlantEquipmentNet', 'propertyPlantAndEquipmentNet'));
+    if (currentAssets !== null && currentLiabilities !== null) {
+      set('workingCapital', currentAssets - currentLiabilities);
+    }
+
+    // ── Enterprise value ──
+    // EV = market cap + total debt − cash & equivalents. Compute from the
+    // balance sheet when the pieces exist (market cap is folded in later by
+    // the caller from the profile; here we approximate debt/cash side and
+    // leave EV for the caller if mktCap is unavailable).
+    const totalDebt = pick(bal0, 'totalDebt') ?? (
+      pick(bal0, 'longTermDebt') !== null || pick(bal0, 'shortTermDebt') !== null
+        ? (pick(bal0, 'longTermDebt') ?? 0) + (pick(bal0, 'shortTermDebt') ?? 0)
+        : null
+    );
+    const cashEq = pick(bal0, 'cashAndCashEquivalents', 'cashAndShortTermInvestments');
+    if (totalDebt !== null || cashEq !== null) {
+      // Stash the net-debt component; caller adds marketCap to finish EV.
+      (out as Record<string, number>)._netDebt = (totalDebt ?? 0) - (cashEq ?? 0);
+    }
+
+    // ── Prior annual period (for YoY Piotroski) ──
+    set('netIncomePrev', pick(inc1, 'netIncome'));
+    set('revenuePrev', pick(inc1, 'revenue', 'totalRevenue'));
+    set('grossProfitPrev', pick(inc1, 'grossProfit'));
+    set('totalAssetsPrev', pick(bal1, 'totalAssets'));
+    set('currentAssetsPrev', pick(bal1, 'totalCurrentAssets'));
+    set('currentLiabilitiesPrev', pick(bal1, 'totalCurrentLiabilities'));
+    set('longTermDebtPrev', pick(bal1, 'longTermDebt'));
+    set('sharesOutstandingPrev', pick(bal1, 'weightedAverageShsOut', 'weightedAverageShsOutDil') ?? pick(inc1, 'weightedAverageShsOut', 'weightedAverageShsOutDil'));
+
+    // Prefer the statement's fiscal period-end as the report date when present.
+    const rawDate = inc0?.date ?? bal0?.date ?? cash0?.date ?? null;
+    if (typeof rawDate === 'string') {
+      const d = new Date(rawDate);
+      if (!isNaN(d.getTime())) out.reportDate = d.toISOString().split('T')[0];
+    }
+  } catch (e) {
+    console.warn(`FMP statements error for ${ticker}:`, e);
+  }
+  return out;
+}
+
 // ── FMP (Financial Modeling Prep) ──────────────────────────────────
 async function fetchFMP(ticker: string, apiKey: string): Promise<FundamentalData | null> {
   try {
-    const [ratiosRes, profileRes] = await Promise.all([
+    // Fetch TTM ratios + profile (existing behavior) alongside the raw annual
+    // statements (new) for the deterministic screening models. All in parallel.
+    const [ratiosRes, profileRes, statements] = await Promise.all([
       fetch(`https://financialmodelingprep.com/stable/ratios-ttm?symbol=${encodeURIComponent(ticker)}&apikey=${apiKey}`),
       fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(ticker)}&apikey=${apiKey}`),
+      fetchFMPStatements(ticker, apiKey),
     ]);
 
     const ratiosBody = ratiosRes.ok ? await ratiosRes.json() : null;
@@ -66,6 +204,24 @@ async function fetchFMP(ticker: string, apiKey: string): Promise<FundamentalData
     if (rawReportDate) {
       const d = new Date(rawReportDate);
       if (!isNaN(d.getTime())) result.reportDate = d.toISOString().split('T')[0];
+    }
+
+    // Fold the raw annual statement items into the result. Only finite values
+    // were set on `statements`, so this never introduces nulls. Pull off the
+    // internal `_netDebt` helper to finish enterprise value with market cap.
+    const { _netDebt, reportDate: stmtReportDate, ...statementFields } =
+      statements as Partial<FundamentalData> & { _netDebt?: number };
+    Object.assign(result, statementFields);
+
+    // EV = market value of equity + net debt (total debt − cash). Only when
+    // both the market cap and the net-debt component are available.
+    if (result.marketCap != null && typeof _netDebt === 'number') {
+      result.enterpriseValue = result.marketCap + _netDebt;
+    }
+
+    // Prefer the statement fiscal period-end when ratios/profile didn't carry one.
+    if (!result.reportDate && stmtReportDate) {
+      result.reportDate = stmtReportDate;
     }
 
     if (!hasAnyMetric(result)) return null;

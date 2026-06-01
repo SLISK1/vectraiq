@@ -176,6 +176,122 @@ export function calculatePositionSize(
   return { qty: Math.max(0, qty), riskAmount, valid: qty > 0 };
 }
 
+// ---- Volatility-Target Position Sizing ----
+// Sizes a position so its *expected volatility contribution* equals a target
+// percentage of the portfolio. This is the classic "vol targeting" approach:
+// risky (high-vol) names get smaller positions, calm names get larger ones, so
+// every position contributes a comparable amount of risk to the book.
+//
+// We express the instrument's risk as an ANNUALIZED volatility in price terms:
+//   annualVol = dailyVolFraction * sqrt(tradingDaysPerYear)
+// where dailyVolFraction is the stock's daily return stdev as a fraction
+// (e.g. 0.02 = 2%/day). If you only have ATR, pass it via `atr` and we derive
+// dailyVolFraction = atr / price (ATR is already a per-day price range proxy).
+//
+// Target notional is chosen so:
+//   notional * annualVol = portfolioValue * (targetVolPct/100)
+//   => notional = portfolioValue * (targetVolPct/100) / annualVol
+//   => qty = floor(notional / price)
+//
+// Fail-safe: returns qty 0 / valid:false on any missing or non-positive input
+// (price, portfolio, target, or a derivable volatility). Never throws.
+export function volatilityTargetSize(params: {
+  price: number;
+  portfolioValue: number;
+  targetVolPct: number; // desired annualized vol contribution, in % (e.g. 10)
+  // Provide ONE of these as the risk estimate:
+  dailyVolFraction?: number; // daily return stdev as a fraction (0.02 = 2%/day)
+  atr?: number; // Average True Range in price units (per-day range proxy)
+  tradingDaysPerYear?: number; // default 252
+}): { qty: number; targetNotional: number; annualVol: number; valid: boolean } {
+  const { price, portfolioValue, targetVolPct, dailyVolFraction, atr } = params;
+  const tradingDaysPerYear = params.tradingDaysPerYear ?? 252;
+
+  // Derive a daily volatility fraction from whichever input we were given.
+  const dailyVol =
+    dailyVolFraction != null && dailyVolFraction > 0
+      ? dailyVolFraction
+      : atr != null && atr > 0 && price > 0
+      ? atr / price
+      : 0;
+
+  if (
+    !(price > 0) ||
+    !(portfolioValue > 0) ||
+    !(targetVolPct > 0) ||
+    !(dailyVol > 0) ||
+    !(tradingDaysPerYear > 0)
+  ) {
+    return { qty: 0, targetNotional: 0, annualVol: 0, valid: false };
+  }
+
+  const annualVol = dailyVol * Math.sqrt(tradingDaysPerYear); // annualized, as a fraction
+  const targetRisk = portfolioValue * (targetVolPct / 100);
+  const targetNotional = targetRisk / annualVol;
+  const qty = Math.floor(targetNotional / price);
+
+  return { qty: Math.max(0, qty), targetNotional, annualVol, valid: qty > 0 };
+}
+
+// ---- Quarter-Kelly Position Sizing ----
+// Kelly fraction f* = winProb - (1 - winProb) / payoffRatio
+//   winProb     : probability the trade is a winner, in [0, 1]
+//   payoffRatio : average win size / average loss size (a.k.a. reward/risk, b)
+// Full Kelly maximizes long-run geometric growth but is famously TOO AGGRESSIVE
+// in practice: its sizing is brutally sensitive to the inputs, and on real
+// trading both winProb and payoffRatio are *estimated*, not known.
+//
+// !!! EDGE-ESTIMATE CAVEAT (READ THIS) !!!
+// Kelly is only as trustworthy as the edge estimate fed into it. winProb and
+// payoffRatio MUST come from a credible, out-of-sample source — i.e. the
+// backtest / calibration layer — NOT from gut feel or a single in-sample fit.
+// Overestimating the edge makes Kelly oversize and risk ruin. Therefore we:
+//   1. use QUARTER Kelly (0.25 * f*) to blunt estimation error, and
+//   2. clamp the result to [0, capFraction] with a hard default cap of 25% of
+//      capital, so a bad edge estimate can never blow up the book.
+// If you do not have a backtest-derived edge, DO NOT use this — fall back to
+// fixed-fractional risk sizing (calculatePositionSize).
+export const KELLY_FRACTION = 0.25; // quarter-Kelly multiplier
+export const KELLY_MAX_FRACTION = 0.25; // hard cap: never risk >25% of capital
+
+export function quarterKellySize(params: {
+  winProb: number; // [0, 1], MUST be a backtest/calibration estimate
+  payoffRatio: number; // avg win / avg loss (> 0)
+  portfolioValue: number;
+  price?: number; // optional: when provided, also returns a share qty
+  kellyMultiplier?: number; // default 0.25 (quarter Kelly)
+  capFraction?: number; // default 0.25 (max 25% of capital)
+}): {
+  fullKelly: number; // raw f* (may be negative => no edge)
+  fraction: number; // applied fraction after multiplier + clamp, in [0, cap]
+  capitalAllocation: number; // portfolioValue * fraction
+  qty: number; // floor(capitalAllocation / price) when price given, else 0
+  valid: boolean; // true only when there is a positive edge to size
+} {
+  const { winProb, payoffRatio, portfolioValue, price } = params;
+  const kellyMultiplier = params.kellyMultiplier ?? KELLY_FRACTION;
+  const capFraction = params.capFraction ?? KELLY_MAX_FRACTION;
+
+  // Guard inputs. A non-positive payoff or out-of-range probability means we
+  // cannot compute a meaningful edge — return a zero, invalid allocation.
+  if (
+    !(payoffRatio > 0) ||
+    !(winProb >= 0 && winProb <= 1) ||
+    !(portfolioValue > 0)
+  ) {
+    return { fullKelly: 0, fraction: 0, capitalAllocation: 0, qty: 0, valid: false };
+  }
+
+  const fullKelly = winProb - (1 - winProb) / payoffRatio;
+  // Apply the quarter-Kelly multiplier, then clamp to [0, capFraction]. A
+  // negative full-Kelly (no edge) clamps to 0 => no position.
+  const fraction = Math.min(capFraction, Math.max(0, fullKelly * kellyMultiplier));
+  const capitalAllocation = portfolioValue * fraction;
+  const qty = price && price > 0 ? Math.floor(capitalAllocation / price) : 0;
+
+  return { fullKelly, fraction, capitalAllocation, qty, valid: fraction > 0 };
+}
+
 // ---- Net PnL Calculation ----
 export function calculateNetPnl(
   entryPrice: number,

@@ -17,6 +17,7 @@ import { analyzeEvents, detectEventBlackout } from './events';
 import { analyzeRelativeStrength } from './relativestrength';
 import { analyzeThesis, getRiskClassMultiplier } from './thesis';
 import { calculateTrendPrediction } from './trendPrediction';
+import { tiltWeightsForRegime, type MarketRegime } from './regime';
 
 export interface PredictedReturns {
   day1: number;
@@ -414,12 +415,23 @@ export const calculateObjectiveCoverage = (
 
 export const runAnalysis = (
   context: AnalysisContext,
-  moduleReliabilities?: Map<string, ReliabilityEntry>
+  moduleReliabilities?: Map<string, ReliabilityEntry>,
+  // OPT-IN market-regime tilt (added 2026-06-01). When a caller passes a
+  // classified market regime (BULL/BEAR/SIDEWAYS, from lib/analysis/regime.ts),
+  // we MODESTLY tilt the base horizon weights toward a defensive / mean-reversion
+  // posture BEFORE the existing reliability-weighting + renormalization below.
+  // When omitted (the default, and what all existing callers/tests do) this is a
+  // pure no-op — behaviour is byte-for-byte identical to before.
+  marketRegime?: MarketRegime
 ): FullAnalysis => {
   const { ticker, name, assetType, horizon, currentPrice, priceHistory } = context;
-  
+
   const isCrypto = assetType === 'crypto';
-  const baseWeights = isCrypto ? CRYPTO_WEIGHTS[horizon] : DEFAULT_WEIGHTS[horizon];
+  const rawBaseWeights = isCrypto ? CRYPTO_WEIGHTS[horizon] : DEFAULT_WEIGHTS[horizon];
+  // Apply the regime tilt only when explicitly provided. tiltWeightsForRegime
+  // renormalizes back to the same total, so downstream logic is unaffected; BULL
+  // is an identity. No regime => baseWeights === rawBaseWeights (no-op).
+  const baseWeights = marketRegime ? tiltWeightsForRegime(rawBaseWeights, marketRegime) : rawBaseWeights;
   const cryptoHighVol = isCrypto ? detectCryptoHighVolRegime(priceHistory) : false;
   
   const results: AnalysisResult[] = [];

@@ -11,6 +11,10 @@ interface ScreenerFiltersProps {
   onMarketCapChange: (cap: string) => void;
   selectedAssetType: string;
   onAssetTypeChange: (type: string) => void;
+  minFScore: string;
+  onMinFScoreChange: (v: string) => void;
+  altmanZone: string;
+  onAltmanZoneChange: (v: string) => void;
 }
 
 const SECTORS = [
@@ -28,6 +32,10 @@ export const ScreenerFilters = ({
   onMarketCapChange,
   selectedAssetType,
   onAssetTypeChange,
+  minFScore,
+  onMinFScoreChange,
+  altmanZone,
+  onAltmanZoneChange,
 }: ScreenerFiltersProps) => {
   return (
     <div className="flex flex-wrap gap-3 items-center">
@@ -79,6 +87,34 @@ export const ScreenerFilters = ({
           <SelectItem value="crypto">Krypto</SelectItem>
           <SelectItem value="fund">Fonder</SelectItem>
           <SelectItem value="metal">Metaller</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* Piotroski F-score (minimum) */}
+      <Select value={minFScore} onValueChange={onMinFScoreChange}>
+        <SelectTrigger className="w-[150px]">
+          <SelectValue placeholder="F-score" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">F-score: alla</SelectItem>
+          <SelectItem value="5">F-score ≥ 5</SelectItem>
+          <SelectItem value="6">F-score ≥ 6</SelectItem>
+          <SelectItem value="7">F-score ≥ 7</SelectItem>
+          <SelectItem value="8">F-score ≥ 8</SelectItem>
+          <SelectItem value="9">F-score = 9</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* Altman Z zone */}
+      <Select value={altmanZone} onValueChange={onAltmanZoneChange}>
+        <SelectTrigger className="w-[150px]">
+          <SelectValue placeholder="Altman-zon" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Altman: alla zoner</SelectItem>
+          <SelectItem value="safe">Säker</SelectItem>
+          <SelectItem value="grey">Grå</SelectItem>
+          <SelectItem value="distress">Distress</SelectItem>
         </SelectContent>
       </Select>
     </div>

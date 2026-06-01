@@ -8,6 +8,7 @@ import { StrategyOverview } from './StrategyOverview';
 import { StrategyRulesForm } from './StrategyRulesForm';
 import { AutomationPanel } from './AutomationPanel';
 import { StrategyBacktestPanel } from './StrategyBacktestPanel';
+import { CorrelationPanel } from './CorrelationPanel';
 
 const DEFAULT_CONFIG = {
   portfolio_value: 100000,
@@ -114,9 +115,10 @@ export function StrategyPage() {
       </div>
 
       <Tabs defaultValue="universe" className="w-full">
-        <TabsList className="grid w-full grid-cols-5 mb-6">
+        <TabsList className="grid w-full grid-cols-6 mb-6">
           <TabsTrigger value="universe">Universum</TabsTrigger>
           <TabsTrigger value="overview">Översikt</TabsTrigger>
+          <TabsTrigger value="correlation">Korrelation</TabsTrigger>
           <TabsTrigger value="rules">Regler</TabsTrigger>
           <TabsTrigger value="backtest">Backtest</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
@@ -140,6 +142,14 @@ export function StrategyPage() {
             candidates={candidates}
             positions={positions}
             universeSources={localConfig.universe_sources}
+          />
+        </TabsContent>
+
+        <TabsContent value="correlation">
+          <CorrelationPanel
+            items={candidates
+              .filter((c) => c.status === 'candidate')
+              .map((c) => ({ ticker: c.ticker, symbol_id: c.symbol_id }))}
           />
         </TabsContent>
 
