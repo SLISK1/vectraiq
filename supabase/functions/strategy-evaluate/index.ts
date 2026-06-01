@@ -247,6 +247,36 @@ function classifyRegime(n: NormalizedSnapshot, config: any): { regime: Regime; r
   return { regime: "NONE", reasons };
 }
 
+// ---- Transaction-Cost Gate ----
+// Mirrors expectedMoveSurvivesCosts() in src/lib/strategy/engine.ts so the live
+// edge path stays consistent with the pure logic / unit tests.
+// A signal must clear its round-trip costs by COST_SAFETY_MULT to be shown.
+const COST_SAFETY_MULT = 1.5;
+
+// Round-trip cost (entry + exit) in basis points of notional:
+//   2*slippage_bps + 2*commission_bps + (2*commission_per_trade / notional)*10000
+// Fail-open: flat-fee term is dropped when notional is non-positive, and callers
+// must skip the gate when no expected move is available. Never throws.
+function expectedMoveSurvivesCosts(
+  expectedMovePct: number,
+  entryPrice: number,
+  qty: number,
+  config: any
+): { passes: boolean; expectedMoveBps: number; roundTripCostBps: number } {
+  const expectedMoveBps = Math.abs(expectedMovePct) * 100; // 1% move = 100 bps
+  const notional = entryPrice * qty;
+
+  const slippageComponent = 2 * (config.slippage_bps || 0);
+  const commissionBpsComponent = 2 * (config.commission_bps || 0);
+  const flatFeeComponent =
+    notional > 0 ? ((2 * (config.commission_per_trade || 0)) / notional) * 10000 : 0;
+  const roundTripCostBps = slippageComponent + commissionBpsComponent + flatFeeComponent;
+
+  // Zero costs => zero threshold => any non-negative move passes.
+  const passes = expectedMoveBps >= roundTripCostBps * COST_SAFETY_MULT;
+  return { passes, expectedMoveBps, roundTripCostBps };
+}
+
 // ============================================================
 // Helper: paginated fetch (Supabase default limit is 1000)
 // ============================================================
@@ -395,9 +425,12 @@ Deno.serve(async (req) => {
     if (tickers.length > limit) tickers = tickers.slice(0, limit);
 
     // ---- Get symbols ----
+    // is_liquid / avg_dollar_volume_30d are populated by the compute-liquidity
+    // job (shared contract on public.symbols). They may be NULL until that job
+    // runs, so the liquidity filter below is FAIL-OPEN.
     const { data: symbols } = await adminClient
       .from("symbols")
-      .select("id, ticker, sector")
+      .select("id, ticker, sector, is_liquid, avg_dollar_volume_30d")
       .in("ticker", tickers.length > 0 ? tickers : ["__NONE__"]);
 
     const symbolMap = new Map((symbols || []).map((s: any) => [s.ticker, s]));
@@ -504,6 +537,33 @@ Deno.serve(async (req) => {
       const sym = symbolMap.get(ticker);
       if (!sym) continue;
 
+      // ---- Liquidity filter (FAIL-OPEN) ----
+      // Only exclude when explicitly flagged illiquid (is_liquid === false).
+      // NULL/undefined means the liquidity job hasn't run yet -> treat as allowed.
+      // Marked blocked (not silently dropped) so it stays visible, matching the
+      // existing blocked-candidate pattern below.
+      if (sym.is_liquid === false) {
+        candidateRows.push({
+          user_id: userId, config_id: config.id, symbol_id: sym.id, ticker,
+          source: sources.join(","), status: "blocked",
+          block_reasons: {
+            gate: {
+              passed: false,
+              failed: [
+                `illiquid — otillräcklig likviditet (avg_dollar_volume_30d=${sym.avg_dollar_volume_30d ?? "?"})`,
+              ],
+            },
+            regime: { picked: "NONE", failed: [] },
+            metrics: {},
+            moduleKeysSeen: [],
+          },
+          total_score: 0, confidence: 0,
+          fundamental_exit_available: false,
+          analysis_data: {},
+        });
+        continue;
+      }
+
       const pred = predBySymbol.get(sym.id);
       const sigs = sigBySymbol.get(sym.id) || [];
 
@@ -570,6 +630,84 @@ Deno.serve(async (req) => {
       const riskAmount = (config.portfolio_value || 100000) * ((config.max_risk_pct || 1) / 100);
       const riskPerShare = Math.abs(entryPrice - stopLossPrice);
       const positionSize = riskPerShare > 0 ? Math.floor(riskAmount / riskPerShare) : 0;
+
+      // ---- Transaction-cost gate (mirrors src/lib/strategy/engine.ts) ----
+      // Only applies to real candidates that have a target to test against.
+      // Expected-move proxy = entry->targetPrice distance (the candidate's own
+      // declared profit target). Fail-open when there is no target (e.g.
+      // FUNDAMENTAL has no fixed target), no position, or zero entry. A signal
+      // whose expected move can't clear its round-trip costs is downgraded to
+      // 'blocked' (visible) rather than shown as a tradeable candidate.
+      if (
+        status === "candidate" &&
+        targetPrice != null &&
+        entryPrice > 0 &&
+        positionSize > 0
+      ) {
+        const expectedMovePct = ((targetPrice - entryPrice) / entryPrice) * 100;
+        const costCheck = expectedMoveSurvivesCosts(expectedMovePct, entryPrice, positionSize, config);
+        if (!costCheck.passes) {
+          // Keep the regime/match counters honest: this no longer counts as a
+          // matched candidate since it fails the cost gate.
+          matchedRegimeCount--;
+          const costReason =
+            `expected_move_below_costs — förväntad rörelse ${costCheck.expectedMoveBps.toFixed(1)}bps < ` +
+            `${(costCheck.roundTripCostBps * COST_SAFETY_MULT).toFixed(1)}bps ` +
+            `(${costCheck.roundTripCostBps.toFixed(1)}bps round-trip × ${COST_SAFETY_MULT})`;
+          candidateRows.push({
+            user_id: userId, config_id: config.id, symbol_id: sym.id, ticker,
+            source: sources.join(","),
+            regime: regime !== "NONE" ? regime : null,
+            status: "blocked",
+            total_score: n.totalScore, confidence: n.confidence,
+            stop_loss_price: stopLossPrice, stop_loss_pct: stopLossPct,
+            target_price: targetPrice, rr_ratio: rrRatio,
+            position_size: positionSize, entry_price: entryPrice,
+            signal_price: entryPrice,
+            trend_strength: n.trend.trendStrength,
+            trend_duration: n.trend.durationLikelyDays,
+            fundamental_exit_available: !!n.modules["fundamental"],
+            block_reasons: {
+              gate: { passed: false, failed: [costReason] },
+              regime: { picked: regime, failed: [] },
+              metrics: {
+                totalScore: n.totalScore, agreement: n.agreement,
+                coverage: n.coverage, volRisk: n.volRisk,
+                dataAgeHours: Math.round(n.dataAgeHours),
+                durationLikelyDays: n.trend.durationLikelyDays,
+                trendStrength: n.trend.trendStrength,
+                expectedMoveBps: Math.round(costCheck.expectedMoveBps * 10) / 10,
+                roundTripCostBps: Math.round(costCheck.roundTripCostBps * 10) / 10,
+              },
+              moduleKeysSeen: n._debug.moduleKeysSeen,
+            },
+            analysis_data: {
+              agreement: n.agreement, coverage: n.coverage,
+              volRisk: n.volRisk, dataAgeHours: Math.round(n.dataAgeHours),
+              durationLikelyDays: n.trend.durationLikelyDays,
+              trendStrength: n.trend.trendStrength,
+              regimeReasons,
+              costGate: {
+                expectedMoveBps: costCheck.expectedMoveBps,
+                roundTripCostBps: costCheck.roundTripCostBps,
+                threshold: costCheck.roundTripCostBps * COST_SAFETY_MULT,
+              },
+            },
+          });
+          logRows.push({
+            user_id: userId, config_id: config.id, run_id: jobId,
+            action: "evaluate", ticker,
+            details: {
+              regime, status: "blocked", totalScore: n.totalScore,
+              agreement: n.agreement, coverage: n.coverage,
+              blockedBy: "expected_move_below_costs",
+              expectedMoveBps: costCheck.expectedMoveBps,
+              roundTripCostBps: costCheck.roundTripCostBps,
+            },
+          });
+          continue;
+        }
+      }
 
       candidateRows.push({
         user_id: userId, config_id: config.id, symbol_id: sym.id, ticker,

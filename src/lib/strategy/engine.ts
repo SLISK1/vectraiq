@@ -203,11 +203,53 @@ export function calculateNetPnl(
   return { grossPnl, netPnl, effectiveEntry, effectiveExit, slippageCost, commissionCost };
 }
 
+// ---- Transaction-Cost Gate ----
+// Safety margin required between expected move and round-trip costs.
+// A signal must clear its costs by 1.5x to be worth showing — an edge that
+// barely covers frictions is noise once real-world slippage/fees are included.
+export const COST_SAFETY_MULT = 1.5;
+
+// Pure helper: does the candidate's expected move beat its round-trip cost?
+// Round-trip cost (entry + exit) expressed in basis points of notional:
+//   2*slippage_bps          (slippage paid on both legs)
+// + 2*commission_bps        (proportional commission on both legs)
+// + (2*commission_per_trade / notional) * 10000   (flat fee per leg, as bps)
+// The move "survives" only if expectedMoveBps >= roundTripCostBps * COST_SAFETY_MULT.
+//
+// Fail-open by design: when notional is non-positive (qty/entry unknown) the
+// flat-fee term is dropped so the gate cannot reject on missing sizing data.
+// Callers should skip the gate entirely when no expected move is available.
+export function expectedMoveSurvivesCosts(
+  expectedMovePct: number,
+  entryPrice: number,
+  qty: number,
+  config: StrategyConfig
+): { passes: boolean; expectedMoveBps: number; roundTripCostBps: number } {
+  const expectedMoveBps = Math.abs(expectedMovePct) * 100; // 1% move = 100 bps
+  const notional = entryPrice * qty;
+
+  const slippageComponent = 2 * (config.slippage_bps || 0);
+  const commissionBpsComponent = 2 * (config.commission_bps || 0);
+  // Flat per-trade fee only contributes when we know the notional it spreads over.
+  const flatFeeComponent =
+    notional > 0 ? ((2 * (config.commission_per_trade || 0)) / notional) * 10000 : 0;
+  const roundTripCostBps = slippageComponent + commissionBpsComponent + flatFeeComponent;
+
+  // When costs are zero the threshold is zero, so any non-negative move passes.
+  const passes = expectedMoveBps >= roundTripCostBps * COST_SAFETY_MULT;
+  return { passes, expectedMoveBps, roundTripCostBps };
+}
+
 // ---- Main Evaluation ----
 export function evaluateCandidate(
   analysis: AnalysisSnapshot,
-  config: StrategyConfig
+  config: StrategyConfig,
+  // Optional knobs. Defaults preserve legacy behavior for callers/tests that
+  // pass only (analysis, config): the cost gate runs but is fail-open when no
+  // expected move (take-profit/target) is available.
+  options: { enableCostGate?: boolean } = {}
 ): EvaluationResult {
+  const enableCostGate = options.enableCostGate ?? true;
   // Quality gate (now returns detected side)
   const gate = qualityGate(analysis, config);
   if (!gate.pass || !gate.side) {
@@ -281,6 +323,32 @@ export function evaluateCandidate(
     entry,
     stopLoss
   );
+
+  // ---- Transaction-cost gate ----
+  // Expected-move proxy: the entry->takeProfit distance. This is the most
+  // honest proxy available here — it is the candidate's own declared profit
+  // target, so we are asking "does the upside we are promising actually clear
+  // the round-trip frictions?". When takeProfit is null (e.g. FUNDAMENTAL
+  // regime has no fixed target) there is no honest move to test, so we skip
+  // the gate (fail-open) rather than invent one. Same when sizing is invalid
+  // (qty == 0) or costs are zero — in those cases the gate cannot reject.
+  if (enableCostGate && valid && takeProfit != null && entry > 0) {
+    const expectedMovePct = ((takeProfit - entry) / entry) * 100;
+    const costCheck = expectedMoveSurvivesCosts(expectedMovePct, entry, qty, config);
+    if (!costCheck.passes) {
+      return {
+        eligible: false,
+        mode: regime,
+        status: 'blocked',
+        reasons,
+        blockReasons: [
+          `expected_move_below_costs — förväntad rörelse ${costCheck.expectedMoveBps.toFixed(1)}bps < ${(costCheck.roundTripCostBps * COST_SAFETY_MULT).toFixed(1)}bps (${costCheck.roundTripCostBps.toFixed(1)}bps round-trip × ${COST_SAFETY_MULT})`,
+        ],
+        suggestedOrder: null,
+        fundamentalExitAvailable: analysis.hasFundamentalData,
+      };
+    }
+  }
 
   const suggestedOrder: SuggestedOrder | null = valid
     ? {

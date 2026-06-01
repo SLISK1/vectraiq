@@ -429,6 +429,20 @@ Deno.serve(async (req) => {
     if (!sectorResult.ok) errors.push({ step: 'compute-sector-returns', error: sectorResult.data?.error || `HTTP ${sectorResult.status}` });
     await updateRun('running');
 
+    // ==================== STEP 10.5: COMPUTE LIQUIDITY ====================
+    // Computes avg_dollar_volume_30d + is_liquid per equity from price_history.
+    // Runs after price/history are fetched so volume exists. Non-fatal.
+    console.log('=== Step 10.5: compute-liquidity ===');
+    const liquidityResult = await callEdgeFunction(supabaseUrl, serviceKey, 'compute-liquidity', {});
+    stepResults.push({
+      step: 'compute-liquidity',
+      status: liquidityResult.ok ? 'success' : 'failed',
+      duration_ms: liquidityResult.duration_ms,
+      details: liquidityResult.ok ? liquidityResult.data : { error: liquidityResult.data?.error },
+    });
+    if (!liquidityResult.ok) errors.push({ step: 'compute-liquidity', error: liquidityResult.data?.error || `HTTP ${liquidityResult.status}` });
+    await updateRun('running');
+
     // ==================== STEP 11: FETCH EARNINGS EVENTS (weekly) ====================
     // Earnings surprises + analyst revisions + insider trades (FMP).
     // Throttled: only run once per week to stay within FMP free-tier limits.

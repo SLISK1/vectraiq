@@ -19,6 +19,7 @@ import { ScreenerPage } from '@/pages/ScreenerPage';
 import { BettingPage } from '@/pages/BettingPage';
 import { PaperPortfolioPage } from '@/components/paper/PaperPortfolioPage';
 import { StrategyPage } from '@/components/strategy/StrategyPage';
+import { JournalPage } from '@/components/journal/JournalPage';
 import { PaperTradeModal } from '@/components/paper/PaperTradeModal';
 import { Horizon, RankedAsset, WatchlistCase, HORIZON_LABELS, MarketCapCategory, AssetType } from '@/types/market';
 import type { TabId } from '@/components/Header';
@@ -477,6 +478,13 @@ const Index = () => {
                 </TabsContent>
               </Tabs>
             )}
+          </div>
+        )}
+
+        {/* Journal */}
+        {activeTab === 'journal' && (
+          <div className="max-w-5xl mx-auto">
+            <JournalPage />
           </div>
         )}
 

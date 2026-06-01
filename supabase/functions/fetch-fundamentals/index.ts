@@ -17,6 +17,7 @@ interface FundamentalData {
   week52High: number | null;
   week52Low: number | null;
   lastUpdated: string;
+  reportDate?: string | null;  // fiscal period end (YYYY-MM-DD) when the source exposes it
 }
 
 const num = (v: unknown): number | null => {
@@ -58,6 +59,14 @@ async function fetchFMP(ticker: string, apiKey: string): Promise<FundamentalData
       week52Low: num(profile?.range?.split('-')[0]) ?? null,
       lastUpdated: new Date().toISOString(),
     };
+
+    // FMP ratios/profile sometimes carry a fiscal period-end. Capture it as the
+    // point-in-time report_date when present; normalize to YYYY-MM-DD.
+    const rawReportDate = ratios?.date ?? ratios?.period ?? profile?.date ?? null;
+    if (rawReportDate) {
+      const d = new Date(rawReportDate);
+      if (!isNaN(d.getTime())) result.reportDate = d.toISOString().split('T')[0];
+    }
 
     if (!hasAnyMetric(result)) return null;
     return result;
@@ -298,6 +307,36 @@ Deno.serve(async (req) => {
         } else {
           results.push({ ticker: symbol.ticker, success: true, source });
           updatedCount++;
+        }
+
+        // Point-in-time snapshot (append-only, one per symbol/day/source).
+        // Records what was KNOWN today so backtests avoid lookahead bias.
+        // Must never break the legacy flow above — failures are logged and skipped.
+        try {
+          const asOf = new Date().toISOString().split('T')[0]; // UTC YYYY-MM-DD
+          const reportDate =
+            (fundamentals.reportDate as string | null | undefined) ??
+            (mergedFundamentals.reportDate as string | null | undefined) ??
+            null;
+
+          const { error: snapshotError } = await supabase
+            .from('fundamentals_snapshots')
+            .upsert(
+              {
+                symbol_id: symbol.id,
+                as_of: asOf,
+                report_date: reportDate,
+                fundamentals: mergedFundamentals,
+                source,
+              },
+              { onConflict: 'symbol_id,as_of,source', ignoreDuplicates: true }
+            );
+
+          if (snapshotError) {
+            console.warn(`Snapshot insert failed for ${symbol.ticker}: ${snapshotError.message}`);
+          }
+        } catch (snapErr) {
+          console.warn(`Snapshot insert threw for ${symbol.ticker}:`, snapErr);
         }
       } catch (e) {
         results.push({ ticker: symbol.ticker, success: false, error: String(e) });
