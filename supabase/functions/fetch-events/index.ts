@@ -61,6 +61,66 @@ async function fetchFmpEarnings(tickers: string[], apiKey: string): Promise<Even
   return out;
 }
 
+// FMP dividend calendar — upcoming dividends for active tickers.
+// Mirrors fetchFmpEarnings: pull the global calendar once, filter locally.
+async function fetchFmpDividends(tickers: string[], apiKey: string): Promise<EventRow[]> {
+  if (!apiKey || tickers.length === 0) return [];
+  const out: EventRow[] = [];
+  const from = new Date().toISOString().split('T')[0];
+  const to = new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString().split('T')[0];
+
+  try {
+    const url = `https://financialmodelingprep.com/api/v3/stock_dividend_calendar?from=${from}&to=${to}&apikey=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.log(`FMP stock_dividend_calendar HTTP ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+
+    const tickerSet = new Set(tickers);
+    // Also accept Yahoo-style suffix variants (matches earnings handling)
+    const stripSuffix = (t: string) => t.replace(/\.(ST|OL|HE|CO|US|L)$/, '');
+    const baseSet = new Set(tickers.map(stripSuffix));
+
+    // FMP can return several dividend records per symbol (ex-date, payment,
+    // declaration). Key by symbol+date so we only keep the upcoming ex-date.
+    const seen = new Set<string>();
+
+    for (const row of data) {
+      const sym = String(row.symbol || '').toUpperCase();
+      if (!sym) continue;
+      if (!tickerSet.has(sym) && !baseSet.has(stripSuffix(sym))) continue;
+
+      // The ex-dividend date is the actionable event for holders.
+      const exDate = row.date || row.recordDate || row.paymentDate;
+      if (!exDate) continue;
+
+      const key = `${sym}|${exDate}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      out.push({
+        ticker: sym,
+        event_type: 'dividend',
+        event_date: new Date(exDate).toISOString(),
+        importance: 2,
+        source: 'fmp',
+        metadata: {
+          dividend: row.dividend ?? row.adjDividend ?? null,
+          record_date: row.recordDate ?? null,
+          payment_date: row.paymentDate ?? null,
+          declaration_date: row.declarationDate ?? null,
+        },
+      });
+    }
+  } catch (e) {
+    console.error('FMP dividends fetch failed:', e);
+  }
+  return out;
+}
+
 // FMP economic calendar — next 30 days, high-importance only
 async function fetchFmpEconomic(apiKey: string): Promise<EventRow[]> {
   if (!apiKey) return [];
@@ -143,12 +203,13 @@ Deno.serve(async (req) => {
       .delete()
       .lt('event_date', new Date(Date.now() - 24 * 3600 * 1000).toISOString());
 
-    const [earnings, macro] = await Promise.all([
+    const [earnings, dividends, macro] = await Promise.all([
       fetchFmpEarnings(tickers, fmpKey),
+      fetchFmpDividends(tickers, fmpKey),
       fetchFmpEconomic(fmpKey),
     ]);
 
-    const all = [...earnings, ...macro];
+    const all = [...earnings, ...dividends, ...macro];
     if (all.length === 0) {
       return new Response(JSON.stringify({ inserted: 0, reason: 'no events found' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -175,7 +236,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ inserted, earnings: earnings.length, macro: macro.length }), {
+    return new Response(JSON.stringify({ inserted, earnings: earnings.length, dividends: dividends.length, macro: macro.length }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e) {

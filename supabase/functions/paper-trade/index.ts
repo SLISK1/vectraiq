@@ -112,9 +112,17 @@ Deno.serve(async (req) => {
       portfolio = newPortfolio;
     }
 
+    // Swedish account type for tax modeling (isk | kf | depa). Default 'isk'.
+    // Stored on the portfolio; only the depå case produces taxable realized
+    // gains per affär (redovisas på K4). Read it here so future logic can branch.
+    const accountType: string = (portfolio as { account_type?: string }).account_type || "isk";
+
     let qty: number;
     let notional: number;
     let fee: number;
+    // Realized capital gain on a SELL, computed via genomsnittsmetoden
+    // (the Swedish average-cost method) below. NULL for buys.
+    let realizedGain: number | null = null;
 
     if (amount_type === "cash") {
       notional = Number(amount);
@@ -179,6 +187,18 @@ Deno.serve(async (req) => {
       }
 
       const proceeds = notional - fee;
+
+      // Realized capital gain via GENOMSNITTSMETODEN (Swedish average-cost method,
+      // NOT FIFO). The holding's avg_cost is already the running weighted-average
+      // cost per unit, which is exactly omkostnadsbelopp/antal. So:
+      //   omkostnadsbelopp = avg_cost × qty
+      //   realized gain    = försäljningspris (proceeds, net of fee) − omkostnadsbelopp
+      // Stored on every sell; feeds the depå K4-sammanställning. Tax relevance
+      // depends on accountType (only depå is reavinstbeskattat), but we always
+      // record the figure so the Skatt tab can show it.
+      const avgCost = Number(holding.avg_cost);
+      realizedGain = Math.round((proceeds - avgCost * qty) * 100) / 100;
+
       await supabase
         .from("paper_portfolios")
         .update({ cash_balance: Number(portfolio.cash_balance) + proceeds })
@@ -207,6 +227,7 @@ Deno.serve(async (req) => {
       price,
       fee,
       notional,
+      realized_gain: realizedGain,
     });
 
     // Create snapshot
@@ -253,7 +274,8 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       success: true,
-      trade: { side, ticker, qty, price, fee, notional },
+      trade: { side, ticker, qty, price, fee, notional, realized_gain: realizedGain },
+      account_type: accountType,
       portfolio: { cash_balance: cashBalance, holdings_value: holdingsValue, total_value: totalValue, pnl_total: pnlTotal, pnl_pct: pnlPct },
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 

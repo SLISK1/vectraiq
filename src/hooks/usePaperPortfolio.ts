@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import type { AccountType } from '@/lib/tax';
 
 export interface PaperPortfolio {
   id: string;
@@ -9,6 +10,8 @@ export interface PaperPortfolio {
   starting_cash: number;
   cash_balance: number;
   created_at: string;
+  /** Swedish account type for tax modeling (isk | kf | depa). Added 20260601140000. */
+  account_type?: AccountType;
 }
 
 export interface PaperHolding {
@@ -35,6 +38,8 @@ export interface PaperTrade {
   fee: number;
   notional: number;
   executed_at: string;
+  /** Realized gain via genomsnittsmetoden, set on sells. Added 20260601140000. */
+  realized_gain?: number | null;
 }
 
 export interface PaperSnapshot {
@@ -126,8 +131,14 @@ export function usePaperPortfolio() {
       const pnlTotal = totalValue - startingCash;
       const pnlPct = startingCash > 0 ? (pnlTotal / startingCash) * 100 : 0;
 
+      // account_type was added in migration 20260601140000 and is not yet in the
+      // generated Supabase types — read it via a cast, defaulting to 'isk'.
+      const accountType: AccountType =
+        ((portfolio as { account_type?: AccountType }).account_type) || 'isk';
+
       return {
-        portfolio: portfolio as PaperPortfolio,
+        portfolio: { ...portfolio, account_type: accountType } as PaperPortfolio,
+        accountType,
         holdings: enrichedHoldings,
         holdingsValue,
         totalValue,
@@ -164,6 +175,72 @@ export function usePaperTrades() {
       return (data || []) as PaperTrade[];
     },
     enabled: !!user,
+  });
+}
+
+/**
+ * All SELL trades carrying a realized_gain (genomsnittsmetoden) for the current
+ * paper portfolio — used to build the depå K4-sammanställning. Unlike
+ * usePaperTrades this is not capped at 20 rows, since a K4 needs every sell.
+ */
+export function usePaperRealizedTrades() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['paper-realized-trades', user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data: portfolio } = await supabase
+        .from('paper_portfolios')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      if (!portfolio) return [];
+
+      const { data } = await supabase
+        .from('paper_trades')
+        .select('*')
+        .eq('portfolio_id', portfolio.id)
+        .eq('side', 'sell')
+        .order('executed_at', { ascending: false });
+
+      return (data || []) as PaperTrade[];
+    },
+    enabled: !!user,
+  });
+}
+
+/**
+ * Set the Swedish account type (isk | kf | depa) on the current paper portfolio.
+ * Updates the row directly (RLS restricts to the owner). Invalidates the
+ * portfolio query so the Skatt tab reflects the new wrapper immediately.
+ */
+export function useSetAccountType() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (accountType: AccountType) => {
+      if (!user) throw new Error('Not authenticated');
+      const { data: portfolio } = await supabase
+        .from('paper_portfolios')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      if (!portfolio) throw new Error('No portfolio');
+
+      // account_type is not in the generated types yet (migration 20260601140000),
+      // so cast the update payload.
+      const { error } = await supabase
+        .from('paper_portfolios')
+        .update({ account_type: accountType } as never)
+        .eq('id', portfolio.id);
+      if (error) throw error;
+      return accountType;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['paper-portfolio'] });
+    },
   });
 }
 
