@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { DataQualityPanel } from './DataQualityPanel';
 import {
   Play, Sparkles, Database, RefreshCw, CheckCircle2, XCircle,
   Clock, Loader2, AlertTriangle,
@@ -242,6 +243,9 @@ export const AdminPanel = () => {
           </div>
         </div>
       )}
+
+      {/* Data-quality / sanity-check layer (plan-improvement #10) */}
+      <DataQualityPanel />
 
       {/* Run history */}
       <div>

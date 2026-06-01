@@ -443,6 +443,21 @@ Deno.serve(async (req) => {
     if (!liquidityResult.ok) errors.push({ step: 'compute-liquidity', error: liquidityResult.data?.error || `HTTP ${liquidityResult.status}` });
     await updateRun('running');
 
+    // ==================== STEP 10.6: VALIDATE DATA (QA) ====================
+    // Read-only sanity checks on price_history (future dates, non-positive prices,
+    // implausible unadjusted-split jumps, staleness, missing data) → data_quality_issues.
+    // Runs after price/history are fetched. Non-fatal — a QA failure never aborts the run.
+    console.log('=== Step 10.6: validate-data ===');
+    const validateResult = await callEdgeFunction(supabaseUrl, serviceKey, 'validate-data', {});
+    stepResults.push({
+      step: 'validate-data',
+      status: validateResult.ok ? 'success' : 'failed',
+      duration_ms: validateResult.duration_ms,
+      details: validateResult.ok ? validateResult.data : { error: validateResult.data?.error },
+    });
+    if (!validateResult.ok) errors.push({ step: 'validate-data', error: validateResult.data?.error || `HTTP ${validateResult.status}` });
+    await updateRun('running');
+
     // ==================== STEP 11: FETCH EARNINGS EVENTS (weekly) ====================
     // Earnings surprises + analyst revisions + insider trades (FMP).
     // Throttled: only run once per week to stay within FMP free-tier limits.
