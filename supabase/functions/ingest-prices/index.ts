@@ -1,3 +1,4 @@
+// DEPRECATED (B1 architecture): not wired into daily-pipeline or any cron as of this change. Kept for reference; do not extend without re-integrating. See audit.
 /**
  * ingest-prices: Fetches daily OHLCV and upserts into price_bars.
  * Idempotent — ON CONFLICT DO UPDATE.

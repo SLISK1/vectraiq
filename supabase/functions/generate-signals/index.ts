@@ -312,12 +312,89 @@ function analyzeSentiment(closes: number[]): SignalResult {
   };
 }
 
-function analyzeMacro(): SignalResult {
-  // Static macro view - could be enhanced with real data
-  return {
+// Real macro read from macro_cache (populated by fetch-macro). Mirrors a
+// conservative version of src/lib/analysis/macro.ts. Macro NUDGES, not
+// dominates: modest strength/confidence. Falls back to NEUTRAL gracefully.
+async function analyzeMacro(supabase: any, assetType: AssetType): Promise<SignalResult> {
+  const neutral: SignalResult = {
     module: 'macro', direction: 'NEUTRAL', strength: 50, confidence: 40, coverage: 50,
     evidence: [{ type: 'macro', description: 'Makromiljö: neutral', source: 'Macro' }],
   };
+
+  try {
+    const { data: macroRows } = await supabase
+      .from('macro_cache')
+      .select('series_key, value, fetched_at');
+
+    if (!macroRows || macroRows.length === 0) return neutral;
+
+    const byKey: Record<string, number> = {};
+    for (const row of macroRows) byKey[row.series_key] = Number(row.value);
+
+    const interestRate = byKey['riksbank_rate'];
+    const inflation = byKey['scb_cpif'];
+    const gdpGrowth = byKey['scb_gdp_growth'];
+    const currencyStrength = byKey['sek_strength'];
+
+    // Stale check — reduce coverage/confidence if oldest fetch > 7 days
+    const oldestFetch = Math.min(...macroRows.map((r: any) => new Date(r.fetched_at).getTime()));
+    const isStale = Date.now() - oldestFetch > 7 * 24 * 60 * 60 * 1000;
+
+    let score = 0;
+    const evidence: any[] = [];
+
+    // Interest rate effect (per asset type)
+    if (interestRate != null && !isNaN(interestRate)) {
+      if (assetType === 'stock') {
+        if (interestRate > 4) { score -= 1; evidence.push({ type: 'interest_rate', description: `Höga räntor pressar aktievärderingar (${interestRate}%)`, source: 'Riksbanken' }); }
+        else if (interestRate < 2) { score += 1; evidence.push({ type: 'interest_rate', description: `Låga räntor stödjer aktievärderingar (${interestRate}%)`, source: 'Riksbanken' }); }
+      } else if (assetType === 'crypto') {
+        if (interestRate > 4) { score -= 2; evidence.push({ type: 'interest_rate', description: `Höga räntor driver kapital från riskfyllda tillgångar (${interestRate}%)`, source: 'Riksbanken' }); }
+        else if (interestRate < 2) { score += 1; evidence.push({ type: 'interest_rate', description: `Låga räntor gynnar riskfyllda tillgångar (${interestRate}%)`, source: 'Riksbanken' }); }
+      } else if (assetType === 'metal') {
+        const realRate = interestRate - (inflation != null && !isNaN(inflation) ? inflation : 2);
+        if (realRate < 0) { score += 1; evidence.push({ type: 'real_rate', description: `Negativ realränta stödjer guldpriset (${realRate.toFixed(1)}%)`, source: 'Ränte/Inflationsanalys' }); }
+      }
+    }
+
+    // Inflation effect
+    if (inflation != null && !isNaN(inflation) && inflation > 4) {
+      if (assetType === 'metal') { score += 2; evidence.push({ type: 'inflation', description: `Hög inflation driver efterfrågan på ädelmetaller (${inflation}%)`, source: 'SCB' }); }
+      else if (assetType === 'stock') { score -= 1; evidence.push({ type: 'inflation', description: `Hög inflation pressar konsumtion och marginaler (${inflation}%)`, source: 'SCB' }); }
+    }
+
+    // GDP growth effect
+    if (gdpGrowth != null && !isNaN(gdpGrowth)) {
+      if (gdpGrowth > 2.5 && assetType === 'stock') { score += 2; evidence.push({ type: 'gdp', description: `Stark ekonomisk tillväxt gynnar företagsvinster (${gdpGrowth}%)`, source: 'SCB' }); }
+      else if (gdpGrowth < 0) {
+        if (assetType === 'stock') { score -= 2; evidence.push({ type: 'gdp', description: `Recession riskerar företagsvinster (${gdpGrowth}%)`, source: 'SCB' }); }
+        else if (assetType === 'metal') { score += 1; evidence.push({ type: 'gdp', description: `Ekonomisk osäkerhet driver safe-haven efterfrågan (${gdpGrowth}%)`, source: 'SCB' }); }
+      }
+    }
+
+    // Currency effect (informational nudge for stocks)
+    if (currencyStrength != null && !isNaN(currencyStrength) && assetType === 'stock') {
+      if (currencyStrength < -0.3) evidence.push({ type: 'currency', description: 'Svag krona gynnar exportbolag', source: 'Valutaanalys' });
+      else if (currencyStrength > 0.3) evidence.push({ type: 'currency', description: 'Stark krona kan trycka ner exportintäkter', source: 'Valutaanalys' });
+    }
+
+    const direction: Direction = score > 1 ? 'UP' : score < -1 ? 'DOWN' : 'NEUTRAL';
+    // Modest strength so macro nudges, not dominates (~38..62 range).
+    const strength = clamp(Math.round(50 + score * 6));
+    const coverage = isStale ? 40 : 55;
+    const confidence = isStale ? 35 : 45;
+
+    evidence.push({
+      type: 'macro',
+      description: score > 0 ? 'Makromiljö: gynnsam' : score < 0 ? 'Makromiljö: utmanande' : 'Makromiljö: neutral',
+      source: isStale ? 'Macro (föråldrad data)' : 'Macro (live data)',
+    });
+
+    return { module: 'macro', direction, strength, confidence, coverage, evidence };
+  } catch (e) {
+    console.warn('Macro analysis failed, falling back to neutral:', e);
+    return neutral;
+  }
 }
 
 function clamp(v: number, min = 0, max = 100) { return Math.max(min, Math.min(max, v)); }
@@ -412,13 +489,16 @@ Deno.serve(async (req) => {
 
     for (const symbol of symbols) {
       try {
-        // Fetch price history
-        const { data: prices } = await supabase
+        // Fetch price history — most recent 200 bars (DESC + limit), then reverse
+        // back to chronological ASC so indicators stay correct and the last
+        // array element is the LATEST close (not the oldest).
+        const { data: pricesDesc } = await supabase
           .from('price_history')
           .select('close_price, open_price, high_price, low_price, volume, date')
           .eq('symbol_id', symbol.id)
-          .order('date', { ascending: true })
+          .order('date', { ascending: false })
           .limit(200);
+        const prices = pricesDesc ? [...pricesDesc].reverse() : pricesDesc;
 
         const isLimitedData = !prices || prices.length < 30;
 
@@ -454,12 +534,14 @@ Deno.serve(async (req) => {
               .eq('ticker', proxyEtf)
               .single();
             if (proxySym) {
-              const { data: proxyPrices } = await supabase
+              const { data: proxyPricesDesc } = await supabase
                 .from('price_history')
                 .select('close_price, high_price, low_price')
                 .eq('symbol_id', proxySym.id)
-                .order('date', { ascending: true })
+                .order('date', { ascending: false })
                 .limit(200);
+              // Reverse DESC→ASC so the latest close is the last element.
+              const proxyPrices = proxyPricesDesc ? [...proxyPricesDesc].reverse() : proxyPricesDesc;
               if (proxyPrices && proxyPrices.length >= 30) {
                 effectiveCloses = proxyPrices.map(p => Number(p.close_price));
                 effectiveHighs = proxyPrices.map(p => Number(p.high_price));
@@ -476,10 +558,11 @@ Deno.serve(async (req) => {
           // Limited data: only run modules that work with sparse data
           const limitedConfidenceCap = 35;
           const sentimentResult = await analyzeSentimentWithNews(supabase, symbol.ticker, closes);
+          const macroResult = await analyzeMacro(supabase, assetType);
           signals = [
             sentimentResult,
             analyzeSeasonal(),
-            analyzeMacro(),
+            macroResult,
           ].map(s => ({
             ...s,
             confidence: Math.min(s.confidence, limitedConfidenceCap),
@@ -487,13 +570,14 @@ Deno.serve(async (req) => {
           }));
         } else {
           const sentimentResult = await analyzeSentimentWithNews(supabase, symbol.ticker, effectiveCloses);
+          const macroResult = await analyzeMacro(supabase, assetType);
           signals = [
             analyzeTechnical(effectiveCloses, effectiveHighs, effectiveLows, effectiveCurrentPrice),
             analyzeVolatility(effectiveCloses, effectiveHighs, effectiveLows),
             analyzeQuant(effectiveCloses),
             analyzeSeasonal(),
             sentimentResult,
-            analyzeMacro(),
+            macroResult,
           ];
           // Apply proxy confidence reduction
           if (proxyUsed && proxyConfidenceReduction > 0) {

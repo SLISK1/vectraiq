@@ -1,3 +1,4 @@
+// DEPRECATED (B1 architecture): not wired into daily-pipeline or any cron as of this change. Kept for reference; do not extend without re-integrating. See audit.
 /**
  * build-features: Reads price_bars for active symbols (252 days),
  * computes RSI(14), MACD(12,26,9), SMA20/50, 20d volatility, 20d momentum.

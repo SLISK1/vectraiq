@@ -1,3 +1,4 @@
+// DEPRECATED (B1 architecture): not wired into daily-pipeline or any cron as of this change. Kept for reference; do not extend without re-integrating. See audit.
 /**
  * score-outcomes: Reads predictions where target_ts <= now and no outcome exists.
  * Fetches exit_price from price_bars, computes return_pct, hit, excess_return.

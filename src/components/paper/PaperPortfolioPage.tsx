@@ -53,7 +53,11 @@ export const PaperPortfolioPage = () => {
   const chartData = (snapshots || []).map(s => ({
     date: new Date(s.snapshot_at).toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' }),
     value: Number(s.total_value),
+    benchmark: s.benchmark_value != null ? Number(s.benchmark_value) : undefined,
   }));
+  // Only render the benchmark series when at least one snapshot carries benchmark data,
+  // so older NULL snapshots don't draw a broken/flat line.
+  const hasBenchmark = chartData.some(d => d.benchmark != null);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -107,10 +111,25 @@ export const PaperPortfolioPage = () => {
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} domain={['auto', 'auto']} />
                   <Tooltip formatter={(v: number) => formatSEK(v)} />
-                  <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="value" name="Portfölj" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                  {hasBenchmark && (
+                    <Line type="monotone" dataKey="benchmark" name="OMXS (index)" stroke="hsl(var(--muted-foreground))" strokeWidth={1} strokeDasharray="4 4" dot={false} connectNulls />
+                  )}
                 </ReLineChart>
               </ResponsiveContainer>
             </div>
+            {hasBenchmark && (
+              <div className="flex items-center justify-center gap-6 mt-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-0.5 bg-primary" />
+                  <span className="text-muted-foreground">Portfölj</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-0.5 bg-muted-foreground" style={{ borderStyle: 'dashed' }} />
+                  <span className="text-muted-foreground">OMXS (index)</span>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

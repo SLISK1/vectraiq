@@ -5,6 +5,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Max tickers sent to analyze-thesis per pipeline run. LLM thesis is the only
+// paid step (~$0.005/call, hard $10/mo cap enforced inside analyze-thesis).
+// We never analyze the whole universe — only watchlist names + the top-ranked
+// candidates from this run. analyze-thesis also skips tickers cached < 60d, so
+// in steady state most of these are no-ops. Keep this small.
+const THESIS_MAX_PER_RUN = 15;
+
 interface StepResult {
   step: string;
   status: 'success' | 'partial' | 'failed' | 'skipped';
@@ -441,6 +448,112 @@ Deno.serve(async (req) => {
         step: 'fetch-earnings-events', status: 'skipped',
         duration_ms: 0,
         details: { reason: 'runs Mondays only to respect FMP free-tier' },
+      });
+    }
+    await updateRun('running');
+
+    // ==================== STEP 11.5: STRATEGIC THESIS (LLM, budget-gated) ====================
+    // Refreshes the qualitative LLM thesis (strategic_thesis_cache) for a SMALL,
+    // prioritized set only — never the whole universe. Priority order:
+    //   1. Active user watchlist names (watchlist_cases, not yet locked)
+    //   2. Top-ranked candidates from this run (asset_predictions.total_score desc)
+    // Capped at THESIS_MAX_PER_RUN. analyze-thesis owns the spend: it skips
+    // tickers cached < 60d and stops at the $10/mo budget cap. Non-fatal — a
+    // failure here must never abort the pipeline.
+    console.log('=== Step 11.5: analyze-thesis (budget-gated) ===');
+    const thesisStart = Date.now();
+    try {
+      const thesisTickers: string[] = [];
+      const seen = new Set<string>();
+      const pushTicker = (t: unknown) => {
+        const ticker = typeof t === 'string' ? t : '';
+        if (ticker && !seen.has(ticker) && thesisTickers.length < THESIS_MAX_PER_RUN) {
+          seen.add(ticker);
+          thesisTickers.push(ticker);
+        }
+      };
+
+      // 1. Active watchlist names (highest priority — these are what users care about)
+      const { data: wlCases } = await supabase
+        .from('watchlist_cases')
+        .select('symbol_id')
+        .is('result_locked_at', null);
+      const wlSymbolIds = [...new Set((wlCases || []).map((c: any) => c.symbol_id).filter(Boolean))];
+      if (wlSymbolIds.length > 0) {
+        // Only stocks/funds get a strategic thesis (no "company" behind crypto/metal).
+        const { data: wlSymbols } = await supabase
+          .from('symbols')
+          .select('ticker, asset_type')
+          .in('id', wlSymbolIds)
+          .in('asset_type', ['stock', 'fund']);
+        for (const s of (wlSymbols || [])) pushTicker((s as any).ticker);
+      }
+
+      // 2. Fill remaining slots with the top-ranked candidates from this run.
+      //    asset_predictions is written by generate-signals (Step 3) with total_score.
+      if (thesisTickers.length < THESIS_MAX_PER_RUN) {
+        const { data: topPreds } = await supabase
+          .from('asset_predictions')
+          .select('symbol_id, total_score, created_at')
+          .order('total_score', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(THESIS_MAX_PER_RUN * 4); // over-fetch: dedupe + asset-type filter trims this
+        const rankedSymbolIds = [...new Set((topPreds || []).map((p: any) => p.symbol_id).filter(Boolean))];
+        if (rankedSymbolIds.length > 0) {
+          const { data: rankedSymbols } = await supabase
+            .from('symbols')
+            .select('id, ticker, asset_type')
+            .in('id', rankedSymbolIds)
+            .in('asset_type', ['stock', 'fund']);
+          // Preserve score ordering: map id -> ticker, then walk topPreds in order.
+          const idToSym = new Map((rankedSymbols || []).map((s: any) => [s.id, s.ticker]));
+          for (const p of (topPreds || [])) {
+            if (thesisTickers.length >= THESIS_MAX_PER_RUN) break;
+            const ticker = idToSym.get((p as any).symbol_id);
+            if (ticker) pushTicker(ticker);
+          }
+        }
+      }
+
+      if (thesisTickers.length === 0) {
+        stepResults.push({
+          step: 'analyze-thesis', status: 'skipped',
+          duration_ms: Date.now() - thesisStart,
+          details: { reason: 'no watchlist or ranked candidates to analyze' },
+        });
+      } else {
+        const thesisResult = await callEdgeFunction(supabaseUrl, serviceKey, 'analyze-thesis', {
+          tickers: thesisTickers,
+          trigger_reason: 'daily_pipeline',
+        });
+        if (thesisResult.ok) {
+          stepResults.push({
+            step: 'analyze-thesis', status: 'success',
+            duration_ms: thesisResult.duration_ms,
+            details: {
+              requested: thesisTickers.length,
+              analyzed: thesisResult.data?.analyzed ?? 0,
+              cached: thesisResult.data?.cached ?? 0,
+              errors: thesisResult.data?.errors ?? 0,
+            },
+          });
+        } else {
+          // Non-fatal: thesis is an enrichment, not a critical path.
+          errors.push({ step: 'analyze-thesis', error: thesisResult.data?.error || `HTTP ${thesisResult.status}` });
+          stepResults.push({
+            step: 'analyze-thesis', status: 'partial',
+            duration_ms: thesisResult.duration_ms,
+            details: { requested: thesisTickers.length, error: thesisResult.data?.error },
+          });
+        }
+      }
+    } catch (e) {
+      // Swallow — never let thesis enrichment abort the pipeline.
+      errors.push({ step: 'analyze-thesis', error: String(e) });
+      stepResults.push({
+        step: 'analyze-thesis', status: 'partial',
+        duration_ms: Date.now() - thesisStart,
+        details: { error: String(e) },
       });
     }
     await updateRun('running');

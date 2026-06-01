@@ -1,3 +1,4 @@
+// DEPRECATED (B1 architecture): not wired into daily-pipeline or any cron as of this change. Kept for reference; do not extend without re-integrating. See audit.
 /**
  * run-rank: Creates a rank_run, reads latest signals + features for all active
  * symbols, computes a signed score per asset, and upserts rank_results with
