@@ -106,35 +106,53 @@ Deno.serve(async (req) => {
     }).eq('id', runId);
   }
 
+  // Helper: run a function in offset-based chunks. Each chunk has its own
+  // timeout budget so one 504 cannot kill the entire price/history pipeline.
+  async function runChunked(
+    fnName: string,
+    chunkSize: number,
+    totalAttempted: number,
+    extraBody: Record<string, unknown> = {},
+  ) {
+    const chunkResults: Array<{ ok: boolean; status: number; duration_ms: number; data: any; offset: number }> = [];
+    for (let off = 0; off < totalAttempted; off += chunkSize) {
+      const res = await callEdgeFunction(supabaseUrl, serviceKey, fnName, {
+        ...extraBody, offset: off, limit: chunkSize,
+      });
+      chunkResults.push({ ...res, offset: off });
+      if (!res.ok) {
+        errors.push({ step: `${fnName} chunk@${off}`, error: res.data?.error || `HTTP ${res.status}` });
+      }
+    }
+    return chunkResults;
+  }
+
   try {
-    // ==================== STEP 1: FETCH PRICES ====================
-    console.log('=== Step 1: fetch-prices ===');
+    // ==================== STEP 1: FETCH PRICES (chunked) ====================
+    console.log('=== Step 1: fetch-prices (chunked) ===');
     const { data: symbols } = await supabase
       .from('symbols')
       .select('ticker')
       .eq('is_active', true);
-    
+
     let allTickers = (symbols || []).map((s: any) => s.ticker);
     coverage.prices.attempted = allTickers.length;
 
-    const priceResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-prices');
-    
-    if (priceResult.ok) {
-      coverage.prices.succeeded = priceResult.data?.updated || 0;
-      coverage.prices.failed_tickers = priceResult.data?.errors?.map((e: string) => e.split(':')[0]) || [];
-      stepResults.push({
-        step: 'fetch-prices', status: 'success',
-        duration_ms: priceResult.duration_ms,
-        details: { updated: coverage.prices.succeeded, failed: coverage.prices.failed_tickers.length },
-      });
-    } else {
-      errors.push({ step: 'fetch-prices', error: priceResult.data?.error || `HTTP ${priceResult.status}` });
-      stepResults.push({
-        step: 'fetch-prices', status: 'failed',
-        duration_ms: priceResult.duration_ms,
-        details: { error: priceResult.data?.error },
-      });
+    const priceChunks = await runChunked('fetch-prices', 100, allTickers.length);
+    let priceUpdated = 0;
+    let priceDuration = 0;
+    for (const c of priceChunks) {
+      priceDuration += c.duration_ms;
+      if (c.ok) priceUpdated += (c.data?.updated || 0);
     }
+    coverage.prices.succeeded = priceUpdated;
+    const priceOkChunks = priceChunks.filter(c => c.ok).length;
+    stepResults.push({
+      step: 'fetch-prices',
+      status: priceOkChunks === priceChunks.length ? 'success' : (priceOkChunks > 0 ? 'partial' : 'failed'),
+      duration_ms: priceDuration,
+      details: { chunks: priceChunks.length, chunks_ok: priceOkChunks, updated: priceUpdated },
+    });
     await updateRun('running');
 
     // ==================== STEP 1.5: ACTIVATE PENDING SYMBOLS ====================
@@ -150,13 +168,11 @@ Deno.serve(async (req) => {
     if (pendingTickers.length > 0) {
       console.log(`Found ${pendingTickers.length} pending symbols: ${pendingTickers.join(', ')}`);
 
-      // Fetch data — bypasses is_active filter because tickers are explicitly passed
       await Promise.allSettled([
         callEdgeFunction(supabaseUrl, serviceKey, 'fetch-history', { tickers: pendingTickers, days: 365 }),
         callEdgeFunction(supabaseUrl, serviceKey, 'fetch-prices', { tickers: pendingTickers }),
       ]);
 
-      // Activate symbols that now have price data
       let activated = 0;
       for (const sym of (pendingSymbols || [])) {
         const { count } = await supabase
@@ -165,7 +181,7 @@ Deno.serve(async (req) => {
           .eq('symbol_id', sym.id);
         if ((count ?? 0) > 0) {
           await supabase.from('symbols').update({ is_active: true }).eq('id', sym.id);
-          allTickers.push(sym.ticker); // Include in signal generation
+          allTickers.push(sym.ticker);
           activated++;
         }
       }
@@ -185,31 +201,24 @@ Deno.serve(async (req) => {
     }
     await updateRun('running');
 
-    // ==================== STEP 2: FETCH HISTORY (symbols missing data) ====================
-    console.log('=== Step 2: fetch-history (sparse data) ===');
-    
-    // Find symbols with < 30 data points
-    const histCounts = null; // Placeholder — fetch-history handles dedup via upsert
-    // Simpler approach: just call fetch-history for all, it handles dedup via upsert
-    const histResult = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-history', { days: 365 });
-    
-    if (histResult.ok) {
-      const results = histResult.data?.results || [];
-      coverage.history.attempted = allTickers.length;
-      coverage.history.succeeded = results.length;
-      stepResults.push({
-        step: 'fetch-history', status: 'success',
-        duration_ms: histResult.duration_ms,
-        details: { symbols_updated: results.length },
-      });
-    } else {
-      errors.push({ step: 'fetch-history', error: histResult.data?.error || `HTTP ${histResult.status}` });
-      stepResults.push({
-        step: 'fetch-history', status: 'failed',
-        duration_ms: histResult.duration_ms,
-        details: { error: histResult.data?.error },
-      });
+    // ==================== STEP 2: FETCH HISTORY (chunked) ====================
+    console.log('=== Step 2: fetch-history (chunked) ===');
+    const histChunks = await runChunked('fetch-history', 80, allTickers.length, { days: 365 });
+    let histSymbols = 0;
+    let histDuration = 0;
+    for (const c of histChunks) {
+      histDuration += c.duration_ms;
+      if (c.ok) histSymbols += (c.data?.fetched?.length || 0);
     }
+    coverage.history.attempted = allTickers.length;
+    coverage.history.succeeded = histSymbols;
+    const histOkChunks = histChunks.filter(c => c.ok).length;
+    stepResults.push({
+      step: 'fetch-history',
+      status: histOkChunks === histChunks.length ? 'success' : (histOkChunks > 0 ? 'partial' : 'failed'),
+      duration_ms: histDuration,
+      details: { chunks: histChunks.length, chunks_ok: histOkChunks, symbols_updated: histSymbols },
+    });
     await updateRun('running');
 
     // ==================== STEP 3: GENERATE SIGNALS (batched) ====================
