@@ -28,6 +28,8 @@ const ALLOWED_TARGETS = new Set([
   'analyze-thesis',
   'fetch-news',
   'paper-snapshot',
+  'fetch-history',
+  'fetch-prices',
 ]);
 
 Deno.serve(async (req) => {
