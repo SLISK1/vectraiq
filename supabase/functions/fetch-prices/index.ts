@@ -249,29 +249,37 @@ Deno.serve(async (req) => {
     const ALPHA_VANTAGE_API_KEY = Deno.env.get('ALPHA_VANTAGE_API_KEY');
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
 
-    // Parse optional tickers filter from request body
+    // Parse optional tickers filter or offset/limit window from request body
     let tickerFilter: string[] | null = null;
+    let offset = 0;
+    let limit: number | undefined;
     try {
       const body = await req.json();
       if (body?.tickers && Array.isArray(body.tickers) && body.tickers.length > 0) {
         tickerFilter = body.tickers.map((t: string) => t.toUpperCase().trim());
       }
+      if (typeof body?.offset === 'number') offset = body.offset;
+      if (typeof body?.limit === 'number') limit = body.limit;
     } catch { /* no body = fetch all */ }
 
     let query = supabase.from('symbols').select('id, ticker, asset_type, metadata');
     if (tickerFilter) {
-      // When specific tickers are requested, bypass is_active filter (allows fetching pending/inactive symbols)
       query = query.in('ticker', tickerFilter);
     } else {
-      query = query.eq('is_active', true);
+      query = query.eq('is_active', true).order('ticker');
     }
-    const { data: symbols, error: symError } = await query;
+    const { data: allSymbols, error: symError } = await query;
 
     if (symError) {
       return new Response(JSON.stringify({ error: symError.message }), {
         status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    // Apply offset/limit window when no specific tickers were requested
+    const symbols = (tickerFilter || (offset === 0 && !limit))
+      ? allSymbols
+      : (allSymbols || []).slice(offset, limit ? offset + limit : undefined);
+
     if (!symbols?.length) {
       return new Response(JSON.stringify({ updated: 0, reason: tickerFilter ? `tickers not found: ${tickerFilter.join(',')}` : 'no symbols' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
