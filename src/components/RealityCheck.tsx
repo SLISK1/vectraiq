@@ -54,7 +54,19 @@ export const RealityCheck = () => {
           </div>
           <div className="text-left">
             <h3 className="font-semibold">Reality Check: Databegränsningar</h3>
-            <p className="text-sm text-muted-foreground">Vilka horisonter stöds med offentlig data?</p>
+            <p className="text-sm text-muted-foreground">
+              Vilka horisonter stöds med offentlig data?
+              {freshness.latest && (
+                <span className={cn(
+                  "ml-2 text-xs px-1.5 py-0.5 rounded font-mono",
+                  (freshness.ageDays ?? 0) <= 2 ? "bg-up/20 text-up" :
+                  (freshness.ageDays ?? 0) <= 7 ? "bg-neutral/20 text-neutral" :
+                  "bg-down/20 text-down"
+                )}>
+                  Senaste prisdata: {freshness.latest} ({freshness.ageDays}d gammal)
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <span className="text-sm text-muted-foreground">{isOpen ? 'Dölj' : 'Visa'}</span>
