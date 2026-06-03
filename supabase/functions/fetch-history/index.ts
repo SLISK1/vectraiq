@@ -13,26 +13,26 @@ const CRYPTO_IDS: Record<string, string> = {
   'ATOM': 'cosmos', 'NEAR': 'near', 'APT': 'aptos', 'ARB': 'arbitrum', 'OP': 'optimism',
 };
 
-// Metal ticker to Yahoo Finance futures symbol
+const CRYPTO_YAHOO: Record<string, string> = {
+  'BTC': 'BTC-USD', 'ETH': 'ETH-USD', 'SOL': 'SOL-USD', 'XRP': 'XRP-USD',
+  'ADA': 'ADA-USD', 'AVAX': 'AVAX-USD', 'DOT': 'DOT-USD', 'LINK': 'LINK-USD',
+  'DOGE': 'DOGE-USD', 'MATIC': 'MATIC-USD', 'LTC': 'LTC-USD', 'UNI': 'UNI-USD',
+  'ATOM': 'ATOM-USD', 'NEAR': 'NEAR-USD', 'APT': 'APT-USD', 'ARB': 'ARB-USD', 'OP': 'OP-USD',
+};
+
 const METAL_YAHOO: Record<string, string> = {
   'XAU': 'GC=F', 'XAG': 'SI=F', 'XPT': 'PL=F', 'XPD': 'PA=F',
 };
-
-// Metal ticker to FMP symbol
 const METAL_FMP: Record<string, string> = {
   'XAU': 'XAUUSD', 'XAG': 'XAGUSD', 'XPT': 'XPTUSD', 'XPD': 'XPDUSD',
 };
-
-// Fund ticker to proxy ETF for history (base mapping, extended dynamically from metadata)
 const FUND_PROXY: Record<string, string> = {
   'SWE-USA': 'SPY', 'SWE-GLOB': 'VT', 'SWE-TECH': 'QQQ',
   'SWE-ASIA': 'VWO', 'SWE-SMAL': 'XACT-OMXS30.ST',
   'HB-ENRG': 'XLE', 'SPLT-INV': 'VT',
 };
 
-// Nordic stocks - ticker to exchange symbol mapping
 const NORDIC_STOCKS: Record<string, string> = {
-  // Sweden - Large Cap
   'VOLV_B': 'VOLV-B.ST', 'ERIC-B': 'ERIC-B.ST', 'SEB-A': 'SEB-A.ST',
   'ATCO-A': 'ATCO-A.ST', 'ASSA-B': 'ASSA-B.ST', 'HM-B': 'HM-B.ST',
   'SAND': 'SAND.ST', 'HEXA-B': 'HEXA-B.ST', 'INVE-B': 'INVE-B.ST',
@@ -42,7 +42,6 @@ const NORDIC_STOCKS: Record<string, string> = {
   'NIBE-B': 'NIBE-B.ST', 'EVO': 'EVO.ST', 'BOL': 'BOL.ST',
   'GETI-B': 'GETI-B.ST', 'SAAB-B': 'SAAB-B.ST', 'SHB-A': 'SHB-A.ST',
   'NDA-SE': 'NDA-SE.ST', 'AZN': 'AZN.ST', 'EMBRAC-B': 'EMBRAC-B.ST',
-  // Sweden - Mid Cap
   'SINCH': 'SINCH.ST', 'SSAB-A': 'SSAB-A.ST', 'TEL2-B': 'TEL2-B.ST',
   'AXFO': 'AXFO.ST', 'LUND-B': 'LUND-B.ST', 'LIFCO-B': 'LIFCO-B.ST',
   'LATO-B': 'LATO-B.ST', 'INDU-C': 'INDU-C.ST',
@@ -52,7 +51,6 @@ const NORDIC_STOCKS: Record<string, string> = {
   'HPOL-B': 'HUSQ-B.ST', 'SCA-B': 'SCA-B.ST', 'SECU-B': 'SECU-B.ST',
   'THULE': 'THULE.ST', 'BRAV': 'BRAV.ST',
   'FLAT': 'FLAT-B.ST', 'CATE': 'CATE.ST', 'WIHL': 'WIHL.ST',
-  // Sweden - Small Cap
   'BALD-B': 'BALD-B.ST', 'MTRS': 'MTRS.ST', 'DUNI': 'DUNI.ST',
   'BETS-B': 'BETS-B.ST', 'KIND-SDB': 'KIND-SDB.ST', 'CLAS-B': 'CLAS-B.ST',
   'BUFAB': 'BUFAB.ST', 'NOLA-B': 'NOLA-B.ST', 'SYSR': 'SYSR.ST',
@@ -68,7 +66,6 @@ const NORDIC_STOCKS: Record<string, string> = {
   'OEM-B': 'OEM-B.ST', 'ORTI-B': 'ORTI-B.ST', 'PEAB-B': 'PEAB-B.ST',
   'PRIC-B': 'PRIC-B.ST', 'RATO-B': 'RATO-B.ST', 'RAYSH': 'RAYS.ST',
   'VITR': 'VITR.ST', 'VNV': 'VNV.ST', 'XVIVO': 'XVIVO.ST',
-  // Fixade mappningar
   'ATRLJ-B': 'ATRLJ-B.ST', 'COLL': 'COLL.ST',
   'EMBRACER-B.ST': 'EMBRAC-B.ST', 'BOLIDEN.ST': 'BOL.ST',
   'CALLIDITAS.ST': 'CALT.ST', 'CALTX.ST': 'CALT.ST',
@@ -82,17 +79,14 @@ const NORDIC_STOCKS: Record<string, string> = {
   'OX2.ST': 'OX2.ST', 'BIOT.ST': 'BIOT.ST',
   'FENIX.ST': 'FOI-B.ST', 'EWORK.ST': 'EWRK.ST',
   'NPAPER.ST': 'NPAPER.ST',
-  // Norway
   'EQNR': 'EQNR.OL', 'DNB': 'DNB.OL', 'TEL': 'TEL.OL',
   'MOWI': 'MOWI.OL', 'SALM': 'SALM.OL', 'YAR': 'YAR.OL',
   'ORK': 'ORK.OL', 'AKRBP': 'AKRBP.OL', 'KAHOT': 'KAHOT.OL', 'AUSS': 'AUSS.OL',
   'TOM': 'TOM.OL', 'BAKKA': 'BAKKA.OL', 'AFG': 'AFG.OL',
-  // Denmark
   'NOVO-B': 'NOVO-B.CO', 'MAERSK-B': 'MAERSK-B.CO', 'CARL-B': 'CARL-B.CO',
   'VWS': 'VWS.CO', 'DSV': 'DSV.CO', 'ORSTED': 'ORSTED.CO',
   'COLO-B': 'COLO-B.CO', 'DEMANT': 'DEMANT.CO', 'PNDORA': 'PNDORA.CO', 'GN': 'GN.CO',
   'JYSK': 'JYSK.CO', 'FLS': 'FLS.CO', 'TRYG': 'TRYG.CO',
-  // Finland
   'SITOW': 'SITOWS.HE', 'NOKIA': 'NOKIA.HE', 'FORTUM': 'FORTUM.HE',
   'NESTE': 'NESTE.HE', 'UPM': 'UPM.HE', 'SAMPO': 'SAMPO.HE',
   'KNEBV': 'KNEBV.HE', 'WRT1V': 'WRT1V.HE', 'STERV': 'STERV.HE',
@@ -105,18 +99,35 @@ const US_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM
 interface HistoryRequest {
   tickers?: string[];
   days?: number;
+  offset?: number;
+  limit?: number;
+}
+
+// ===== Bounded parallel mapper =====
+async function pMap<T, R>(items: T[], concurrency: number, fn: (item: T, idx: number) => Promise<R>) {
+  const results: R[] = new Array(items.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length || 1) }, async () => {
+    while (true) {
+      const idx = i++;
+      if (idx >= items.length) return;
+      try { results[idx] = await fn(items[idx], idx); }
+      catch (e) { results[idx] = e as any; }
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 // ===== FMP HISTORY HELPER =====
-
-async function fetchFmpHistory(fmpTicker: string, days: number, apiKey: string): Promise<{ date: string; open: number; high: number; low: number; close: number; volume: number }[] | null> {
+async function fetchFmpHistory(fmpTicker: string, days: number, apiKey: string) {
   try {
-    const fromDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const fromDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
     const toDate = new Date().toISOString().split('T')[0];
     const res = await fetch(
       `https://financialmodelingprep.com/api/v3/historical-price-full/${fmpTicker}?from=${fromDate}&to=${toDate}&apikey=${apiKey}`
     );
-    if (!res.ok) { console.log(`FMP history HTTP ${res.status} for ${fmpTicker}`); return null; }
+    if (!res.ok) return null;
     const data = await res.json();
     const historical = data.historical;
     if (!Array.isArray(historical) || historical.length === 0) return null;
@@ -131,20 +142,20 @@ async function fetchFmpHistory(fmpTicker: string, days: number, apiKey: string):
   } catch (e) { console.error(`FMP history error ${fmpTicker}:`, e); return null; }
 }
 
-// ===== YAHOO HISTORY HELPER (FALLBACK) =====
-
-async function fetchYahooHistory(yahooSymbol: string, days: number): Promise<{ timestamp: number[]; quotes: any } | null> {
-  const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
-  const period2 = Math.floor(Date.now() / 1000);
-  const res = await fetch(
-    `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?period1=${period1}&period2=${period2}&interval=1d`,
-    { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
-  );
-  if (!res.ok) return null;
-  const data = await res.json();
-  const result = data.chart?.result?.[0];
-  if (!result?.timestamp || !result?.indicators?.quote?.[0]) return null;
-  return { timestamp: result.timestamp, quotes: result.indicators.quote[0] };
+async function fetchYahooHistory(yahooSymbol: string, days: number) {
+  try {
+    const period1 = Math.floor((Date.now() - days * 86400000) / 1000);
+    const period2 = Math.floor(Date.now() / 1000);
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?period1=${period1}&period2=${period2}&interval=1d`,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const result = data.chart?.result?.[0];
+    if (!result?.timestamp || !result?.indicators?.quote?.[0]) return null;
+    return { timestamp: result.timestamp as number[], quotes: result.indicators.quote[0] };
+  } catch { return null; }
 }
 
 function yahooToRecords(symbolId: string, data: { timestamp: number[]; quotes: any }, source = 'yahoo_fallback'): any[] {
@@ -166,7 +177,7 @@ function yahooToRecords(symbolId: string, data: { timestamp: number[]; quotes: a
   return records;
 }
 
-function fmpToRecords(symbolId: string, data: { date: string; open: number; high: number; low: number; close: number; volume: number }[]): any[] {
+function fmpToRecords(symbolId: string, data: any[]): any[] {
   return data.map(h => ({
     symbol_id: symbolId, date: h.date,
     open_price: h.open, high_price: h.high,
@@ -175,7 +186,6 @@ function fmpToRecords(symbolId: string, data: { date: string; open: number; high
   }));
 }
 
-// Helper: upsert records and track results
 async function upsertAndTrack(
   supabase: any, ticker: string, records: any[], source: string,
   results: { ticker: string; records: number; source: string }[],
@@ -189,25 +199,6 @@ async function upsertAndTrack(
   else { results.push({ ticker, records: records.length, source }); }
 }
 
-// Helper: retry with exponential backoff
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 6000): Promise<T | null> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await fn();
-      return result;
-    } catch (e) {
-      if (attempt === maxRetries) {
-        console.error(`All ${maxRetries + 1} attempts failed:`, e);
-        return null;
-      }
-      const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
-      await new Promise(r => setTimeout(r, delay));
-    }
-  }
-  return null;
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -218,7 +209,6 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    // === AUTH ===
     const authHeader = req.headers.get('authorization');
     const isServiceRole = authHeader === `Bearer ${supabaseServiceKey}`;
 
@@ -246,207 +236,135 @@ Deno.serve(async (req) => {
 
     let requestedTickers: string[] | undefined;
     let days = 365;
+    let offset = 0;
+    let limit: number | undefined;
     try {
       const body: HistoryRequest = await req.json();
       requestedTickers = body.tickers;
       days = body.days || 365;
+      offset = body.offset || 0;
+      limit = body.limit;
     } catch {}
 
     let query = supabase.from('symbols').select('id, ticker, asset_type, metadata');
     if (requestedTickers?.length) {
-      // When specific tickers are requested, bypass is_active filter (allows fetching pending/inactive symbols)
       query = query.in('ticker', requestedTickers);
     } else {
-      query = query.eq('is_active', true);
+      query = query.eq('is_active', true).order('ticker');
     }
-    const { data: symbols, error: symError } = await query;
+    const { data: allSymbols, error: symError } = await query;
 
-    if (symError || !symbols?.length) {
+    if (symError || !allSymbols?.length) {
       return new Response(JSON.stringify({ error: symError?.message || 'no symbols' }), {
         status: symError ? 500 : 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log(`Fetching history for ${symbols.length} symbols, ${days} days`);
+    // Apply offset/limit window when no specific tickers were requested
+    const symbols = (requestedTickers?.length || (offset === 0 && !limit))
+      ? allSymbols
+      : allSymbols.slice(offset, limit ? offset + limit : undefined);
+
+    console.log(`Fetching history for ${symbols.length}/${allSymbols.length} symbols (offset=${offset}, limit=${limit ?? 'all'}, days=${days})`);
     const results: { ticker: string; records: number; source: string }[] = [];
     const errors: string[] = [];
 
-    // ========== 1. CRYPTO via CoinGecko (with Yahoo fallback) ==========
+    // ========== 1. CRYPTO via CoinGecko -> Yahoo fallback (parallelized) ==========
     const cryptoSymbols = symbols.filter(s => CRYPTO_IDS[s.ticker]);
-    const CRYPTO_YAHOO: Record<string, string> = {
-      'BTC': 'BTC-USD', 'ETH': 'ETH-USD', 'SOL': 'SOL-USD', 'XRP': 'XRP-USD',
-      'ADA': 'ADA-USD', 'AVAX': 'AVAX-USD', 'DOT': 'DOT-USD', 'LINK': 'LINK-USD',
-      'DOGE': 'DOGE-USD', 'MATIC': 'MATIC-USD', 'LTC': 'LTC-USD', 'UNI': 'UNI-USD',
-      'ATOM': 'ATOM-USD', 'NEAR': 'NEAR-USD', 'APT': 'APT-USD', 'ARB': 'ARB-USD', 'OP': 'OP-USD',
-    };
-
-    for (const symbol of cryptoSymbols) {
+    await pMap(cryptoSymbols, 2, async (symbol) => {
       const coinId = CRYPTO_IDS[symbol.ticker];
-      console.log(`Fetching crypto: ${symbol.ticker} (${coinId})`);
       let fetched = false;
-
-      // Try CoinGecko first
-      const fetchCrypto = async () => {
+      try {
         const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`);
-        if (res.status === 429) throw new Error('Rate limited');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!Array.isArray(data) || data.length === 0) return null;
-        const byDate = new Map<string, any>();
-        for (const candle of data) {
-          const dateStr = new Date(candle[0]).toISOString().split('T')[0];
-          byDate.set(dateStr, {
-            symbol_id: symbol.id, date: dateStr,
-            open_price: candle[1], high_price: candle[2],
-            low_price: candle[3], close_price: candle[4],
-            volume: null, source: 'coingecko',
-          });
-        }
-        return Array.from(byDate.values());
-      };
-
-      const records = await withRetry(fetchCrypto, 1, 8000);
-      if (records && records.length > 0) {
-        await upsertAndTrack(supabase, symbol.ticker, records, 'coingecko', results, errors);
-        console.log(`✓ CoinGecko ${symbol.ticker}: ${records.length} days`);
-        fetched = true;
-      }
-
-      // Yahoo Finance fallback for crypto
-      if (!fetched && CRYPTO_YAHOO[symbol.ticker]) {
-        console.log(`Yahoo fallback crypto: ${symbol.ticker} -> ${CRYPTO_YAHOO[symbol.ticker]}`);
-        try {
-          const data = await fetchYahooHistory(CRYPTO_YAHOO[symbol.ticker], days);
-          if (data) {
-            const yahooRecords = yahooToRecords(symbol.id, data, 'yahoo_crypto');
-            await upsertAndTrack(supabase, symbol.ticker, yahooRecords, 'yahoo_crypto', results, errors);
-            console.log(`✓ Yahoo crypto ${symbol.ticker}: ${yahooRecords.length} days`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length) {
+            const byDate = new Map<string, any>();
+            for (const candle of data) {
+              const dateStr = new Date(candle[0]).toISOString().split('T')[0];
+              byDate.set(dateStr, {
+                symbol_id: symbol.id, date: dateStr,
+                open_price: candle[1], high_price: candle[2],
+                low_price: candle[3], close_price: candle[4],
+                volume: null, source: 'coingecko',
+              });
+            }
+            const recs = Array.from(byDate.values());
+            await upsertAndTrack(supabase, symbol.ticker, recs, 'coingecko', results, errors);
             fetched = true;
           }
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) { console.error(`Yahoo crypto fallback failed ${symbol.ticker}:`, e); }
-      }
+        }
+      } catch (e) { console.error(`CoinGecko ${symbol.ticker}:`, e); }
 
-      if (!fetched) {
-        errors.push(`${symbol.ticker}: CoinGecko + Yahoo both failed`);
-      }
-
-      // 6s delay between CoinGecko calls
-      await new Promise(r => setTimeout(r, 6000));
-    }
-
-    // ========== 2. US STOCKS: FMP primary -> Yahoo fallback ==========
-    const usStockSymbols = symbols.filter(s => US_STOCKS.includes(s.ticker));
-    console.log(`Fetching ${usStockSymbols.length} US stocks history — FMP primary`);
-
-    for (const symbol of usStockSymbols) {
-      let fetched = false;
-
-      if (FMP_API_KEY) {
-        const fmpData = await fetchFmpHistory(symbol.ticker, days, FMP_API_KEY);
-        if (fmpData && fmpData.length > 0) {
-          const records = fmpToRecords(symbol.id, fmpData);
-          await upsertAndTrack(supabase, symbol.ticker, records, 'fmp', results, errors);
-          console.log(`✓ FMP history ${symbol.ticker}: ${fmpData.length} days`);
+      if (!fetched && CRYPTO_YAHOO[symbol.ticker]) {
+        const data = await fetchYahooHistory(CRYPTO_YAHOO[symbol.ticker], days);
+        if (data) {
+          await upsertAndTrack(supabase, symbol.ticker, yahooToRecords(symbol.id, data, 'yahoo_crypto'), 'yahoo_crypto', results, errors);
           fetched = true;
         }
-        await new Promise(r => setTimeout(r, 150));
       }
+      if (!fetched) errors.push(`${symbol.ticker}: crypto fetch failed`);
+    });
 
+    // ========== 2. US STOCKS: FMP -> Yahoo fallback (parallel) ==========
+    const usStockSymbols = symbols.filter(s => US_STOCKS.includes(s.ticker));
+    await pMap(usStockSymbols, 5, async (symbol) => {
+      let fetched = false;
+      if (FMP_API_KEY) {
+        const fmpData = await fetchFmpHistory(symbol.ticker, days, FMP_API_KEY);
+        if (fmpData?.length) {
+          await upsertAndTrack(supabase, symbol.ticker, fmpToRecords(symbol.id, fmpData), 'fmp', results, errors);
+          fetched = true;
+        }
+      }
       if (!fetched) {
-        console.log(`Yahoo fallback history: ${symbol.ticker}`);
-        try {
-          const data = await fetchYahooHistory(symbol.ticker, days);
-          if (data) {
-            const records = yahooToRecords(symbol.id, data);
-            await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo_fallback', results, errors);
-          } else { errors.push(`${symbol.ticker}: no history from FMP or Yahoo`); }
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
+        const data = await fetchYahooHistory(symbol.ticker, days);
+        if (data) await upsertAndTrack(supabase, symbol.ticker, yahooToRecords(symbol.id, data), 'yahoo_fallback', results, errors);
+        else errors.push(`${symbol.ticker}: no history`);
       }
-    }
+    });
 
-    // ========== 3. NORDIC STOCKS: FMP primary -> Yahoo fallback ==========
+    // ========== 3. NORDIC STOCKS: FMP -> Yahoo fallback (parallel) ==========
     const nordicSuffixes = ['.ST', '.OL', '.CO', '.HE'];
     const stockSymbols = symbols.filter(s =>
       NORDIC_STOCKS[s.ticker] || nordicSuffixes.some(suffix => s.ticker.endsWith(suffix))
     );
-    console.log(`Fetching ${stockSymbols.length} Nordic stocks history — FMP primary`);
-
-    for (const symbol of stockSymbols) {
+    await pMap(stockSymbols, 5, async (symbol) => {
       const exchangeSymbol = NORDIC_STOCKS[symbol.ticker] || symbol.ticker;
       let fetched = false;
-
       if (FMP_API_KEY) {
         const fmpData = await fetchFmpHistory(exchangeSymbol, days, FMP_API_KEY);
-        if (fmpData && fmpData.length > 0) {
-          const records = fmpToRecords(symbol.id, fmpData);
-          await upsertAndTrack(supabase, symbol.ticker, records, 'fmp', results, errors);
-          console.log(`✓ FMP history ${symbol.ticker}: ${fmpData.length} days`);
+        if (fmpData?.length) {
+          await upsertAndTrack(supabase, symbol.ticker, fmpToRecords(symbol.id, fmpData), 'fmp', results, errors);
           fetched = true;
         }
-        await new Promise(r => setTimeout(r, 150));
       }
-
       if (!fetched) {
-        console.log(`Yahoo fallback history: ${symbol.ticker} -> ${exchangeSymbol}`);
-        try {
-          const data = await fetchYahooHistory(exchangeSymbol, days);
-          if (data) {
-            const records = yahooToRecords(symbol.id, data);
-            await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo_fallback', results, errors);
-          } else { errors.push(`${symbol.ticker}: no history from FMP or Yahoo (${exchangeSymbol})`); }
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
+        const data = await fetchYahooHistory(exchangeSymbol, days);
+        if (data) await upsertAndTrack(supabase, symbol.ticker, yahooToRecords(symbol.id, data), 'yahoo_fallback', results, errors);
+        else errors.push(`${symbol.ticker}: no history (${exchangeSymbol})`);
       }
-    }
+    });
 
-    // ========== 4. METALS via FMP primary -> Yahoo futures fallback ==========
+    // ========== 4. METALS: FMP -> Yahoo (parallel) ==========
     const metalSymbols = symbols.filter(s => METAL_YAHOO[s.ticker]);
-    console.log(`Fetching ${metalSymbols.length} metals history — FMP/Yahoo`);
-
-    for (const symbol of metalSymbols) {
+    await pMap(metalSymbols, 4, async (symbol) => {
       let fetched = false;
-
-      // Try FMP with commodity ticker (XAUUSD etc.)
       if (FMP_API_KEY && METAL_FMP[symbol.ticker]) {
         const fmpData = await fetchFmpHistory(METAL_FMP[symbol.ticker], days, FMP_API_KEY);
-        if (fmpData && fmpData.length > 0) {
-          const records = fmpToRecords(symbol.id, fmpData);
-          await upsertAndTrack(supabase, symbol.ticker, records, 'fmp', results, errors);
-          console.log(`✓ FMP metal ${symbol.ticker}: ${fmpData.length} days`);
+        if (fmpData?.length) {
+          await upsertAndTrack(supabase, symbol.ticker, fmpToRecords(symbol.id, fmpData), 'fmp', results, errors);
           fetched = true;
-        } else {
-          console.log(`FMP metal returned no data for ${METAL_FMP[symbol.ticker]}`);
         }
-        await new Promise(r => setTimeout(r, 150));
       }
-
-      // Yahoo futures fallback (GC=F, SI=F, etc.)
-      if (!fetched && METAL_YAHOO[symbol.ticker]) {
-        const yahooTicker = METAL_YAHOO[symbol.ticker];
-        console.log(`Yahoo fallback metal: ${symbol.ticker} -> ${yahooTicker}`);
-        try {
-          const data = await fetchYahooHistory(yahooTicker, days);
-          if (data) {
-            const records = yahooToRecords(symbol.id, data, 'yahoo_metal');
-            await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo_metal', results, errors);
-            console.log(`✓ Yahoo metal ${symbol.ticker}: ${records.length} days`);
-            fetched = true;
-          } else {
-            console.log(`Yahoo metal returned no data for ${yahooTicker}`);
-          }
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
-      }
-
       if (!fetched) {
-        errors.push(`${symbol.ticker}: no metal history from FMP or Yahoo`);
+        const data = await fetchYahooHistory(METAL_YAHOO[symbol.ticker], days);
+        if (data) await upsertAndTrack(supabase, symbol.ticker, yahooToRecords(symbol.id, data, 'yahoo_metal'), 'yahoo_metal', results, errors);
+        else errors.push(`${symbol.ticker}: no metal history`);
       }
-    }
+    });
 
-    // ========== 5. FUNDS via proxy-index (FMP/Yahoo) ==========
-    // Extend FUND_PROXY with metadata-based proxies
+    // ========== 5. FUNDS via proxy ETF (parallel) ==========
     for (const s of symbols) {
       if (s.asset_type === 'fund' && !FUND_PROXY[s.ticker]) {
         const proxy = (s.metadata as any)?.proxy_etf;
@@ -454,47 +372,33 @@ Deno.serve(async (req) => {
       }
     }
     const fundSymbols = symbols.filter(s => FUND_PROXY[s.ticker]);
-    console.log(`Fetching ${fundSymbols.length} fund proxies`);
-
-    for (const symbol of fundSymbols) {
+    await pMap(fundSymbols, 4, async (symbol) => {
       const proxyTicker = FUND_PROXY[symbol.ticker];
       let fetched = false;
-
-      // Try FMP for proxy ETF
       if (FMP_API_KEY) {
         const fmpData = await fetchFmpHistory(proxyTicker, days, FMP_API_KEY);
-        if (fmpData && fmpData.length > 0) {
-          const records = fmpToRecords(symbol.id, fmpData).map(r => ({ ...r, source: 'fmp_proxy' }));
-          await upsertAndTrack(supabase, symbol.ticker, records, 'fmp_proxy', results, errors);
-          console.log(`✓ FMP proxy ${symbol.ticker} (${proxyTicker}): ${fmpData.length} days`);
+        if (fmpData?.length) {
+          const recs = fmpToRecords(symbol.id, fmpData).map(r => ({ ...r, source: 'fmp_proxy' }));
+          await upsertAndTrack(supabase, symbol.ticker, recs, 'fmp_proxy', results, errors);
           fetched = true;
         }
-        await new Promise(r => setTimeout(r, 150));
       }
-
-      // Yahoo fallback for proxy ETF
       if (!fetched) {
-        console.log(`Yahoo fallback proxy: ${symbol.ticker} -> ${proxyTicker}`);
-        try {
-          const data = await fetchYahooHistory(proxyTicker, days);
-          if (data) {
-            const records = yahooToRecords(symbol.id, data, 'yahoo_proxy');
-            await upsertAndTrack(supabase, symbol.ticker, records, 'yahoo_proxy', results, errors);
-            console.log(`✓ Yahoo proxy ${symbol.ticker}: ${records.length} days`);
-          } else {
-            errors.push(`${symbol.ticker}: no proxy history (${proxyTicker})`);
-          }
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) { errors.push(`${symbol.ticker}: ${e}`); }
+        const data = await fetchYahooHistory(proxyTicker, days);
+        if (data) await upsertAndTrack(supabase, symbol.ticker, yahooToRecords(symbol.id, data, 'yahoo_proxy'), 'yahoo_proxy', results, errors);
+        else errors.push(`${symbol.ticker}: no proxy history (${proxyTicker})`);
       }
-    }
+    });
 
     const totalRecords = results.reduce((sum, r) => sum + r.records, 0);
     console.log(`Done: ${totalRecords} records for ${results.length} symbols. Errors: ${errors.length}`);
 
     return new Response(JSON.stringify({
       success: true, fetched: results, totalRecords,
-      errors: errors.length ? errors : undefined,
+      processed: symbols.length,
+      total_available: allSymbols.length,
+      next_offset: requestedTickers?.length ? null : (offset + symbols.length < allSymbols.length ? offset + symbols.length : null),
+      errors: errors.length ? errors.slice(0, 50) : undefined,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
