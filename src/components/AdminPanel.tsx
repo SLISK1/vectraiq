@@ -186,6 +186,43 @@ export const AdminPanel = () => {
         </Button>
 
         <Button
+          onClick={async () => {
+            if (!confirm('Backfilla price_history för hela universumet i 80-symbol-chunkar? Tar 5-15 min.')) return;
+            setTriggering('backfill-history');
+            try {
+              const TOTAL = 400; // safely covers ~322 active symbols
+              const CHUNK = 80;
+              let chunksOk = 0;
+              for (let offset = 0; offset < TOTAL; offset += CHUNK) {
+                const { error } = await supabase.functions.invoke('trigger-pipeline', {
+                  body: { target: 'fetch-history', payload: { offset, limit: CHUNK, days: 365 } },
+                });
+                if (!error) chunksOk++;
+                // small client-side delay so we don't queue all at once
+                await new Promise(r => setTimeout(r, 1500));
+              }
+              toast({
+                title: 'Backfill startad',
+                description: `${chunksOk} chunkar köar i bakgrunden. Vänta ~10 min och ladda om.`,
+              });
+            } catch (e: any) {
+              toast({ title: 'Backfill misslyckades', description: e?.message || 'Okänt fel', variant: 'destructive' });
+            } finally {
+              setTriggering(null);
+            }
+          }}
+          disabled={!!triggering}
+          variant="secondary"
+          className="gap-2"
+        >
+          {triggering === 'backfill-history' ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Database className="w-4 h-4" />
+          )}
+          Backfilla Price History
+
+        <Button
           onClick={() => {
             const tickers = prompt(
               'Ange tickers (kommaseparerade) för tes-analys:\n\n' +
