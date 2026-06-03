@@ -1,27 +1,54 @@
 
+# Varför Top-10 är tom — bekräftad orsak
 
-# Fix: Firecrawl/Forza data inte nås + Build-fel
+Jag har kollat databasen och edge-loggarna. Du har rätt i diagnosen, men det exakta filtret som faller är inte "10-punktströskeln" — det är **datumfönstret**:
 
-## Problem 1: `modelEdge` används innan den deklareras (KRITISKT)
-Rad 842 refererar `modelEdge` men den deklareras på rad 863. Hela `analyze-match` kraschar med `ReferenceError: Cannot access 'modelEdge' before initialization` -- detta syns i edge function-loggarna. Eftersom funktionen kraschar hinner den aldrig nå Firecrawl/Forza-anropen (rad 349-430), och all enrichment-data (scraped_articles, forza_football) förblir tom.
+| Källa | Färskast post | Status |
+|---|---|---|
+| `raw_prices` (live-pris) | **2026-06-03 09:41 UTC** | OK, uppdateras varje timme |
+| `price_history` (dagsbarrer) | **2026-02-23** | Frusen sedan ~100 dagar |
+| `pipeline_runs` (senaste) | 2026-02-24 | `failed`, `HTTP 504 step:fetch-prices` |
+| `cron.job` (alla 25 jobb) | active=true | Schemalagda OK |
 
-**Fix**: Flytta confidence-filtret (rad 841-852) till EFTER `modelEdge`-deklarationen (efter rad 863).
+Frontend (`useMarketData.ts:478`) hämtar `price_history` med `gte('date', today-60d)`. Eftersom färskaste rad är 2026-02-23 returnerar queryn **0 rader för varje symbol**, raden på `useMarketData.ts:111` kickar in och loggar "insufficient price history (0 points)" för 322 symboler → ingen rankas → tom Top-10.
 
-## Problem 2: BettingPage.tsx TypeScript-fel
-`coupon_recommendations`-tabellen finns inte i TypeScript-typerna, vilket ger `TS2589`/`TS2769`-fel.
+Kärnproblemet är alltså att `fetch-history`/`fetch-prices` skriver INTE till `price_history` längre. `daily-pipeline` 504:ar på `fetch-prices`-steget, så history-skrivningen körs aldrig. Live-priserna (`raw_prices`) går via en separat snabb path och är därför fortfarande fräscha — det är det som maskerar att resten av pipelinen ligger nere.
 
-**Fix**: Byt till `.from('coupon_recommendations' as any)` eller ta bort queryn om tabellen inte finns.
+# Plan: tre-stegs återställning
 
-## Problem 3: Firecrawl-data används men syns aldrig i DB
-Databaskontrollen visar `scraped: []` och `forza: <nil>` på alla matcher -- bekräftar att Firecrawl aldrig körs pga kraschen i Problem 1. Koden för att hämta Firecrawl-data (rad 349-430) och Forza (rad 387-430) är korrekt implementerad och behöver ingen ändring. Den blockeras bara av kraschen.
+## Steg 1 — Backfill `price_history` manuellt (omedelbart)
+Anropa `fetch-history` direkt mot batchar av tickers (max ~30 åt gången för att hålla oss långt under 150s-timeouten) tills `price_history.max(date)` är dagens datum. Det här bryter dödläget utan att vänta på nattjobbet.
 
-## Sammanfattning
+- Skript som kör `supabase.functions.invoke('fetch-history', { body: { tickers: batch, days: 200 } })` med 30-symbolers chunks, sekventiellt
+- Verifierar efteråt: `select max(date), count(distinct symbol_id) from price_history`
+- Förväntat resultat: 322 symboler med data t.o.m. ~2026-06-02, dashboarden visar Top-10 igen
 
-| Fil | Ändring |
-|-----|---------|
-| `analyze-match/index.ts` | Flytta rad 841-852 (confidence-filter) till efter rad 863 (modelEdge-deklaration) |
-| `src/pages/BettingPage.tsx` | Fixa `coupon_recommendations` typfel |
+## Steg 2 — Gör `fetch-history`/`fetch-prices` timeoutsäkra (samma dag)
+`fetch-prices/index.ts` har redan delvis fått `pMap`, men `fetch-history/index.ts` är fortfarande helt sekventiell med 6 s sleeps mellan CoinGecko-anrop, 500 ms mellan Yahoo, 150 ms mellan FMP — det är därför hela 322-symbol-runt:en aldrig hinner klart inom 150 s. Konvertera:
 
-## Förväntad effekt
-När `modelEdge`-felet fixas kommer `analyze-match` att köra färdigt utan krasch. Firecrawl-sökning + Forza Football-skrapning exekveras då som vanligt och data sparas i `source_data`. AI-prompten får tillgång till webbskrapad data vilket förbättrar analysens precision.
+- CoinGecko: behåll sekventiellt men dropp till 1 s sleep (gratis-quoten klarar det) — kör endast om aktivt åberopas
+- US/Nordic FMP-loopar → `pMap` med concurrency 5, ta bort `setTimeout`
+- Yahoo-fallbacks → `pMap` concurrency 6, ta bort sleeps
+- Metals/funds → `pMap` concurrency 4
+- Lägg till `chunk_size`/`offset` body-parametrar så pipelinen kan kalla funktionen 4 ggr om 80 symboler vardera i stället för 1 gång om 322
 
+## Steg 3 — Chunka `daily-pipeline` och fixa det dolda buggens (samma dag)
+- I `daily-pipeline/index.ts`: kör `fetch-prices`/`fetch-history` i 80-symbolers chunks (`offset` 0/80/160/240) och `Promise.allSettled` i stället för en enda invocation
+- Fixa det andra felet i pipeline_runs: `TypeError: supabase.rpc(...).catch is not a function` — RPC-builder är "thenable" men inte ett riktigt Promise; byt till `await ...; try/catch` eller `Promise.resolve(supabase.rpc(...)).catch(...)`
+- Spara per-chunk-fel separat så ett 504 inte längre markerar hela run som failed och hindrar history-steget
+
+## Diagnostik som ingår
+- Lägg till `select max(date) from price_history` som en "data-freshness"-rad i `RealityCheck.tsx` så den här typen av tyst pipelinestall syns i UI:t nästa gång
+
+# Tekniska detaljer
+
+**Filer som ändras**
+- `supabase/functions/fetch-history/index.ts` — införa `pMap`, ta bort sleeps, stötta `offset/chunk_size`
+- `supabase/functions/daily-pipeline/index.ts` — chunkat anrop, fixa `.catch`-buggen, allSettled
+- `src/components/RealityCheck.tsx` — visa age på senaste `price_history`-datum
+
+**Inga schemaändringar.** Inga frontend-businesslogikändringar utöver en ny info-rad i RealityCheck.
+
+**Inga nya secrets behövs** — FMP_API_KEY, FINNHUB_API_KEY m.fl. finns redan.
+
+**QA**: efter steg 1, ladda om dashboarden och bekräfta att Top-10 fylls. Efter steg 2+3, trigga `daily-pipeline` manuellt och bekräfta att `pipeline_runs.status='success'` med `prices.succeeded > 300` och `history.succeeded > 300`.

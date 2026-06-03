@@ -2,10 +2,32 @@ import { HORIZON_LABELS, HORIZON_SUPPORT, Horizon } from '@/types/market';
 import { AlertTriangle, CheckCircle, Info, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 export const RealityCheck = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [freshness, setFreshness] = useState<{ latest: string | null; ageDays: number | null }>({ latest: null, ageDays: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('price_history')
+        .select('date')
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      const latest = (data as any)?.date ?? null;
+      const ageDays = latest
+        ? Math.floor((Date.now() - new Date(latest).getTime()) / 86400000)
+        : null;
+      setFreshness({ latest, ageDays });
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
 
   const horizonData: { horizon: Horizon; support: 'full' | 'limited' | 'unsupported'; notes: string }[] = [
     { horizon: '1s', support: 'unsupported', notes: 'Kräver tick-data och orderbok. Ej tillgängligt med offentliga källor.' },
@@ -32,7 +54,19 @@ export const RealityCheck = () => {
           </div>
           <div className="text-left">
             <h3 className="font-semibold">Reality Check: Databegränsningar</h3>
-            <p className="text-sm text-muted-foreground">Vilka horisonter stöds med offentlig data?</p>
+            <p className="text-sm text-muted-foreground">
+              Vilka horisonter stöds med offentlig data?
+              {freshness.latest && (
+                <span className={cn(
+                  "ml-2 text-xs px-1.5 py-0.5 rounded font-mono",
+                  (freshness.ageDays ?? 0) <= 2 ? "bg-up/20 text-up" :
+                  (freshness.ageDays ?? 0) <= 7 ? "bg-neutral/20 text-neutral" :
+                  "bg-down/20 text-down"
+                )}>
+                  Senaste prisdata: {freshness.latest} ({freshness.ageDays}d gammal)
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <span className="text-sm text-muted-foreground">{isOpen ? 'Dölj' : 'Visa'}</span>
