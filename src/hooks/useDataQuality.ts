@@ -19,7 +19,8 @@ export interface DataQualityIssue {
 
 export interface DataQualitySummary {
   issues: DataQualityIssue[];
-  total: number;
+  total: number;        // antal hämtade rader (cappad till MAX_ISSUES)
+  total_open: number;   // verkligt antal öppna issues i databasen
   critical: number;
   warning: number;
   info: number;
@@ -34,20 +35,28 @@ export function useDataQuality() {
   return useQuery<DataQualitySummary>({
     queryKey: ['data-quality-issues'],
     queryFn: async () => {
-      // Cast to any: data_quality_issues is a new table the generated types may lag.
-      const { data, error } = await (supabase as any)
-        .from('data_quality_issues')
-        .select('id, symbol_id, ticker, issue_type, severity, detail, detected_at, resolved')
-        .eq('resolved', false)
-        .order('detected_at', { ascending: false })
-        .limit(MAX_ISSUES);
+      // Hämta både listan (cappad) och en exakt totalsumma med head-count.
+      const [{ data, error }, { count, error: countError }] = await Promise.all([
+        (supabase as any)
+          .from('data_quality_issues')
+          .select('id, symbol_id, ticker, issue_type, severity, detail, detected_at, resolved')
+          .eq('resolved', false)
+          .order('detected_at', { ascending: false })
+          .limit(MAX_ISSUES),
+        (supabase as any)
+          .from('data_quality_issues')
+          .select('id', { count: 'exact', head: true })
+          .eq('resolved', false),
+      ]);
 
       if (error) throw error;
+      if (countError) throw countError;
 
       const issues = (data || []) as DataQualityIssue[];
       return {
         issues,
         total: issues.length,
+        total_open: count ?? issues.length,
         critical: issues.filter(i => i.severity === 'critical').length,
         warning: issues.filter(i => i.severity === 'warning').length,
         info: issues.filter(i => i.severity === 'info').length,
