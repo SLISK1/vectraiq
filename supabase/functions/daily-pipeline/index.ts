@@ -282,6 +282,27 @@ Deno.serve(async (req) => {
     });
     await updateRun('running');
 
+    // ==================== STEP 3.5: FETCH FUNDAMENTALS (batched) ====================
+    // Hämtar P/E, ROIC, Altman, F-score m.m. till symbols.metadata för screenern.
+    // Batchas så vi inte slår i FMP/Finnhub-kvoten i en enda request.
+    console.log('=== Step 3.5: fetch-fundamentals (batched) ===');
+    const fundStart = Date.now();
+    const fundChunks = await runChunked('fetch-fundamentals', 50, allTickers.length);
+    let fundUpdated = 0;
+    let fundDuration = 0;
+    for (const c of fundChunks) {
+      fundDuration += c.duration_ms;
+      if (c.ok) fundUpdated += (c.data?.updated || c.data?.count || 0);
+    }
+    const fundOk = fundChunks.filter(c => c.ok).length;
+    stepResults.push({
+      step: 'fetch-fundamentals',
+      status: fundOk === fundChunks.length ? 'success' : (fundOk > 0 ? 'partial' : 'failed'),
+      duration_ms: fundDuration || (Date.now() - fundStart),
+      details: { chunks: fundChunks.length, chunks_ok: fundOk, updated: fundUpdated },
+    });
+    await updateRun('running');
+
     // ==================== STEP 4: SCORE PREDICTIONS ====================
     console.log('=== Step 4: score-predictions ===');
     const scoreResult = await callEdgeFunction(supabaseUrl, serviceKey, 'score-predictions');
