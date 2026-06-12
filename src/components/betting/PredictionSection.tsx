@@ -75,9 +75,16 @@ export const PredictionSection = ({ prediction, homeTeam, awayTeam, onShowDetail
             </Tooltip>
           </TooltipProvider>
           <div>
-            <Badge className={`text-xs border ${getWinnerColor()}`}>
-              {getWinnerLabel()}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge className={`text-xs border ${getWinnerColor()}`}>
+                {getWinnerLabel()}
+              </Badge>
+              {prediction.is_value_bet && (
+                <Badge className="text-[10px] bg-orange-500/20 text-orange-400 border border-orange-500/40">
+                  VALUE {prediction.suggested_stake_pct ? `· ${prediction.suggested_stake_pct.toFixed(2)}%` : ''}
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
               {Math.round(prediction.predicted_prob * 100)}% sannolikhet
             </p>
