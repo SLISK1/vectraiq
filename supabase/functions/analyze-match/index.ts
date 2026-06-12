@@ -1081,84 +1081,70 @@ INSTRUKTIONER:
 
       if (sidePredictions.total_goals) {
         sideBetRows.push({
-          match_id,
-          market: "OU_GOALS",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "OU_GOALS", predicted_winner: null,
           line: sidePredictions.total_goals.line ?? 2.5,
           selection: sidePredictions.total_goals.prediction,
           predicted_prob: sidePredictions.total_goals.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.total_goals.prob),
           model_edge: sideEdges?.total_goals ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.btts) {
         sideBetRows.push({
-          match_id,
-          market: "BTTS",
-          predicted_winner: null,
-          line: null,
+          ...sideBase, match_id, market: "BTTS", predicted_winner: null, line: null,
           selection: sidePredictions.btts.prediction,
           predicted_prob: sidePredictions.btts.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.btts.prob),
           model_edge: sideEdges?.btts ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.corners) {
         sideBetRows.push({
-          match_id,
-          market: "CORNERS_OU",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "CORNERS_OU", predicted_winner: null,
           line: sidePredictions.corners.line ?? 9.5,
           selection: sidePredictions.corners.prediction,
           predicted_prob: sidePredictions.corners.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
-          model_edge: null,
+          confidence_capped: sideConf(sidePredictions.corners.prob),
+          model_edge: sideEdges?.corners ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.cards) {
         sideBetRows.push({
-          match_id,
-          market: "CARDS_OU",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "CARDS_OU", predicted_winner: null,
           line: sidePredictions.cards.line ?? 3.5,
           selection: sidePredictions.cards.prediction,
           predicted_prob: sidePredictions.cards.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
-          model_edge: null,
+          confidence_capped: sideConf(sidePredictions.cards.prob),
+          model_edge: sideEdges?.cards ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.first_half_goals) {
         sideBetRows.push({
-          match_id,
-          market: "HT_OU_GOALS",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "HT_OU_GOALS", predicted_winner: null,
           line: sidePredictions.first_half_goals.line ?? 1.5,
           selection: sidePredictions.first_half_goals.prediction,
           predicted_prob: sidePredictions.first_half_goals.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.first_half_goals.prob),
           model_edge: null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.first_to_score) {
         sideBetRows.push({
-          match_id,
-          market: "FIRST_TO_SCORE",
-          predicted_winner: null,
-          line: null,
+          ...sideBase, match_id, market: "FIRST_TO_SCORE", predicted_winner: null, line: null,
           selection: sidePredictions.first_to_score.prediction,
           predicted_prob: sidePredictions.first_to_score.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.first_to_score.prob),
           model_edge: null,
           model_version: MODEL_VERSION,
         });
