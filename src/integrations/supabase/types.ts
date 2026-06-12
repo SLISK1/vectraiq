@@ -1379,6 +1379,7 @@ export type Database = {
           created_at: string
           display_name: string | null
           id: string
+          is_admin: boolean
           settings: Json | null
           updated_at: string
           user_id: string
@@ -1388,6 +1389,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           id?: string
+          is_admin?: boolean
           settings?: Json | null
           updated_at?: string
           user_id: string
@@ -1397,6 +1399,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           id?: string
+          is_admin?: boolean
           settings?: Json | null
           updated_at?: string
           user_id?: string
@@ -2338,6 +2341,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      is_admin: { Args: { _user_id: string }; Returns: boolean }
       seed_cron_service_token: { Args: { p_token: string }; Returns: string }
       upsert_betting_cal_bucket: {
         Args: {
