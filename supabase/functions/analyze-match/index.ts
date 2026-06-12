@@ -985,6 +985,19 @@ INSTRUKTIONER:
         const impliedProb = 1 / sideOdds;
         sideEdges.btts = (sidePredictions.btts.prob || 0) - impliedProb;
       }
+      // Corners/Cards edge from snapshot fallback
+      const cornersOdds = (globalThis as any).__cornersOdds as { line: number; over: number; under: number } | null;
+      const cardsOdds = (globalThis as any).__cardsOdds as { line: number; over: number; under: number } | null;
+      if (sidePredictions.corners && cornersOdds) {
+        const isOver = sidePredictions.corners.prediction === "over";
+        const sideOdds = isOver ? cornersOdds.over : cornersOdds.under;
+        sideEdges.corners = (sidePredictions.corners.prob || 0) - (1 / sideOdds);
+      }
+      if (sidePredictions.cards && cardsOdds) {
+        const isOver = sidePredictions.cards.prediction === "over";
+        const sideOdds = isOver ? cardsOdds.over : cardsOdds.under;
+        sideEdges.cards = (sidePredictions.cards.prob || 0) - (1 / sideOdds);
+      }
       if (Object.keys(sideEdges).length === 0) sideEdges = null;
     }
 
