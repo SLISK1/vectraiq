@@ -31,19 +31,33 @@ const severityBadgeClass = (sev: IssueSeverity): string => {
 };
 
 // A short, human-readable summary of the issue's detail JSON.
+// "—" istället för "?" när detalj saknas (validate-data har inte skrivit
+// latest_date/age_days för coverage-baserade stale_symbol-issues).
+const dash = (v: unknown): string => {
+  if (v === null || v === undefined || v === '') return '—';
+  return String(v);
+};
 const summarizeDetail = (issue: DataQualityIssue): string => {
   const d = issue.detail || {};
   switch (issue.issue_type) {
     case 'future_date':
-      return `rad daterad ${d.date ?? '?'}`;
+      return `rad daterad ${dash(d.date)}`;
     case 'nonpositive_price':
-      return `${d.date ?? '?'}: pris ${d.close_price ?? 'null'}`;
+      return `${dash(d.date)}: pris ${dash(d.close_price)}`;
     case 'implausible_jump': {
-      const ret = typeof d.return === 'number' ? `${(d.return * 100).toFixed(1)}%` : '?';
-      return `${d.date ?? '?'}: ${ret} sedan ${d.prev_date ?? '?'}`;
+      const ret = typeof d.return === 'number' ? `${(d.return * 100).toFixed(1)}%` : '—';
+      return `${dash(d.date)}: ${ret} sedan ${dash(d.prev_date)}`;
     }
-    case 'stale_symbol':
-      return `senaste ${d.latest_date ?? '?'} (${d.age_days ?? '?'} dgr gammal)`;
+    case 'stale_symbol': {
+      // Coverage-issues har bara { source, threshold_days } — visa det istället.
+      if (d.latest_date || d.age_days !== undefined) {
+        return `senaste ${dash(d.latest_date)} (${dash(d.age_days)} dgr gammal)`;
+      }
+      if (d.source) {
+        return `källa: ${dash(d.source)} (tröskel ${dash(d.threshold_days)} dgr)`;
+      }
+      return 'inaktuell — detalj saknas';
+    }
     case 'no_data':
       return 'inga prisrader i fönstret';
     default:
@@ -92,6 +106,8 @@ export const DataQualityPanel = () => {
   const warning = data?.warning ?? 0;
   const info = data?.info ?? 0;
   const issues = data?.issues ?? [];
+  const totalOpen = data?.total_open ?? issues.length;
+  const isCapped = totalOpen > issues.length && issues.length > 0;
 
   return (
     <div className="p-3 rounded-lg bg-muted/30 border border-border space-y-3">
@@ -101,9 +117,14 @@ export const DataQualityPanel = () => {
           Datakvalitet
         </h4>
         <div className="flex items-center gap-2 text-xs">
-          {critical > 0 && <span className="text-down font-semibold">{critical} kritiska</span>}
-          {warning > 0 && <span className="text-yellow-500 font-semibold">{warning} varningar</span>}
-          {info > 0 && <span className="text-muted-foreground">{info} info</span>}
+          {isCapped && (
+            <span className="text-yellow-500 font-semibold">
+              {totalOpen} öppna (visar {issues.length})
+            </span>
+          )}
+          {!isCapped && critical > 0 && <span className="text-down font-semibold">{critical} kritiska</span>}
+          {!isCapped && warning > 0 && <span className="text-yellow-500 font-semibold">{warning} varningar</span>}
+          {!isCapped && info > 0 && <span className="text-muted-foreground">{info} info</span>}
         </div>
       </div>
 

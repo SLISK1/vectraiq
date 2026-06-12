@@ -128,6 +128,22 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // ==================== STEP 0a: REFRESH S&P 500 (weekly, Mondays) ====================
+    // FMP-baserad universumuppdatering. Körs i pipelinen på måndagar; en separat
+    // veckocron kör samma funktion söndag kväll som backup.
+    if (new Date().getUTCDay() === 1) {
+      console.log('=== Step 0a: fetch-sp500 (weekly) ===');
+      const sp500Result = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-sp500', {});
+      stepResults.push({
+        step: 'fetch-sp500',
+        status: sp500Result.ok ? 'success' : 'failed',
+        duration_ms: sp500Result.duration_ms,
+        details: sp500Result.ok ? sp500Result.data : { error: sp500Result.data?.error },
+      });
+      if (!sp500Result.ok) errors.push({ step: 'fetch-sp500', error: sp500Result.data?.error || `HTTP ${sp500Result.status}` });
+      await updateRun('running');
+    }
+
     // ==================== STEP 1: FETCH PRICES (chunked) ====================
     console.log('=== Step 1: fetch-prices (chunked) ===');
     const { data: symbols } = await supabase
@@ -263,6 +279,27 @@ Deno.serve(async (req) => {
       step: 'generate-signals', status: signalsSuccess > 0 ? 'success' : 'failed',
       duration_ms: Date.now() - signalsStart,
       details: { batches: signalsBatchCount, attempted: signalsTotal, succeeded: signalsSuccess },
+    });
+    await updateRun('running');
+
+    // ==================== STEP 3.5: FETCH FUNDAMENTALS (batched) ====================
+    // Hämtar P/E, ROIC, Altman, F-score m.m. till symbols.metadata för screenern.
+    // Batchas så vi inte slår i FMP/Finnhub-kvoten i en enda request.
+    console.log('=== Step 3.5: fetch-fundamentals (batched) ===');
+    const fundStart = Date.now();
+    const fundChunks = await runChunked('fetch-fundamentals', 50, allTickers.length);
+    let fundUpdated = 0;
+    let fundDuration = 0;
+    for (const c of fundChunks) {
+      fundDuration += c.duration_ms;
+      if (c.ok) fundUpdated += (c.data?.updated || c.data?.count || 0);
+    }
+    const fundOk = fundChunks.filter(c => c.ok).length;
+    stepResults.push({
+      step: 'fetch-fundamentals',
+      status: fundOk === fundChunks.length ? 'success' : (fundOk > 0 ? 'partial' : 'failed'),
+      duration_ms: fundDuration || (Date.now() - fundStart),
+      details: { chunks: fundChunks.length, chunks_ok: fundOk, updated: fundUpdated },
     });
     await updateRun('running');
 
