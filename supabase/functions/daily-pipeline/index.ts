@@ -128,6 +128,22 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // ==================== STEP 0a: REFRESH S&P 500 (weekly, Mondays) ====================
+    // FMP-baserad universumuppdatering. Körs i pipelinen på måndagar; en separat
+    // veckocron kör samma funktion söndag kväll som backup.
+    if (new Date().getUTCDay() === 1) {
+      console.log('=== Step 0a: fetch-sp500 (weekly) ===');
+      const sp500Result = await callEdgeFunction(supabaseUrl, serviceKey, 'fetch-sp500', {});
+      stepResults.push({
+        step: 'fetch-sp500',
+        status: sp500Result.ok ? 'success' : 'failed',
+        duration_ms: sp500Result.duration_ms,
+        details: sp500Result.ok ? sp500Result.data : { error: sp500Result.data?.error },
+      });
+      if (!sp500Result.ok) errors.push({ step: 'fetch-sp500', error: sp500Result.data?.error || `HTTP ${sp500Result.status}` });
+      await updateRun('running');
+    }
+
     // ==================== STEP 1: FETCH PRICES (chunked) ====================
     console.log('=== Step 1: fetch-prices (chunked) ===');
     const { data: symbols } = await supabase
