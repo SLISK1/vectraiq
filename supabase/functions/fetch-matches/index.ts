@@ -130,9 +130,11 @@ Deno.serve(async (req) => {
         }
       };
 
-      const [pastMatches, futureMatches] = await Promise.all([
+      const [pastMatches, futureMatches, wcMatches] = await Promise.all([
         fetchRange(dateFrom, todayStr, "past"),
         fetchRange(todayStr, dateTo, "future"),
+        // Always pull the full WC 2026 window so the tournament shows up before kick-off
+        fetchRange(WC2026_DATE_FROM, WC2026_DATE_TO, "wc2026"),
       ]);
 
       // Merge and deduplicate by match id
