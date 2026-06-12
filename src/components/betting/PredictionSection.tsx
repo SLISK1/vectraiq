@@ -47,11 +47,31 @@ export const PredictionSection = ({ prediction, homeTeam, awayTeam, onShowDetail
     <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <ScoreRing
-            score={prediction.confidence_capped}
-            direction={prediction.predicted_winner === 'home' ? 'UP' : prediction.predicted_winner === 'away' ? 'DOWN' : 'NEUTRAL'}
-            size="sm"
-          />
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="cursor-help focus:outline-none" aria-label="Vad betyder score?">
+                  <ScoreRing
+                    score={prediction.confidence_capped}
+                    direction={prediction.predicted_winner === 'home' ? 'UP' : prediction.predicted_winner === 'away' ? 'DOWN' : 'NEUTRAL'}
+                    size="sm"
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
+                <p className="font-semibold mb-1">Score ≠ sannolikhet</p>
+                <p>
+                  <strong>Score (0–100)</strong> är modellens kvalitets­poäng för tipset
+                  (edge, kalibrering, modul­tillförlitlighet och likviditet vägs samman).
+                </p>
+                <p className="mt-1">
+                  <strong>Sannolikhet</strong> är estimerad chans att utfallet inträffar
+                  ({Math.round(prediction.predicted_prob * 100)}% här). Två tips kan ha samma
+                  sannolikhet men olika score om edge eller kalibrering skiljer.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <div>
             <Badge className={`text-xs border ${getWinnerColor()}`}>
               {getWinnerLabel()}
