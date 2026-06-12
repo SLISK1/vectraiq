@@ -582,7 +582,63 @@ Deno.serve(async (req) => {
         console.warn("Odds API fetch failed:", e);
       }
     } else if (!isHighImpact) {
-      console.log(`Skipping Odds API for non-high-impact league: ${match.league} (budget conservation)`);
+      console.log(`Skipping Odds API for non-high-impact league: ${match.league} — falling back to odds_snapshots`);
+    }
+
+    // === FALLBACK: load latest odds_snapshots for this match if still missing ===
+    // odds_snapshots is populated by fetch-oddset-markets/odds_caching and covers far more matches
+    // than the paid Odds API. This is the single largest lever for filling model_edge.
+    if (!marketOddsHome) {
+      try {
+        const { data: snaps } = await supabaseService
+          .from("odds_snapshots")
+          .select("market, selection, odds_pre_match, odds_open, implied_pre_match, implied_open, fetched_at")
+          .eq("match_id", match_id)
+          .in("market", ["1X2", "BTTS", "O25", "CRN_O95", "CRD_O35"])
+          .order("fetched_at", { ascending: false })
+          .limit(50);
+        if (snaps && snaps.length > 0) {
+          const pickOdds = (m: string, sel: string) => {
+            const row = snaps.find((s: any) => s.market === m && s.selection === sel);
+            return row ? Number(row.odds_pre_match ?? row.odds_open) : null;
+          };
+          const oH = pickOdds("1X2", "home");
+          const oD = pickOdds("1X2", "draw");
+          const oA = pickOdds("1X2", "away");
+          if (oH && oA) {
+            marketOddsHome = oH;
+            marketOddsDraw = oD;
+            marketOddsAway = oA;
+            const rawHome = 1 / oH;
+            const rawDraw = oD ? 1 / oD : 0;
+            const rawAway = 1 / oA;
+            const total = rawHome + rawDraw + rawAway;
+            marketImpliedProbHome = rawHome / total;
+            marketImpliedProbDraw = rawDraw > 0 ? rawDraw / total : null;
+            marketImpliedProbAway = rawAway / total;
+            console.log(`✓ Odds loaded from snapshots for ${match.home_team} vs ${match.away_team}`);
+          }
+          const oOver = pickOdds("O25", "over");
+          const oUnder = pickOdds("O25", "under");
+          if (oOver && oUnder && !totalsOdds) {
+            totalsOdds = { line: 2.5, over: oOver, under: oUnder };
+          }
+          const bYes = pickOdds("BTTS", "yes");
+          const bNo = pickOdds("BTTS", "no");
+          if (bYes && bNo && !bttsOdds) {
+            bttsOdds = { yes: bYes, no: bNo };
+          }
+          // Stash corners/cards odds for side-market edge calculation later
+          const corOver = pickOdds("CRN_O95", "over");
+          const corUnder = pickOdds("CRN_O95", "under");
+          const crdOver = pickOdds("CRD_O35", "over");
+          const crdUnder = pickOdds("CRD_O35", "under");
+          (globalThis as any).__cornersOdds = corOver && corUnder ? { line: 9.5, over: corOver, under: corUnder } : null;
+          (globalThis as any).__cardsOdds = crdOver && crdUnder ? { line: 3.5, over: crdOver, under: crdUnder } : null;
+        }
+      } catch (e) {
+        console.warn("odds_snapshots fallback failed:", (e as Error).message);
+      }
     }
 
     // === BUILD GEMINI PROMPT ===
