@@ -18,6 +18,8 @@ interface Prediction {
   market_odds_away: number | null;
   market_implied_prob: number | null;
   model_edge: number | null;
+  is_value_bet?: boolean | null;
+  suggested_stake_pct?: number | null;
 }
 
 interface PredictionSectionProps {
