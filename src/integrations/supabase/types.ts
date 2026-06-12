@@ -2338,6 +2338,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _cron_service_token: { Args: never; Returns: string }
+      seed_cron_service_token: { Args: { p_token: string }; Returns: string }
       upsert_betting_cal_bucket: {
         Args: {
           p_bucket_idx: number
