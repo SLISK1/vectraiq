@@ -24,7 +24,10 @@ export const PaperPortfolioPage = () => {
   const resetMutation = useResetPaperPortfolio();
   const [showReset, setShowReset] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
   const [tradeModal, setTradeModal] = useState<{ symbolId: string; ticker: string; name: string; lastPrice: number; assetType: string; side: 'buy' | 'sell' } | null>(null);
+
 
   const formatSEK = (v: number) => new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(v);
   const formatPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
