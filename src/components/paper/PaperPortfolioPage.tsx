@@ -5,11 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import { PaperTradeModal } from './PaperTradeModal';
 import { cn } from '@/lib/utils';
-import { Wallet, TrendingUp, TrendingDown, RotateCcw, Loader2, AlertTriangle, LineChart } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, RotateCcw, Loader2, AlertTriangle, LineChart, CalendarIcon, X } from 'lucide-react';
 import { LineChart as ReLineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { AuthModal } from '@/components/AuthModal';
+import { format } from 'date-fns';
+import { sv } from 'date-fns/locale';
+
 
 export const PaperPortfolioPage = () => {
   const { user } = useAuth();
@@ -19,7 +24,10 @@ export const PaperPortfolioPage = () => {
   const resetMutation = useResetPaperPortfolio();
   const [showReset, setShowReset] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
   const [tradeModal, setTradeModal] = useState<{ symbolId: string; ticker: string; name: string; lastPrice: number; assetType: string; side: 'buy' | 'sell' } | null>(null);
+
 
   const formatSEK = (v: number) => new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(v);
   const formatPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
@@ -50,11 +58,27 @@ export const PaperPortfolioPage = () => {
   const pnlTotal = portfolioData?.pnlTotal || 0;
   const pnlPct = portfolioData?.pnlPct || 0;
 
-  // If all snapshots are from the same calendar day, show HH:mm on the x-axis
-  // so the user can see intra-day progress instead of ten identical "9 mars" labels.
-  const uniqueDays = new Set((snapshots || []).map(s => new Date(s.snapshot_at).toDateString()));
+  // Filter snapshots by selected date range
+  const filteredSnapshots = (snapshots || []).filter(s => {
+    const d = new Date(s.snapshot_at);
+    d.setHours(0, 0, 0, 0);
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      if (d < from) return false;
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      if (d > to) return false;
+    }
+    return true;
+  });
+
+  // If all *filtered* snapshots are from the same calendar day, show HH:mm on the x-axis
+  const uniqueDays = new Set(filteredSnapshots.map(s => new Date(s.snapshot_at).toDateString()));
   const sameDay = uniqueDays.size <= 1;
-  const chartData = (snapshots || []).map(s => {
+  const chartData = filteredSnapshots.map(s => {
     const d = new Date(s.snapshot_at);
     return {
       date: sameDay
@@ -67,6 +91,7 @@ export const PaperPortfolioPage = () => {
   // Only render the benchmark series when at least one snapshot carries benchmark data,
   // so older NULL snapshots don't draw a broken/flat line.
   const hasBenchmark = chartData.some(d => d.benchmark != null);
+
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -107,36 +132,75 @@ export const PaperPortfolioPage = () => {
       </div>
 
       {/* Chart */}
-      {chartData.length > 1 && (
+      {snapshots && snapshots.length > 1 && (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <CardTitle className="text-sm flex items-center gap-2"><LineChart className="w-4 h-4" /> Utveckling</CardTitle>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* From date */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn('justify-start text-left font-normal', !dateFrom && 'text-muted-foreground')}>
+                    <CalendarIcon className="mr-2 h-3 w-3" />
+                    {dateFrom ? format(dateFrom, 'd MMM', { locale: sv }) : 'Från'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 pointer-events-auto" align="start">
+                  <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus locale={sv} />
+                </PopoverContent>
+              </Popover>
+              {/* To date */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn('justify-start text-left font-normal', !dateTo && 'text-muted-foreground')}>
+                    <CalendarIcon className="mr-2 h-3 w-3" />
+                    {dateTo ? format(dateTo, 'd MMM', { locale: sv }) : 'Till'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 pointer-events-auto" align="start">
+                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus locale={sv} />
+                </PopoverContent>
+              </Popover>
+              {(dateFrom || dateTo) && (
+                <Button variant="ghost" size="sm" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+                  <X className="w-3 h-3 mr-1" /> Rensa
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <ReLineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} domain={['auto', 'auto']} />
-                  <Tooltip formatter={(v: number) => formatSEK(v)} />
-                  <Line type="monotone" dataKey="value" name="Portfölj" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                  {hasBenchmark && (
-                    <Line type="monotone" dataKey="benchmark" name="OMXS (index)" stroke="hsl(var(--muted-foreground))" strokeWidth={1} strokeDasharray="4 4" dot={false} connectNulls />
-                  )}
-                </ReLineChart>
-              </ResponsiveContainer>
-            </div>
-            {hasBenchmark && (
-              <div className="flex items-center justify-center gap-6 mt-3 text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-0.5 bg-primary" />
-                  <span className="text-muted-foreground">Portfölj</span>
+            {chartData.length > 1 ? (
+              <>
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ReLineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} domain={['auto', 'auto']} />
+                      <Tooltip formatter={(v: number) => formatSEK(v)} />
+                      <Line type="monotone" dataKey="value" name="Portfölj" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                      {hasBenchmark && (
+                        <Line type="monotone" dataKey="benchmark" name="OMXS (index)" stroke="hsl(var(--muted-foreground))" strokeWidth={1} strokeDasharray="4 4" dot={false} connectNulls />
+                      )}
+                    </ReLineChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-0.5 bg-muted-foreground" style={{ borderStyle: 'dashed' }} />
-                  <span className="text-muted-foreground">OMXS (index)</span>
-                </div>
+                {hasBenchmark && (
+                  <div className="flex items-center justify-center gap-6 mt-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-0.5 bg-primary" />
+                      <span className="text-muted-foreground">Portfölj</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-0.5 bg-muted-foreground" style={{ borderStyle: 'dashed' }} />
+                      <span className="text-muted-foreground">OMXS (index)</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">
+                Ingen data för vald period.
               </div>
             )}
           </CardContent>
