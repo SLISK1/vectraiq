@@ -491,7 +491,7 @@ export const BettingPage = () => {
                     : 'bg-muted/50 text-muted-foreground border-border hover:text-foreground'
                 }`}
               >
-                {league} ({matches.filter(m => m.league === league).length})
+                {league === 'VM 2026' ? '🏆 ' : ''}{league} ({matches.filter(m => m.league === league).length})
               </button>
             ))}
           </div>
