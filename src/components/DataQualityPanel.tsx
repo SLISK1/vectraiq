@@ -106,6 +106,8 @@ export const DataQualityPanel = () => {
   const warning = data?.warning ?? 0;
   const info = data?.info ?? 0;
   const issues = data?.issues ?? [];
+  const totalOpen = data?.total_open ?? issues.length;
+  const isCapped = totalOpen > issues.length && issues.length > 0;
 
   return (
     <div className="p-3 rounded-lg bg-muted/30 border border-border space-y-3">
@@ -115,9 +117,14 @@ export const DataQualityPanel = () => {
           Datakvalitet
         </h4>
         <div className="flex items-center gap-2 text-xs">
-          {critical > 0 && <span className="text-down font-semibold">{critical} kritiska</span>}
-          {warning > 0 && <span className="text-yellow-500 font-semibold">{warning} varningar</span>}
-          {info > 0 && <span className="text-muted-foreground">{info} info</span>}
+          {isCapped && (
+            <span className="text-yellow-500 font-semibold">
+              {totalOpen} öppna (visar {issues.length})
+            </span>
+          )}
+          {!isCapped && critical > 0 && <span className="text-down font-semibold">{critical} kritiska</span>}
+          {!isCapped && warning > 0 && <span className="text-yellow-500 font-semibold">{warning} varningar</span>}
+          {!isCapped && info > 0 && <span className="text-muted-foreground">{info} info</span>}
         </div>
       </div>
 
