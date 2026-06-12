@@ -127,9 +127,25 @@ export const AdminPanel = () => {
     }
   }, [toast, queryClient]);
 
-  if (!user) {
+  const { data: isAdmin, isLoading: adminLoading } = useQuery({
+    queryKey: ['is-admin', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      if (!user) return false;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (error) return false;
+      return !!data?.is_admin;
+    },
+  });
+
+  if (!user || adminLoading || !isAdmin) {
     return null;
   }
+
 
   const lastRun = runs?.[0];
   const isRunning = lastRun?.status === 'running';
