@@ -8,6 +8,63 @@ const corsHeaders = {
 const clamp = (v: number, min = 0.01, max = 0.99) => Math.min(max, Math.max(min, v));
 const geomean = (a: number, b: number) => Math.sqrt(Math.max(0, a) * Math.max(0, b));
 
+// Poisson PMF
+function poissonPMF(k: number, lambda: number): number {
+  if (lambda <= 0) return k === 0 ? 1 : 0;
+  let logP = -lambda + k * Math.log(lambda);
+  for (let i = 2; i <= k; i++) logP -= Math.log(i);
+  return Math.exp(logP);
+}
+
+// Score matrix up to MAX_GOALS x MAX_GOALS
+function scoreMatrix(lh: number, la: number, maxGoals = 6): number[][] {
+  const homePmf: number[] = [];
+  const awayPmf: number[] = [];
+  for (let i = 0; i <= maxGoals; i++) {
+    homePmf.push(poissonPMF(i, lh));
+    awayPmf.push(poissonPMF(i, la));
+  }
+  const m: number[][] = [];
+  for (let h = 0; h <= maxGoals; h++) {
+    const row: number[] = [];
+    for (let a = 0; a <= maxGoals; a++) row.push(homePmf[h] * awayPmf[a]);
+    m.push(row);
+  }
+  // normalize to sum = 1 (truncation correction)
+  let s = 0;
+  for (let h = 0; h <= maxGoals; h++) for (let a = 0; a <= maxGoals; a++) s += m[h][a];
+  if (s > 0) for (let h = 0; h <= maxGoals; h++) for (let a = 0; a <= maxGoals; a++) m[h][a] /= s;
+  return m;
+}
+
+function summarize(matrix: number[][]) {
+  let pHome = 0, pDraw = 0, pAway = 0;
+  let pOver25 = 0, pBtts = 0;
+  const exactScores: Array<{ selection: string; p: number }> = [];
+  const N = matrix.length;
+  for (let h = 0; h < N; h++) {
+    for (let a = 0; a < N; a++) {
+      const p = matrix[h][a];
+      if (h > a) pHome += p; else if (h < a) pAway += p; else pDraw += p;
+      if (h + a > 2) pOver25 += p;
+      if (h > 0 && a > 0) pBtts += p;
+      exactScores.push({ selection: `${h}-${a}`, p });
+    }
+  }
+  exactScores.sort((x, y) => y.p - x.p);
+  return {
+    p_home: clamp(pHome),
+    p_draw: clamp(pDraw),
+    p_away: clamp(pAway),
+    p_1x: clamp(pHome + pDraw),
+    p_12: clamp(pHome + pAway),
+    p_x2: clamp(pDraw + pAway),
+    p_over25_poisson: clamp(pOver25),
+    p_btts_poisson: clamp(pBtts),
+    exact_top: exactScores.slice(0, 5),
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -49,6 +106,17 @@ Deno.serve(async (req) => {
       p_raw_crd_o35: clamp(geomean(rates.home_crd_o35_rate, rates.away_crd_o35_rate)),
     };
 
+    // ── Poisson-based 1X2 / DC / EXACT ────────────────────────────────────
+    // Use xG estimates from source_data if available, else derive from o25 rates.
+    // Heuristic: combined goal expectation ≈ 1.6 + (p_o25 - 0.5) * 2 (clamped 1.5–3.4).
+    const combinedFromO25 = 1.6 + (pRaw.p_raw_o25 - 0.5) * 2;
+    const totalLambda = Math.max(1.5, Math.min(3.4, combinedFromO25));
+    // Home/away split — favor home unless source_data signals otherwise.
+    const homeAdv = Number(sourceData.home_advantage ?? 0.55);
+    const lh = Number(sourceData.home_xg ?? totalLambda * homeAdv);
+    const la = Number(sourceData.away_xg ?? totalLambda * (1 - homeAdv));
+    const poisson = summarize(scoreMatrix(lh, la));
+
     const { error: upsertError } = await supabase.from("team_rates_cache").upsert({
       match_id,
       home_team: match.home_team,
@@ -60,7 +128,16 @@ Deno.serve(async (req) => {
 
     if (upsertError) throw upsertError;
 
-    return new Response(JSON.stringify({ success: true, match_id, ...pRaw }), {
+    return new Response(JSON.stringify({
+      success: true,
+      match_id,
+      ...pRaw,
+      poisson: {
+        lambda_home: lh,
+        lambda_away: la,
+        ...poisson,
+      },
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
