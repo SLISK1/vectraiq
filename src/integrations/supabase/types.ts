@@ -631,6 +631,47 @@ export type Database = {
           },
         ]
       }
+      data_quality_issues: {
+        Row: {
+          detail: Json | null
+          detected_at: string
+          id: string
+          issue_type: string
+          resolved: boolean
+          severity: string
+          symbol_id: string | null
+          ticker: string | null
+        }
+        Insert: {
+          detail?: Json | null
+          detected_at?: string
+          id?: string
+          issue_type: string
+          resolved?: boolean
+          severity: string
+          symbol_id?: string | null
+          ticker?: string | null
+        }
+        Update: {
+          detail?: Json | null
+          detected_at?: string
+          id?: string
+          issue_type?: string
+          resolved?: boolean
+          severity?: string
+          symbol_id?: string | null
+          ticker?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_quality_issues_symbol_id_fkey"
+            columns: ["symbol_id"]
+            isOneToOne: false
+            referencedRelation: "symbols"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       features: {
         Row: {
           asset_id: string

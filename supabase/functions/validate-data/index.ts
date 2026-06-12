@@ -228,12 +228,121 @@ Deno.serve(async (req) => {
 
     await flush();
 
+    // ============================================================
+    // Coverage-rapport: symbols → raw_prices → price_history → signals
+    // Strikt read-only mot analyskedjan. Inga skrivningar utanför
+    // data_quality_issues görs här — pipeline/signal-generering
+    // triggas INTE av detta test.
+    // ============================================================
+    const nowIso = new Date().toISOString();
+    const fresh7 = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+    const fresh30 = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    const fresh2d = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString();
+    const fresh30dDate = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+      .toISOString().split('T')[0];
+    const fresh7dDate = new Date(Date.now() - 7 * 24 * 3600 * 1000)
+      .toISOString().split('T')[0];
+
+    const coverage: Record<string, unknown> = {};
+    const missingSources: string[] = [];
+
+    try {
+      // symbols
+      const { count: symTotal } = await sb.from('symbols')
+        .select('id', { count: 'exact', head: true });
+      const { count: symActive } = await sb.from('symbols')
+        .select('id', { count: 'exact', head: true }).eq('is_active', true);
+      coverage.symbols = { total: symTotal ?? 0, active: symActive ?? 0 };
+      if ((symActive ?? 0) === 0) missingSources.push('symbols');
+
+      // raw_prices (distinkta symboler, färska)
+      const { data: rpFresh } = await sb.from('raw_prices')
+        .select('symbol_id, updated_at')
+        .gte('updated_at', fresh2d)
+        .limit(5000);
+      const rpFreshIds = new Set((rpFresh || []).map((r: any) => r.symbol_id));
+      const { count: rpTotal } = await sb.from('raw_prices')
+        .select('symbol_id', { count: 'exact', head: true });
+      coverage.raw_prices = {
+        rows_total: rpTotal ?? 0,
+        symbols_fresh_2d: rpFreshIds.size,
+      };
+      if (rpFreshIds.size === 0) missingSources.push('raw_prices');
+
+      // price_history (färsk per symbol)
+      const { data: phFresh } = await sb.from('price_history')
+        .select('symbol_id, date')
+        .gte('date', fresh30dDate)
+        .limit(20000);
+      const phFreshIds = new Set((phFresh || []).map((r: any) => r.symbol_id));
+      coverage.price_history = {
+        symbols_fresh_30d: phFreshIds.size,
+      };
+      if (phFreshIds.size === 0) missingSources.push('price_history');
+
+      // signals (färska)
+      const { data: sigFresh } = await sb.from('signals')
+        .select('symbol_id, ts')
+        .gte('ts', fresh7)
+        .limit(20000);
+      const sigFreshIds = new Set((sigFresh || []).map((r: any) => r.symbol_id));
+      coverage.signals = {
+        symbols_fresh_7d: sigFreshIds.size,
+      };
+      if (sigFreshIds.size === 0) missingSources.push('signals');
+
+      // news_cache (frihet att vara tom)
+      const { count: newsFresh } = await sb.from('news_cache')
+        .select('id', { count: 'exact', head: true })
+        .gte('published_at', fresh7);
+      coverage.news_cache = { rows_fresh_7d: newsFresh ?? 0 };
+      if ((newsFresh ?? 0) === 0) missingSources.push('news_cache');
+
+      // odds_snapshots
+      const { count: oddsFresh } = await sb.from('odds_snapshots')
+        .select('id', { count: 'exact', head: true })
+        .gte('captured_at', fresh7);
+      coverage.odds_snapshots = { rows_fresh_7d: oddsFresh ?? 0 };
+      if ((oddsFresh ?? 0) === 0) missingSources.push('odds_snapshots');
+
+      // Sätt issues för symboler som saknar dataled (UTAN att starta hämtningar)
+      if (symbols && symbols.length > 0) {
+        const stuck: IssueRow[] = [];
+        for (const s of symbols as SymbolRow[]) {
+          if (!phFreshIds.has(s.id)) {
+            stuck.push({
+              symbol_id: s.id,
+              ticker: s.ticker,
+              issue_type: 'stale_symbol',
+              severity: 'warning',
+              detail: { source: 'price_history', threshold_days: 30 },
+              detected_at: nowIso,
+              resolved: false,
+            });
+          }
+        }
+        // Slå inte ihop med tidigare per-symbol-flush; använd dedikerad insert.
+        if (stuck.length > 0) {
+          for (let i = 0; i < stuck.length; i += INSERT_BATCH_SIZE) {
+            await sb.from('data_quality_issues')
+              .insert(stuck.slice(i, i + INSERT_BATCH_SIZE));
+          }
+        }
+      }
+    } catch (covErr) {
+      console.error('coverage computation failed:', covErr);
+      coverage.error = String(covErr);
+    }
+
     return new Response(JSON.stringify({
       scanned: symbols.length,
       issues_by_type: issuesByType,
       critical,
       warning,
       info,
+      coverage,
+      missing_sources: missingSources,
+      generated_at: nowIso,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), {
