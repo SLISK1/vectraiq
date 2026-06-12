@@ -582,7 +582,63 @@ Deno.serve(async (req) => {
         console.warn("Odds API fetch failed:", e);
       }
     } else if (!isHighImpact) {
-      console.log(`Skipping Odds API for non-high-impact league: ${match.league} (budget conservation)`);
+      console.log(`Skipping Odds API for non-high-impact league: ${match.league} — falling back to odds_snapshots`);
+    }
+
+    // === FALLBACK: load latest odds_snapshots for this match if still missing ===
+    // odds_snapshots is populated by fetch-oddset-markets/odds_caching and covers far more matches
+    // than the paid Odds API. This is the single largest lever for filling model_edge.
+    if (!marketOddsHome) {
+      try {
+        const { data: snaps } = await supabaseService
+          .from("odds_snapshots")
+          .select("market, selection, odds_pre_match, odds_open, implied_pre_match, implied_open, fetched_at")
+          .eq("match_id", match_id)
+          .in("market", ["1X2", "BTTS", "O25", "CRN_O95", "CRD_O35"])
+          .order("fetched_at", { ascending: false })
+          .limit(50);
+        if (snaps && snaps.length > 0) {
+          const pickOdds = (m: string, sel: string) => {
+            const row = snaps.find((s: any) => s.market === m && s.selection === sel);
+            return row ? Number(row.odds_pre_match ?? row.odds_open) : null;
+          };
+          const oH = pickOdds("1X2", "home");
+          const oD = pickOdds("1X2", "draw");
+          const oA = pickOdds("1X2", "away");
+          if (oH && oA) {
+            marketOddsHome = oH;
+            marketOddsDraw = oD;
+            marketOddsAway = oA;
+            const rawHome = 1 / oH;
+            const rawDraw = oD ? 1 / oD : 0;
+            const rawAway = 1 / oA;
+            const total = rawHome + rawDraw + rawAway;
+            marketImpliedProbHome = rawHome / total;
+            marketImpliedProbDraw = rawDraw > 0 ? rawDraw / total : null;
+            marketImpliedProbAway = rawAway / total;
+            console.log(`✓ Odds loaded from snapshots for ${match.home_team} vs ${match.away_team}`);
+          }
+          const oOver = pickOdds("O25", "over");
+          const oUnder = pickOdds("O25", "under");
+          if (oOver && oUnder && !totalsOdds) {
+            totalsOdds = { line: 2.5, over: oOver, under: oUnder };
+          }
+          const bYes = pickOdds("BTTS", "yes");
+          const bNo = pickOdds("BTTS", "no");
+          if (bYes && bNo && !bttsOdds) {
+            bttsOdds = { yes: bYes, no: bNo };
+          }
+          // Stash corners/cards odds for side-market edge calculation later
+          const corOver = pickOdds("CRN_O95", "over");
+          const corUnder = pickOdds("CRN_O95", "under");
+          const crdOver = pickOdds("CRD_O35", "over");
+          const crdUnder = pickOdds("CRD_O35", "under");
+          (globalThis as any).__cornersOdds = corOver && corUnder ? { line: 9.5, over: corOver, under: corUnder } : null;
+          (globalThis as any).__cardsOdds = crdOver && crdUnder ? { line: 3.5, over: crdOver, under: crdUnder } : null;
+        }
+      } catch (e) {
+        console.warn("odds_snapshots fallback failed:", (e as Error).message);
+      }
     }
 
     // === BUILD GEMINI PROMPT ===
@@ -771,9 +827,15 @@ INSTRUKTIONER:
     let confidenceRaw = Math.min(100, Math.max(0, Math.round(aiResult.confidence_raw || 50)));
     let cap = 45; // default: no sources
     const capReasons: string[] = [];
+    const hasOdds = marketOddsHome !== null;
 
-    if (h2hCount >= 5 && hasStandings) {
+    // Evidence-based cap table (rebalanced 2026-06-12): odds presence is a strong signal.
+    if (h2hCount >= 5 && hasStandings && hasOdds) {
+      cap = 85;
+    } else if (h2hCount >= 5 && hasStandings) {
       cap = 80;
+    } else if (h2hCount >= 3 && hasStandings && hasOdds) {
+      cap = 78;
     } else if (h2hCount >= 3 && hasStandings) {
       cap = 70;
     } else if (hasStandings && h2hCount < 3) {
@@ -787,6 +849,16 @@ INSTRUKTIONER:
       capReasons.push("Inga statistikkällor tillgängliga");
     }
 
+    // Bonus +5 when we have a calibrated p_cal available (set later, but tracked via poissonPRaw existence)
+    if (poissonPRaw && (poissonPRaw.btts !== null || poissonPRaw.o25 !== null)) {
+      cap = Math.min(100, cap + 3);
+    }
+    // Bonus +5 when ≥3 news sources within 72h (proxy: sources count)
+    const newsSourceCount = sources.filter((s: any) => s.type === "news" || s.type === "confirmed_fact").length;
+    if (newsSourceCount >= 3) {
+      cap = Math.min(100, cap + 5);
+    }
+
     if (!hasInjuryData) {
       capReasons.push("Inga skaderapporter tillgängliga");
     }
@@ -797,7 +869,8 @@ INSTRUKTIONER:
 
     const MIN_CAP = 40;
     cap = Math.max(MIN_CAP, cap);
-    const confidenceCapped = Math.min(confidenceRaw, cap);
+    // FIX: real floor + ceiling clamp (was min(raw, cap) which let raw=30 slip through)
+    const confidenceCapped = Math.max(MIN_CAP, Math.min(confidenceRaw, cap));
     const capReason = capReasons.length > 0 ? capReasons.join("; ") : null;
 
     let predictedProb = Math.min(1, Math.max(0, aiResult.predicted_prob || 0.5));
@@ -912,6 +985,19 @@ INSTRUKTIONER:
         const impliedProb = 1 / sideOdds;
         sideEdges.btts = (sidePredictions.btts.prob || 0) - impliedProb;
       }
+      // Corners/Cards edge from snapshot fallback
+      const cornersOdds = (globalThis as any).__cornersOdds as { line: number; over: number; under: number } | null;
+      const cardsOdds = (globalThis as any).__cardsOdds as { line: number; over: number; under: number } | null;
+      if (sidePredictions.corners && cornersOdds) {
+        const isOver = sidePredictions.corners.prediction === "over";
+        const sideOdds = isOver ? cornersOdds.over : cornersOdds.under;
+        sideEdges.corners = (sidePredictions.corners.prob || 0) - (1 / sideOdds);
+      }
+      if (sidePredictions.cards && cardsOdds) {
+        const isOver = sidePredictions.cards.prediction === "over";
+        const sideOdds = isOver ? cardsOdds.over : cardsOdds.under;
+        sideEdges.cards = (sidePredictions.cards.prob || 0) - (1 / sideOdds);
+      }
       if (Object.keys(sideEdges).length === 0) sideEdges = null;
     }
 
@@ -981,87 +1067,84 @@ INSTRUKTIONER:
         .neq("market", "1X2");
 
       const sideBetRows: Record<string, unknown>[] = [];
+      // Helper: per-side confidence with Poisson clarity bonus (clamped to MIN_CAP..cap)
+      const sideConf = (pRaw: number | null | undefined) => {
+        let raw = confidenceRaw;
+        if (typeof pRaw === "number" && (pRaw > 0.6 || pRaw < 0.4)) raw = Math.min(100, raw + 5);
+        return Math.max(MIN_CAP, Math.min(raw, cap));
+      };
+      const sideBase = {
+        sources_used: sources,
+        sources_hash: sourcesHash,
+        cap_reason: capReason,
+      };
 
       if (sidePredictions.total_goals) {
         sideBetRows.push({
-          match_id,
-          market: "OU_GOALS",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "OU_GOALS", predicted_winner: null,
           line: sidePredictions.total_goals.line ?? 2.5,
           selection: sidePredictions.total_goals.prediction,
           predicted_prob: sidePredictions.total_goals.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.total_goals.prob),
           model_edge: sideEdges?.total_goals ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.btts) {
         sideBetRows.push({
-          match_id,
-          market: "BTTS",
-          predicted_winner: null,
-          line: null,
+          ...sideBase, match_id, market: "BTTS", predicted_winner: null, line: null,
           selection: sidePredictions.btts.prediction,
           predicted_prob: sidePredictions.btts.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.btts.prob),
           model_edge: sideEdges?.btts ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.corners) {
         sideBetRows.push({
-          match_id,
-          market: "CORNERS_OU",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "CORNERS_OU", predicted_winner: null,
           line: sidePredictions.corners.line ?? 9.5,
           selection: sidePredictions.corners.prediction,
           predicted_prob: sidePredictions.corners.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
-          model_edge: null,
+          confidence_capped: sideConf(sidePredictions.corners.prob),
+          model_edge: sideEdges?.corners ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.cards) {
         sideBetRows.push({
-          match_id,
-          market: "CARDS_OU",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "CARDS_OU", predicted_winner: null,
           line: sidePredictions.cards.line ?? 3.5,
           selection: sidePredictions.cards.prediction,
           predicted_prob: sidePredictions.cards.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
-          model_edge: null,
+          confidence_capped: sideConf(sidePredictions.cards.prob),
+          model_edge: sideEdges?.cards ?? null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.first_half_goals) {
         sideBetRows.push({
-          match_id,
-          market: "HT_OU_GOALS",
-          predicted_winner: null,
+          ...sideBase, match_id, market: "HT_OU_GOALS", predicted_winner: null,
           line: sidePredictions.first_half_goals.line ?? 1.5,
           selection: sidePredictions.first_half_goals.prediction,
           predicted_prob: sidePredictions.first_half_goals.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.first_half_goals.prob),
           model_edge: null,
           model_version: MODEL_VERSION,
         });
       }
       if (sidePredictions.first_to_score) {
         sideBetRows.push({
-          match_id,
-          market: "FIRST_TO_SCORE",
-          predicted_winner: null,
-          line: null,
+          ...sideBase, match_id, market: "FIRST_TO_SCORE", predicted_winner: null, line: null,
           selection: sidePredictions.first_to_score.prediction,
           predicted_prob: sidePredictions.first_to_score.prob,
           confidence_raw: confidenceRaw,
-          confidence_capped: confidenceCapped,
+          confidence_capped: sideConf(sidePredictions.first_to_score.prob),
           model_edge: null,
           model_version: MODEL_VERSION,
         });
