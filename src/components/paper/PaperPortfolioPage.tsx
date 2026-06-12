@@ -132,10 +132,41 @@ export const PaperPortfolioPage = () => {
       </div>
 
       {/* Chart */}
-      {chartData.length > 1 && (
+      {snapshots && snapshots.length > 1 && (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <CardTitle className="text-sm flex items-center gap-2"><LineChart className="w-4 h-4" /> Utveckling</CardTitle>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* From date */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn('justify-start text-left font-normal', !dateFrom && 'text-muted-foreground')}>
+                    <CalendarIcon className="mr-2 h-3 w-3" />
+                    {dateFrom ? format(dateFrom, 'd MMM', { locale: sv }) : 'Från'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 pointer-events-auto" align="start">
+                  <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus locale={sv} />
+                </PopoverContent>
+              </Popover>
+              {/* To date */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn('justify-start text-left font-normal', !dateTo && 'text-muted-foreground')}>
+                    <CalendarIcon className="mr-2 h-3 w-3" />
+                    {dateTo ? format(dateTo, 'd MMM', { locale: sv }) : 'Till'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 pointer-events-auto" align="start">
+                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus locale={sv} />
+                </PopoverContent>
+              </Popover>
+              {(dateFrom || dateTo) && (
+                <Button variant="ghost" size="sm" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+                  <X className="w-3 h-3 mr-1" /> Rensa
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="h-48">
