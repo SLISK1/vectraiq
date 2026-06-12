@@ -50,11 +50,20 @@ export const PaperPortfolioPage = () => {
   const pnlTotal = portfolioData?.pnlTotal || 0;
   const pnlPct = portfolioData?.pnlPct || 0;
 
-  const chartData = (snapshots || []).map(s => ({
-    date: new Date(s.snapshot_at).toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' }),
-    value: Number(s.total_value),
-    benchmark: s.benchmark_value != null ? Number(s.benchmark_value) : undefined,
-  }));
+  // If all snapshots are from the same calendar day, show HH:mm on the x-axis
+  // so the user can see intra-day progress instead of ten identical "9 mars" labels.
+  const uniqueDays = new Set((snapshots || []).map(s => new Date(s.snapshot_at).toDateString()));
+  const sameDay = uniqueDays.size <= 1;
+  const chartData = (snapshots || []).map(s => {
+    const d = new Date(s.snapshot_at);
+    return {
+      date: sameDay
+        ? d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
+        : d.toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' }),
+      value: Number(s.total_value),
+      benchmark: s.benchmark_value != null ? Number(s.benchmark_value) : undefined,
+    };
+  });
   // Only render the benchmark series when at least one snapshot carries benchmark data,
   // so older NULL snapshots don't draw a broken/flat line.
   const hasBenchmark = chartData.some(d => d.benchmark != null);
