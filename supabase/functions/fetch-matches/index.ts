@@ -7,6 +7,7 @@ const corsHeaders = {
 
 // Football-data.org competition IDs
 const FOOTBALL_COMPETITIONS = [
+  { id: "WC",  name: "VM 2026" },
   { id: "PL",  name: "Premier League" },
   { id: "PD",  name: "La Liga" },
   { id: "BL1", name: "Bundesliga" },
@@ -17,7 +18,12 @@ const FOOTBALL_COMPETITIONS = [
   { id: "SE",  name: "Allsvenskan" },
 ];
 
+// VM 2026 — alltid hämta hela turneringsfönstret
+const WC2026_DATE_FROM = "2026-06-16";
+const WC2026_DATE_TO   = "2026-07-20";
+
 const HIGH_IMPACT_LEAGUES = [
+  "VM 2026",
   "Premier League", "La Liga", "Champions League",
   "Europa League", "Bundesliga", "Serie A",
 ];
