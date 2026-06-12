@@ -5,11 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import { PaperTradeModal } from './PaperTradeModal';
 import { cn } from '@/lib/utils';
-import { Wallet, TrendingUp, TrendingDown, RotateCcw, Loader2, AlertTriangle, LineChart } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, RotateCcw, Loader2, AlertTriangle, LineChart, CalendarIcon, X } from 'lucide-react';
 import { LineChart as ReLineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { AuthModal } from '@/components/AuthModal';
+import { format } from 'date-fns';
+import { sv } from 'date-fns/locale';
+
 
 export const PaperPortfolioPage = () => {
   const { user } = useAuth();
