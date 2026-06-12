@@ -63,8 +63,17 @@ Deno.serve(async (req) => {
           status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      console.log(`trigger-pipeline: invoked by user ${user.id}`);
+      // === ADMIN ROLE CHECK ===
+      const adminClient = createClient(supabaseUrl, serviceKey);
+      const { data: isAdmin } = await adminClient.rpc('is_admin', { _user_id: user.id });
+      if (!isAdmin) {
+        return new Response(JSON.stringify({ error: 'Forbidden — admin role required' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      console.log(`trigger-pipeline: invoked by admin user ${user.id}`);
     }
+
 
     // === PARSE BODY ===
     let body: { target?: string; payload?: Record<string, unknown> } = {};

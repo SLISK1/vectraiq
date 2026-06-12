@@ -61,6 +61,30 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+    // === AUTH GUARD: require service-role key or valid user JWT ===
+    {
+      const _authHeader = req.headers.get('authorization') || '';
+      const _token = _authHeader.replace(/^Bearer\s+/i, '');
+      const _serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+      if (!_token) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      if (_token !== _serviceKey) {
+        try {
+          const _authClient = (await import('npm:@supabase/supabase-js@2')).createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_ANON_KEY')!,
+          );
+          const { data: { user } } = await _authClient.auth.getUser(_token);
+          if (!user) {
+            return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          }
+        } catch {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
+    }
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
