@@ -58,11 +58,27 @@ export const PaperPortfolioPage = () => {
   const pnlTotal = portfolioData?.pnlTotal || 0;
   const pnlPct = portfolioData?.pnlPct || 0;
 
-  // If all snapshots are from the same calendar day, show HH:mm on the x-axis
-  // so the user can see intra-day progress instead of ten identical "9 mars" labels.
-  const uniqueDays = new Set((snapshots || []).map(s => new Date(s.snapshot_at).toDateString()));
+  // Filter snapshots by selected date range
+  const filteredSnapshots = (snapshots || []).filter(s => {
+    const d = new Date(s.snapshot_at);
+    d.setHours(0, 0, 0, 0);
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      if (d < from) return false;
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      if (d > to) return false;
+    }
+    return true;
+  });
+
+  // If all *filtered* snapshots are from the same calendar day, show HH:mm on the x-axis
+  const uniqueDays = new Set(filteredSnapshots.map(s => new Date(s.snapshot_at).toDateString()));
   const sameDay = uniqueDays.size <= 1;
-  const chartData = (snapshots || []).map(s => {
+  const chartData = filteredSnapshots.map(s => {
     const d = new Date(s.snapshot_at);
     return {
       date: sameDay
@@ -75,6 +91,7 @@ export const PaperPortfolioPage = () => {
   // Only render the benchmark series when at least one snapshot carries benchmark data,
   // so older NULL snapshots don't draw a broken/flat line.
   const hasBenchmark = chartData.some(d => d.benchmark != null);
+
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
