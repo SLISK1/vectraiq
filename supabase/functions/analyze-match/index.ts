@@ -1067,6 +1067,17 @@ INSTRUKTIONER:
         .neq("market", "1X2");
 
       const sideBetRows: Record<string, unknown>[] = [];
+      // Helper: per-side confidence with Poisson clarity bonus (clamped to MIN_CAP..cap)
+      const sideConf = (pRaw: number | null | undefined) => {
+        let raw = confidenceRaw;
+        if (typeof pRaw === "number" && (pRaw > 0.6 || pRaw < 0.4)) raw = Math.min(100, raw + 5);
+        return Math.max(MIN_CAP, Math.min(raw, cap));
+      };
+      const sideBase = {
+        sources_used: sources,
+        sources_hash: sourcesHash,
+        cap_reason: capReason,
+      };
 
       if (sidePredictions.total_goals) {
         sideBetRows.push({
