@@ -827,9 +827,15 @@ INSTRUKTIONER:
     let confidenceRaw = Math.min(100, Math.max(0, Math.round(aiResult.confidence_raw || 50)));
     let cap = 45; // default: no sources
     const capReasons: string[] = [];
+    const hasOdds = marketOddsHome !== null;
 
-    if (h2hCount >= 5 && hasStandings) {
+    // Evidence-based cap table (rebalanced 2026-06-12): odds presence is a strong signal.
+    if (h2hCount >= 5 && hasStandings && hasOdds) {
+      cap = 85;
+    } else if (h2hCount >= 5 && hasStandings) {
       cap = 80;
+    } else if (h2hCount >= 3 && hasStandings && hasOdds) {
+      cap = 78;
     } else if (h2hCount >= 3 && hasStandings) {
       cap = 70;
     } else if (hasStandings && h2hCount < 3) {
@@ -843,6 +849,16 @@ INSTRUKTIONER:
       capReasons.push("Inga statistikkällor tillgängliga");
     }
 
+    // Bonus +5 when we have a calibrated p_cal available (set later, but tracked via poissonPRaw existence)
+    if (poissonPRaw && (poissonPRaw.btts !== null || poissonPRaw.o25 !== null)) {
+      cap = Math.min(100, cap + 3);
+    }
+    // Bonus +5 when ≥3 news sources within 72h (proxy: sources count)
+    const newsSourceCount = sources.filter((s: any) => s.type === "news" || s.type === "confirmed_fact").length;
+    if (newsSourceCount >= 3) {
+      cap = Math.min(100, cap + 5);
+    }
+
     if (!hasInjuryData) {
       capReasons.push("Inga skaderapporter tillgängliga");
     }
@@ -853,7 +869,8 @@ INSTRUKTIONER:
 
     const MIN_CAP = 40;
     cap = Math.max(MIN_CAP, cap);
-    const confidenceCapped = Math.min(confidenceRaw, cap);
+    // FIX: real floor + ceiling clamp (was min(raw, cap) which let raw=30 slip through)
+    const confidenceCapped = Math.max(MIN_CAP, Math.min(confidenceRaw, cap));
     const capReason = capReasons.length > 0 ? capReasons.join("; ") : null;
 
     let predictedProb = Math.min(1, Math.max(0, aiResult.predicted_prob || 0.5));
