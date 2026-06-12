@@ -137,9 +137,9 @@ Deno.serve(async (req) => {
         fetchRange(WC2026_DATE_FROM, WC2026_DATE_TO, "wc2026"),
       ]);
 
-      // Merge and deduplicate by match id
+      // Merge and deduplicate by match id (WC matches are appended last but seen-set keeps first)
       const seenIds = new Set<number>();
-      for (const m of [...pastMatches, ...futureMatches]) {
+      for (const m of [...pastMatches, ...futureMatches, ...wcMatches]) {
         if (!seenIds.has(m.id)) {
           seenIds.add(m.id);
           allMatches.push(m);
