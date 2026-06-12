@@ -28,6 +28,8 @@ const SPORT_ODDS_KEY: Record<string, string> = {
   "Super Lig": "soccer_turkey_super_league",
   "Süper Lig": "soccer_turkey_super_league",
   "MLS": "soccer_usa_mls",
+  "VM 2026": "soccer_fifa_world_cup",
+  "World Cup": "soccer_fifa_world_cup",
   "Championship": "soccer_efl_champ",
   football: "soccer_epl",
   ufc: "mma_mixed_martial_arts",
