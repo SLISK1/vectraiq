@@ -357,8 +357,21 @@ export const BettingPage = () => {
     init();
   }, [selectedSport]);
 
-  // Extract unique leagues and filter
-  const leagues = [...new Set(matches.map(m => m.league))];
+  // Extract unique leagues, sort with VM 2026 first
+  const leagues = [...new Set(matches.map(m => m.league))].sort((a, b) => {
+    if (a === 'VM 2026') return -1;
+    if (b === 'VM 2026') return 1;
+    return a.localeCompare(b, 'sv');
+  });
+
+  // Default to VM 2026 if present and user hasn't explicitly chosen another league
+  useEffect(() => {
+    if (selectedLeague === 'all' && leagues.includes('VM 2026')) {
+      setSelectedLeague('VM 2026');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches.length]);
+
   const filteredMatches = selectedLeague === 'all'
     ? matches
     : matches.filter(m => m.league === selectedLeague);
@@ -478,7 +491,7 @@ export const BettingPage = () => {
                     : 'bg-muted/50 text-muted-foreground border-border hover:text-foreground'
                 }`}
               >
-                {league} ({matches.filter(m => m.league === league).length})
+                {league === 'VM 2026' ? '🏆 ' : ''}{league} ({matches.filter(m => m.league === league).length})
               </button>
             ))}
           </div>

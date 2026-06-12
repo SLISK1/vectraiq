@@ -7,6 +7,7 @@ const corsHeaders = {
 
 // Football-data.org competition IDs
 const FOOTBALL_COMPETITIONS = [
+  { id: "WC",  name: "VM 2026" },
   { id: "PL",  name: "Premier League" },
   { id: "PD",  name: "La Liga" },
   { id: "BL1", name: "Bundesliga" },
@@ -17,7 +18,12 @@ const FOOTBALL_COMPETITIONS = [
   { id: "SE",  name: "Allsvenskan" },
 ];
 
+// VM 2026 — alltid hämta hela turneringsfönstret
+const WC2026_DATE_FROM = "2026-06-16";
+const WC2026_DATE_TO   = "2026-07-20";
+
 const HIGH_IMPACT_LEAGUES = [
+  "VM 2026",
   "Premier League", "La Liga", "Champions League",
   "Europa League", "Bundesliga", "Serie A",
 ];
@@ -124,14 +130,16 @@ Deno.serve(async (req) => {
         }
       };
 
-      const [pastMatches, futureMatches] = await Promise.all([
+      const [pastMatches, futureMatches, wcMatches] = await Promise.all([
         fetchRange(dateFrom, todayStr, "past"),
         fetchRange(todayStr, dateTo, "future"),
+        // Always pull the full WC 2026 window so the tournament shows up before kick-off
+        fetchRange(WC2026_DATE_FROM, WC2026_DATE_TO, "wc2026"),
       ]);
 
-      // Merge and deduplicate by match id
+      // Merge and deduplicate by match id (WC matches are appended last but seen-set keeps first)
       const seenIds = new Set<number>();
-      for (const m of [...pastMatches, ...futureMatches]) {
+      for (const m of [...pastMatches, ...futureMatches, ...wcMatches]) {
         if (!seenIds.has(m.id)) {
           seenIds.add(m.id);
           allMatches.push(m);

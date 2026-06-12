@@ -1,54 +1,71 @@
+# Fokusera Betting-fliken på VM 2026 (herrar)
 
-# Varför Top-10 är tom — bekräftad orsak
+VM 2026 (16 jun – 19 jul 2026) blir default-vy. Befintliga ligor finns kvar som filter. Odds-priser tas via The Odds API (`soccer_fifa_world_cup`), och Oddset-specifika marknader (1X2/Dubbelchans, BTTS, Ö/U 2.5, Exakt resultat, Hörnor, Kort) hämtas via Firecrawl mot Oddsets matchsidor med cache i `odds_snapshots`.
 
-Jag har kollat databasen och edge-loggarna. Du har rätt i diagnosen, men det exakta filtret som faller är inte "10-punktströskeln" — det är **datumfönstret**:
+## 1. Backend – matchhämtning
 
-| Källa | Färskast post | Status |
-|---|---|---|
-| `raw_prices` (live-pris) | **2026-06-03 09:41 UTC** | OK, uppdateras varje timme |
-| `price_history` (dagsbarrer) | **2026-02-23** | Frusen sedan ~100 dagar |
-| `pipeline_runs` (senaste) | 2026-02-24 | `failed`, `HTTP 504 step:fetch-prices` |
-| `cron.job` (alla 25 jobb) | active=true | Schemalagda OK |
+**`supabase/functions/fetch-matches/index.ts`**
+- Lägg till `{ id: "WC", name: "VM 2026" }` i `FOOTBALL_COMPETITIONS` och i `HIGH_IMPACT_LEAGUES`.
+- Säkerställ att football-data.org-anropet hämtar 2026-säsongen för WC (filter `?dateFrom=2026-06-16&dateTo=2026-07-19` när comp = WC).
+- Tagga rader med `sport = 'football'`, `league = 'VM 2026'`.
 
-Frontend (`useMarketData.ts:478`) hämtar `price_history` med `gte('date', today-60d)`. Eftersom färskaste rad är 2026-02-23 returnerar queryn **0 rader för varje symbol**, raden på `useMarketData.ts:111` kickar in och loggar "insufficient price history (0 points)" för 322 symboler → ingen rankas → tom Top-10.
+**`supabase/functions/analyze-match/index.ts`**
+- Mappa `"VM 2026": "soccer_fifa_world_cup"` i `SPORT_ODDS_KEY`.
+- Markera VM som high-impact så att news/H2H-scrape körs.
 
-Kärnproblemet är alltså att `fetch-history`/`fetch-prices` skriver INTE till `price_history` längre. `daily-pipeline` 504:ar på `fetch-prices`-steget, så history-skrivningen körs aldrig. Live-priserna (`raw_prices`) går via en separat snabb path och är därför fortfarande fräscha — det är det som maskerar att resten av pipelinen ligger nere.
+## 2. Oddset-scrape (Firecrawl)
 
-# Plan: tre-stegs återställning
+Ny edge function **`fetch-oddset-markets`** (verify_jwt=false, service-role only):
+- Input: `{ match_id }`.
+- Slår upp match i `betting_matches`, bygger Oddset-URL via `spela.svenskaspel.se/oddset` sökning på lagnamn (Firecrawl `search` + `scrape` med `formats: ['json']` och ett strikt schema för marknaderna: `1X2`, `dubbelchans`, `btts`, `ou25`, `exact_score[]`, `corners_ou`, `cards_ou`).
+- Skriver rader till `odds_snapshots` med `bookmaker='oddset'`, `market`, `selection`, `line`, `odds_pre_match`, `implied_pre_match = 1/odds` (normerat per marknad så over-round dras av).
+- Cache-TTL: 30 min (skippa scrape om senaste snapshot < 30 min gammal). Respekterar Firecrawl-kvoten enligt befintlig `api_usage_tracker`-policy.
 
-## Steg 1 — Backfill `price_history` manuellt (omedelbart)
-Anropa `fetch-history` direkt mot batchar av tickers (max ~30 åt gången för att hålla oss långt under 150s-timeouten) tills `price_history.max(date)` är dagens datum. Det här bryter dödläget utan att vänta på nattjobbet.
+Cron: kör för alla VM-matcher inom 24 h, var 30:e minut, via befintlig pg_cron.
 
-- Skript som kör `supabase.functions.invoke('fetch-history', { body: { tickers: batch, days: 200 } })` med 30-symbolers chunks, sekventiellt
-- Verifierar efteråt: `select max(date), count(distinct symbol_id) from price_history`
-- Förväntat resultat: 322 symboler med data t.o.m. ~2026-06-02, dashboarden visar Top-10 igen
+## 3. Recommend / settlement
 
-## Steg 2 — Gör `fetch-history`/`fetch-prices` timeoutsäkra (samma dag)
-`fetch-prices/index.ts` har redan delvis fått `pMap`, men `fetch-history/index.ts` är fortfarande helt sekventiell med 6 s sleeps mellan CoinGecko-anrop, 500 ms mellan Yahoo, 150 ms mellan FMP — det är därför hela 322-symbol-runt:en aldrig hinner klart inom 150 s. Konvertera:
+- `recommend_bets` läser redan `odds_snapshots`; lägg till marknadsnycklar `DC` (dubbelchans), `EXACT` (exakt resultat) i `MARKETS`-arrayen och i `compute_p_raw` (Poisson från `team_rates_cache` ger både dubbelchans och exakt resultat-matris).
+- `betting-settle`: lägg till settlement för `DC` (utifrån `home_score/away_score`) och `EXACT` (exakt matchning). Hörnor/kort fortsätter via `fetch-match-stats`.
 
-- CoinGecko: behåll sekventiellt men dropp till 1 s sleep (gratis-quoten klarar det) — kör endast om aktivt åberopas
-- US/Nordic FMP-loopar → `pMap` med concurrency 5, ta bort `setTimeout`
-- Yahoo-fallbacks → `pMap` concurrency 6, ta bort sleeps
-- Metals/funds → `pMap` concurrency 4
-- Lägg till `chunk_size`/`offset` body-parametrar så pipelinen kan kalla funktionen 4 ggr om 80 symboler vardera i stället för 1 gång om 322
+## 4. Frontend
 
-## Steg 3 — Chunka `daily-pipeline` och fixa det dolda buggens (samma dag)
-- I `daily-pipeline/index.ts`: kör `fetch-prices`/`fetch-history` i 80-symbolers chunks (`offset` 0/80/160/240) och `Promise.allSettled` i stället för en enda invocation
-- Fixa det andra felet i pipeline_runs: `TypeError: supabase.rpc(...).catch is not a function` — RPC-builder är "thenable" men inte ett riktigt Promise; byt till `await ...; try/catch` eller `Promise.resolve(supabase.rpc(...)).catch(...)`
-- Spara per-chunk-fel separat så ett 504 inte längre markerar hela run som failed och hindrar history-steget
+**`src/pages/BettingPage.tsx`**
+- Default `selectedLeague = 'VM 2026'` (om den finns i listan, annars första tillgängliga).
+- Pin-knapp för "VM 2026" som sortera först i ligafiltret + flagg-emoji 🏆.
+- Visa "Oddset"-badge på matcher där `odds_snapshots` innehåller `bookmaker='oddset'`.
 
-## Diagnostik som ingår
-- Lägg till `select max(date) from price_history` som en "data-freshness"-rad i `RealityCheck.tsx` så den här typen av tyst pipelinestall syns i UI:t nästa gång
+**`src/components/betting/MarketPicker.tsx`**
+- Lägg till `DC` (Dubbelchans), `EXACT` (Exakt resultat) i `OPTIONS`.
 
-# Tekniska detaljer
+**`src/components/betting/MatchDetailModal.tsx` / `SidePredictions.tsx`**
+- Ny sektion "Oddset-marknader" som listar alla snapshots med bookmaker `oddset` grupperade per marknad, med edge mot vår `p_cal`.
 
-**Filer som ändras**
-- `supabase/functions/fetch-history/index.ts` — införa `pMap`, ta bort sleeps, stötta `offset/chunk_size`
-- `supabase/functions/daily-pipeline/index.ts` — chunkat anrop, fixa `.catch`-buggen, allSettled
-- `src/components/RealityCheck.tsx` — visa age på senaste `price_history`-datum
+## 5. Migration
 
-**Inga schemaändringar.** Inga frontend-businesslogikändringar utöver en ny info-rad i RealityCheck.
+Tillägg till `odds_snapshots`:
+- Ingen ny kolumn behövs (bookmaker finns). Lägg dock till partial-index:
+  `CREATE INDEX IF NOT EXISTS idx_odds_snapshots_oddset ON public.odds_snapshots (match_id, market) WHERE bookmaker = 'oddset';`
+- Säkerställ ENUM/CHECK på `market` tillåter `DC` och `EXACT` (om CHECK finns; annars skip).
 
-**Inga nya secrets behövs** — FMP_API_KEY, FINNHUB_API_KEY m.fl. finns redan.
+## Tekniska noter
 
-**QA**: efter steg 1, ladda om dashboarden och bekräfta att Top-10 fylls. Efter steg 2+3, trigga `daily-pipeline` manuellt och bekräfta att `pipeline_runs.status='success'` med `prices.succeeded > 300` och `history.succeeded > 300`.
+- Firecrawl-scrape av Oddset är skör — scrapen valideras med Zod-schema och vid fel loggas felet i `pipeline_runs` utan att blockera Odds API-priserna.
+- Implied probability normeras per marknad: `p_i = (1/odds_i) / Σ(1/odds_j)` för att ta bort bookmaker-marginal innan edge-jämförelse.
+- Disclaimers (inga spelråd) bibehålls i UI enligt projektregler.
+
+## Filer som ändras / skapas
+
+| Fil | Åtgärd |
+|---|---|
+| `supabase/functions/fetch-matches/index.ts` | Lägg till WC-kod, datumfilter |
+| `supabase/functions/analyze-match/index.ts` | SPORT_ODDS_KEY + high-impact |
+| `supabase/functions/fetch-oddset-markets/index.ts` | NY |
+| `supabase/functions/compute_p_raw/index.ts` | DC + EXACT från Poisson |
+| `supabase/functions/recommend_bets/index.ts` | MARKETS += DC, EXACT |
+| `supabase/functions/betting-settle/index.ts` | Settle DC, EXACT |
+| `supabase/migrations/<new>.sql` | Partial index |
+| `supabase/config.toml` | Cron för `fetch-oddset-markets` |
+| `src/pages/BettingPage.tsx` | Default-liga VM, sortering |
+| `src/components/betting/MarketPicker.tsx` | Nya marknader |
+| `src/components/betting/MatchDetailModal.tsx` | Oddset-sektion |

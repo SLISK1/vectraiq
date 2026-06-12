@@ -26,11 +26,33 @@ function settlePrediction(
       return { bet_outcome: win ? "win" : "loss", actual_value: null };
     }
 
+    case "DC": {
+      // selection: "1X" | "12" | "X2"
+      let outcome: string;
+      if (ftHome > ftAway) outcome = "home";
+      else if (ftAway > ftHome) outcome = "away";
+      else outcome = "draw";
+      const wins =
+        (selection === "1X" && (outcome === "home" || outcome === "draw")) ||
+        (selection === "12" && (outcome === "home" || outcome === "away")) ||
+        (selection === "X2" && (outcome === "draw" || outcome === "away"));
+      return { bet_outcome: wins ? "win" : "loss", actual_value: null };
+    }
+
+    case "EXACT": {
+      // selection format: "H-A"
+      const m = (selection || "").match(/^(\d+)-(\d+)$/);
+      if (!m) return { bet_outcome: "void", actual_value: null };
+      const wins = Number(m[1]) === ftHome && Number(m[2]) === ftAway;
+      return { bet_outcome: wins ? "win" : "loss", actual_value: null };
+    }
+
+    case "O25":
     case "OU_GOALS": {
       const total = ftHome + ftAway;
-      if (line === null) return { bet_outcome: "void", actual_value: total };
-      if (total === line) return { bet_outcome: "push", actual_value: total };
-      const over = total > line;
+      const effectiveLine = line ?? 2.5;
+      if (total === effectiveLine) return { bet_outcome: "push", actual_value: total };
+      const over = total > effectiveLine;
       const win = (selection === "over" && over) || (selection === "under" && !over);
       return { bet_outcome: win ? "win" : "loss", actual_value: total };
     }
@@ -382,7 +404,7 @@ Deno.serve(async (req) => {
 
       // Queue calibration update (non-blocking)
       if (
-        (pred.market === "BTTS" || pred.market === "OU_GOALS" || pred.market === "CORNERS_OU" || pred.market === "CARDS_OU") &&
+        (pred.market === "BTTS" || pred.market === "OU_GOALS" || pred.market === "O25" || pred.market === "1X2" || pred.market === "DC" || pred.market === "EXACT" || pred.market === "CORNERS_OU" || pred.market === "CARDS_OU") &&
         (bet_outcome === "win" || bet_outcome === "loss") &&
         pred.predicted_prob !== null && pred.predicted_prob !== undefined
       ) {

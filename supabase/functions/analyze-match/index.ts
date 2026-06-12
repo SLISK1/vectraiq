@@ -5,10 +5,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const HIGH_IMPACT_LEAGUES = ["Premier League", "La Liga", "Champions League", "Europa League", "Bundesliga", "Serie A"];
+const HIGH_IMPACT_LEAGUES = ["VM 2026", "Premier League", "La Liga", "Champions League", "Europa League", "Bundesliga", "Serie A"];
 
 const SPORT_ODDS_KEY: Record<string, string> = {
   football: "soccer_epl",
+  "VM 2026": "soccer_fifa_world_cup",
   "Premier League": "soccer_epl",
   "La Liga": "soccer_spain_la_liga",
   "Bundesliga": "soccer_germany_bundesliga",
