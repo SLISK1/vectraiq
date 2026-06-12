@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { ScoreRing } from '@/components/ScoreRing';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, TrendingUp, TrendingDown, ChevronRight } from 'lucide-react';
 import { SourceBadges } from './SourceBadges';
 import { SidePredictions } from './SidePredictions';
