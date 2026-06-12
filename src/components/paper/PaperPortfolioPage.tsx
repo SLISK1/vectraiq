@@ -169,30 +169,38 @@ export const PaperPortfolioPage = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <ReLineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} domain={['auto', 'auto']} />
-                  <Tooltip formatter={(v: number) => formatSEK(v)} />
-                  <Line type="monotone" dataKey="value" name="Portfölj" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                  {hasBenchmark && (
-                    <Line type="monotone" dataKey="benchmark" name="OMXS (index)" stroke="hsl(var(--muted-foreground))" strokeWidth={1} strokeDasharray="4 4" dot={false} connectNulls />
-                  )}
-                </ReLineChart>
-              </ResponsiveContainer>
-            </div>
-            {hasBenchmark && (
-              <div className="flex items-center justify-center gap-6 mt-3 text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-0.5 bg-primary" />
-                  <span className="text-muted-foreground">Portfölj</span>
+            {chartData.length > 1 ? (
+              <>
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ReLineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} domain={['auto', 'auto']} />
+                      <Tooltip formatter={(v: number) => formatSEK(v)} />
+                      <Line type="monotone" dataKey="value" name="Portfölj" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                      {hasBenchmark && (
+                        <Line type="monotone" dataKey="benchmark" name="OMXS (index)" stroke="hsl(var(--muted-foreground))" strokeWidth={1} strokeDasharray="4 4" dot={false} connectNulls />
+                      )}
+                    </ReLineChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-0.5 bg-muted-foreground" style={{ borderStyle: 'dashed' }} />
-                  <span className="text-muted-foreground">OMXS (index)</span>
-                </div>
+                {hasBenchmark && (
+                  <div className="flex items-center justify-center gap-6 mt-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-0.5 bg-primary" />
+                      <span className="text-muted-foreground">Portfölj</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-0.5 bg-muted-foreground" style={{ borderStyle: 'dashed' }} />
+                      <span className="text-muted-foreground">OMXS (index)</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">
+                Ingen data för vald period.
               </div>
             )}
           </CardContent>
